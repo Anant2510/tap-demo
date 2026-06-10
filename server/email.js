@@ -48,19 +48,23 @@ function wrap({ title, accent = GREEN, preheader = "", bodyHtml, cta }) {
   </td></tr></table></body></html>`;
 }
 
+const { AIRPORTS } = require("./routes-data");
+const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
+const routeLabel = (f) => `${cityName(f.origin || "OPO")} → ${cityName(f.dest || "LIS")}`;
+
 const flightRow = (f) => `
   <table width="100%" style="background:#F2F6F3;border-radius:10px;margin:14px 0"><tr>
     <td style="padding:14px 18px">
-      <b style="font-size:18px;color:#0E1F18">OPO ${f.dep}</b>
+      <b style="font-size:18px;color:#0E1F18">${f.origin || "OPO"} ${f.dep}</b>
       <span style="color:${GREEN};margin:0 8px">✈</span>
-      <b style="font-size:18px;color:#0E1F18">LIS ${f.arr}</b>
+      <b style="font-size:18px;color:#0E1F18">${f.dest || "LIS"} ${f.arr}</b>
       <div style="font-size:12px;color:#6b7a73;margin-top:3px">${f.flight_no} · Mon 15 Jun 2026 · Seat 4C · ${f.aircraft || ""}</div>
     </td>
   </tr></table>`;
 
 const TEMPLATES = {
   booking_confirmation: ({ f, pnr, pay }) => ({
-    subject: `Booked ✓ ${f.flight_no} Porto → Lisbon, Mon 15 Jun — ${pnr}`,
+    subject: `Booked ✓ ${f.flight_no} ${routeLabel(f)}, Mon 15 Jun — ${pnr}`,
     html: wrap({
       title: `You're booked, Daniel.`,
       preheader: "Instant confirmation — boarding pass arrives automatically 24h before.",
@@ -90,7 +94,7 @@ const TEMPLATES = {
     html: wrap({
       title: "Rebooked. Nothing else to do.",
       bodyHtml: `Your choice is confirmed: <b>${option.label}</b>.<br/><br/>
-        New boarding pass issued in the app · seat 4C kept · Lisbon transfer moved automatically · calendar invite updated.`,
+        New boarding pass issued in the app · seat 4C kept · airport transfer moved automatically · calendar invite updated.`,
       cta: { label: "Open boarding pass" },
     }),
   }),
@@ -103,6 +107,14 @@ const TEMPLATES = {
         ${flightRow(f)}
         Price won't move. We'll nudge you 6 hours before the hold expires on <b>${expires}</b>.`,
       cta: { label: "Complete booking" },
+    }),
+  }),
+  cancelled: ({ b, pay }) => ({
+    subject: `Cancelled ✓ ${b.pnr} — refund issued instantly`,
+    html: wrap({
+      title: "Cancelled, refunded, done.",
+      bodyHtml: `Booking <b>${b.pnr}</b> (${b.flight_no}) is cancelled.${pay ? `<br/><br/>Your refund went back the way you paid, instantly: ${pay.miles_used > 0 ? `<b>${pay.miles_used.toLocaleString()} miles</b> restored, ` : ""}${pay.voucher_amt > 0 ? `voucher <b>€${pay.voucher_amt.toFixed(2)}</b> reactivated, ` : ""}<b>€${pay.card_amt.toFixed(2)}</b> returned to your Visa ••4417.` : ""}<br/><br/>No forms, no waiting on hold.`,
+      cta: { label: "Book a new trip" },
     }),
   }),
   personal_offer: ({ offer }) => ({

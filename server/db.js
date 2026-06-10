@@ -6,6 +6,7 @@
 const { DatabaseSync } = require("node:sqlite");
 const fs = require("fs");
 const path = require("path");
+const { AIRPORTS, ROUTES } = require("./routes-data");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -42,6 +43,16 @@ CREATE TABLE IF NOT EXISTS flights (
 CREATE TABLE IF NOT EXISTS ancillaries (
   id INTEGER PRIMARY KEY, code TEXT UNIQUE, name TEXT, descr TEXT, price REAL, was REAL, auto INTEGER, icon TEXT
 );
+CREATE TABLE IF NOT EXISTS airports (
+  code TEXT PRIMARY KEY, city TEXT, country TEXT, region TEXT
+);
+CREATE TABLE IF NOT EXISTS routes (
+  id INTEGER PRIMARY KEY, origin TEXT, dest TEXT, duration_min INTEGER, base_fare REAL, region TEXT
+);
+CREATE TABLE IF NOT EXISTS searches (
+  id INTEGER PRIMARY KEY, user_id INTEGER, origin TEXT, dest TEXT, travel_date TEXT, pax INTEGER,
+  results INTEGER, device TEXT, created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS destinations (
   id INTEGER PRIMARY KEY, city TEXT, code TEXT, tag TEXT, price REAL, miles_price INTEGER, emoji TEXT
 );
@@ -72,7 +83,14 @@ CREATE TABLE IF NOT EXISTS emails (
   id INTEGER PRIMARY KEY, user_id INTEGER, to_addr TEXT, subject TEXT, email_type TEXT,
   html TEXT, status TEXT, provider_id TEXT, created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS wa_messages (
+  id INTEGER PRIMARY KEY, direction TEXT, wa_id TEXT, msg_type TEXT, body TEXT,
+  payload_json TEXT, status TEXT, created_at TEXT
+);
 `);
+
+// users.wa_id stores the last WhatsApp sender so the portal can push proactively
+try { db.exec("ALTER TABLE users ADD COLUMN wa_id TEXT"); } catch {}
 
 const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
@@ -86,6 +104,15 @@ function seed() {
 
   db.prepare(`INSERT INTO preferences VALUES (1,'4C — front aisle','Chosen on 11 of your last 12 flights','Cabin bag only','Espresso + pastel de nata',1)`).run();
   db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry) VALUES (1,'EMD-2291',35,'Service recovery','30 Sep 2026')`).run();
+
+  // Airports & route network (100 routes, 50 European)
+  const ia = db.prepare("INSERT OR IGNORE INTO airports (code,city,country,region) VALUES (?,?,?,?)");
+  for (const [code, a] of Object.entries(AIRPORTS)) ia.run(code, a.city, a.country, a.region);
+  const ir = db.prepare("INSERT INTO routes (origin,dest,duration_min,base_fare,region) VALUES (?,?,?,?,?)");
+  for (const [o, d, dur, fare] of ROUTES) {
+    const region = AIRPORTS[o].region === "Europe" && AIRPORTS[d].region === "Europe" ? "Europe" : "Intercontinental";
+    ir.run(o, d, dur, fare, region);
+  }
 
   // 15 past trips — 12 outbound OPO→LIS, of which 9 match the Monday 07:05 pattern
   const hist = [
@@ -104,13 +131,8 @@ function seed() {
   db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at)
     VALUES (1,'OPO','LIS','2026-06-15',1,'MacBook Pro', ?)`).run(now());
 
-  const fl = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
-  fl.run("TP1921","OPO","LIS","06:35","07:30","55m","A320neo",74,31,"2026-06-15",0,0);
-  fl.run("TP1927","OPO","LIS","07:05","08:00","55m","A321neo",86,18,"2026-06-15",1,0);
-  fl.run("TP1931","OPO","LIS","09:10","10:05","55m","A320neo",62,44,"2026-06-15",0,1);
-  fl.run("TP1937","OPO","LIS","12:40","13:35","55m","A319",69,52,"2026-06-15",0,0);
-  fl.run("TP1943","OPO","LIS","18:35","19:30","55m","A321neo",91,12,"2026-06-15",0,0);
+  // Flights are generated on demand by the search engine (server/search.js) for any of the
+  // 100 network routes; Daniel's OPO→LIS shuttle is pinned there with real flight numbers.
 
   const an = db.prepare("INSERT INTO ancillaries (code,name,descr,price,was,auto,icon) VALUES (?,?,?,?,?,?,?)");
   an.run("seat","Seat 4C — front aisle","Your usual seat. Free for Gold.",0,9,1,"seat");
@@ -124,7 +146,7 @@ function seed() {
   de.run("Lisbon","LIS","Your weekly route",62,null,"🌉");
   de.run("Madrid","MAD","Clients you visited in March",89,null,"🏛️");
   de.run("Paris","CDG","Searched 3× this month",121,null,"🗼");
-  de.run("Funchal","FNC","Weekend escape · miles eligible",0,15000,"🌴");
+  de.run("Funchal","FNC","Weekend escape · miles eligible",54,15000,"🌴");
 
   db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('db_seeded','{}',?)").run(now());
   console.log("✓ Database seeded → " + DB_PATH);

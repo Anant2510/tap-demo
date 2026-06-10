@@ -9,6 +9,9 @@ const path = require("path");
 const { db, now, DB_PATH } = require("./db");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, FALLBACKS, hasKey } = require("./claude");
+const { generateFlights, getRoute } = require("./search");
+const { AIRPORTS } = require("./routes-data");
+const whatsapp = require("./whatsapp");
 
 const app = express();
 app.use(cors());
@@ -19,6 +22,63 @@ const log = (type, payload) =>
   db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES (?,?,?)").run(type, JSON.stringify(payload || {}), now());
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 
+// Persist generated flights so basket / pay / disrupt all keep working on real rows
+function persistFlights(list) {
+  const ins = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'scheduled')`);
+  for (const f of list) {
+    const exists = db.prepare("SELECT id FROM flights WHERE flight_no=? AND flight_date=? AND origin=? AND dest=?").get(f.flight_no, f.flight_date, f.origin, f.dest);
+    if (exists) {
+      db.prepare("UPDATE flights SET dep=?,arr=?,duration=?,aircraft=?,price=?,seats_left=?,recommended=?,lowest=? WHERE id=?")
+        .run(f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.recommended, f.lowest, exists.id);
+    } else {
+      ins.run(f.flight_no, f.origin, f.dest, f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.flight_date, f.recommended, f.lowest);
+    }
+  }
+}
+
+const REGIONS_ORDER = ["Europe", "North America", "South America", "Africa", "Middle East", "Asia"];
+
+/* ── Airports (autocomplete) & route network ─────────────────── */
+app.get("/api/airports", (req, res) => {
+  const q = (req.query.q || "").trim().toLowerCase();
+  let rows = db.prepare("SELECT * FROM airports ORDER BY city").all();
+  if (q) rows = rows.filter(a =>
+    a.code.toLowerCase().includes(q) || a.city.toLowerCase().includes(q) || a.country.toLowerCase().includes(q));
+  res.json(rows.slice(0, 30));
+});
+
+app.get("/api/routes", (req, res) => {
+  const region = req.query.region;
+  let rows = db.prepare("SELECT * FROM routes ORDER BY base_fare").all();
+  if (region) rows = rows.filter(r => r.region === region);
+  // attach city labels
+  const ap = (c) => db.prepare("SELECT city,country,region FROM airports WHERE code=?").get(c) || {};
+  res.json(rows.map(r => ({ ...r, originCity: ap(r.origin).city, destCity: ap(r.dest).city, destCountry: ap(r.dest).country, destRegion: ap(r.dest).region })));
+});
+
+/* ── Flight search: any origin → dest in the network ─────────── */
+app.get("/api/search", (req, res) => {
+  const origin = (req.query.origin || "OPO").toUpperCase();
+  const dest = (req.query.dest || "LIS").toUpperCase();
+  const date = req.query.date || "2026-06-15";
+  const route = getRoute(origin, dest);
+  if (!route) {
+    log("search_no_route", { origin, dest });
+    return res.json({ ok: false, origin, dest, flights: [], reason: "no_route",
+      message: `TAP doesn't fly ${origin} → ${dest} directly in this network. Try another pairing.` });
+  }
+  const flights = generateFlights(origin, dest, date);
+  persistFlights(flights);
+  // Re-read from DB so ids are attached (and any disruption state persists)
+  const stored = db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, date);
+  // Log the search itself — this is behavioural data the CDP would use
+  db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at)
+    VALUES (1,?,?,?,?,?,?,?)`).run(origin, dest, date, 1, stored.length, "Web app", now());
+  log("flight_search", { origin, dest, date, results: stored.length });
+  res.json({ ok: true, origin, dest, date, route, flights: stored });
+});
+
 /* ── Profile / personalization data ─────────────────────────── */
 app.get("/api/profile", (req, res) => {
   const user = db.prepare("SELECT * FROM users WHERE id=1").get();
@@ -26,18 +86,51 @@ app.get("/api/profile", (req, res) => {
   const vouchers = db.prepare("SELECT * FROM vouchers WHERE user_id=1 AND status='active'").all();
   const history = db.prepare("SELECT * FROM travel_history WHERE user_id=1 ORDER BY trip_date DESC").all();
   const search = db.prepare("SELECT * FROM synced_searches WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
-  const outbound = history.filter(h => h.route === "OPO→LIS");
+
+  // Most-flown outbound route from Porto, computed live (so new bookings shift it)
+  const outboundAll = history.filter(h => h.route && h.route.startsWith("OPO→"));
+  const routeCounts = {};
+  outboundAll.forEach(h => { routeCounts[h.route] = (routeCounts[h.route] || 0) + 1; });
+  const topRoute = Object.entries(routeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "OPO→LIS";
+  const onTopRoute = history.filter(h => h.route === topRoute);
+  const flightCounts = {};
+  onTopRoute.forEach(h => { flightCounts[h.flight_no] = (flightCounts[h.flight_no] || 0) + 1; });
+  const topFlight = Object.entries(flightCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "TP1927";
+
+  // Per-destination booking tally across all routes — drives card ranking
+  const destCounts = {};
+  history.forEach(h => { if (h.route && h.route.includes("→")) { const d = h.route.split("→")[1]; destCounts[d] = (destCounts[d] || 0) + 1; } });
+
+  // Recent searches are behavioural signals too — surface the most-searched destinations
+  const searchRows = db.prepare("SELECT dest, COUNT(*) c FROM searches WHERE user_id=1 GROUP BY dest ORDER BY c DESC, MAX(id) DESC").all();
+  const searchedDests = searchRows.map(r => ({ code: r.dest, count: r.c }));
+  const recentSearches = db.prepare("SELECT origin,dest,travel_date,created_at FROM searches WHERE user_id=1 ORDER BY id DESC LIMIT 5").all();
+
   const pattern = {
-    route: "OPO ⇄ LIS",
-    last: outbound.length,
-    matching: outbound.filter(h => h.flight_no === "TP1927").length,
+    route: topRoute.replace("→", " ⇄ "),
+    topRoute,
+    topFlight,
+    last: onTopRoute.length,
+    matching: flightCounts[topFlight] || 0,
     usualOut: "Mondays · 07:05 (TP1927)", usualBack: "Thursdays · 18:35 (TP1943)",
+    destCounts,
+    searchedDests,
   };
-  log("api_profile_fetch", { source: "users, preferences, vouchers, travel_history, synced_searches" });
-  res.json({ user, prefs, vouchers, history, pattern, syncedSearch: search });
+  log("api_profile_fetch", { source: "users, preferences, vouchers, travel_history, searches", topRoute, topFlight });
+  res.json({ user, prefs, vouchers, history, pattern, syncedSearch: search, recentSearches });
 });
 
-app.get("/api/flights", (req, res) => res.json(db.prepare("SELECT * FROM flights ORDER BY dep").all()));
+app.get("/api/flights", (req, res) => {
+  const dest = (req.query.dest || "LIS").toUpperCase();
+  const origin = (req.query.origin || "OPO").toUpperCase();
+  const date = req.query.date || "2026-06-15";
+  if (!getRoute(origin, dest)) { log("api_flights_noroute", { origin, dest }); return res.json([]); }
+  const flights = generateFlights(origin, dest, date);
+  persistFlights(flights);
+  const rows = db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, date);
+  log("api_flights_fetch", { origin, dest, count: rows.length });
+  res.json(rows);
+});
 app.get("/api/ancillaries", (req, res) => res.json(db.prepare("SELECT * FROM ancillaries").all()));
 app.get("/api/destinations", (req, res) => res.json(db.prepare("SELECT * FROM destinations").all()));
 
@@ -85,6 +178,7 @@ app.post("/api/pay", async (req, res) => {
   const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt } = req.body;
   const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
   const f = flightByNo(flight_no);
+  if (!f) { log("pay_unknown_flight", { flight_no }); return res.status(400).json({ ok: false, error: "unknown flight — search the route first" }); }
   const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at)
     VALUES (?,1,?,?,'4C',?,?)`).run(pnr, flight_no, f.flight_date, JSON.stringify(items || []), now());
   db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
@@ -92,7 +186,10 @@ app.post("/api/pay", async (req, res) => {
   if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
   if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=1 AND status='active'").run();
   db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
-  log("payment_captured", { pnr, total, split: { voucher_amt, miles_used, card_amt } });
+  // Feed the booking back into travel history → future recommendations learn from it
+  db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
+    VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
+  log("payment_captured", { pnr, total, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
   const email = await sendEmail("booking_confirmation", { f, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
   res.json({ ok: true, pnr, email });
 });
@@ -120,7 +217,51 @@ TP1931 departs 09:10 arrives 10:05 — be honest it lands after 10:00; keeping $
   } catch { recovery = FALLBACKS.recovery; ai = "cached"; }
 
   const email = await sendEmail("disruption", { f, recovery });
+  const wa = await whatsapp.pushDisruption(f, recovery);   // proactive WhatsApp with one-tap rebook buttons
   res.json({ recovery, email, ai });
+});
+
+/* ── Booking management (used by portal + WhatsApp) ──────────── */
+app.post("/api/bookings/ancillary", async (req, res) => {
+  const { code } = req.body;
+  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status != 'cancelled' ORDER BY id DESC LIMIT 1").get();
+  const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
+  if (!b || !a) return res.json({ ok: false });
+  const items = JSON.parse(b.items_json || "[]");
+  if (!items.includes(code)) items.push(code);
+  db.prepare("UPDATE bookings SET items_json=? WHERE id=?").run(JSON.stringify(items), b.id);
+  log("ancillary_added", { pnr: b.pnr, code, price: a.price, channel: "whatsapp/portal" });
+  res.json({ ok: true, pnr: b.pnr, name: a.name, price: a.price });
+});
+
+app.post("/api/bookings/cancel", async (req, res) => {
+  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status != 'cancelled' ORDER BY id DESC LIMIT 1").get();
+  if (!b) return res.json({ ok: false });
+  db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
+  // Instant refund: restore miles + voucher from the payment record
+  const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(b.id);
+  if (pay) {
+    if (pay.miles_used > 0) db.prepare("UPDATE users SET miles = miles + ? WHERE id=1").run(pay.miles_used);
+    if (pay.voucher_amt > 0) db.prepare("UPDATE vouchers SET status='active' WHERE user_id=1").run();
+  }
+  log("booking_cancelled", { pnr: b.pnr, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : null });
+  const email = await sendEmail("cancelled", { b, pay });
+  res.json({ ok: true, pnr: b.pnr, email });
+});
+
+/* ── WhatsApp webhook (Meta Cloud API) ───────────────────────── */
+app.get("/api/whatsapp/webhook", (req, res) => {
+  const mode = req.query["hub.mode"], token = req.query["hub.verify_token"], challenge = req.query["hub.challenge"];
+  if (mode === "subscribe" && token === (process.env.WHATSAPP_VERIFY_TOKEN || "tap-demo-verify")) {
+    log("wa_webhook_verified", {});
+    return res.status(200).send(challenge);
+  }
+  res.sendStatus(403);
+});
+app.post("/api/whatsapp/webhook", async (req, res) => {
+  res.sendStatus(200);                           // ack immediately (Meta requires fast 200)
+  try { await whatsapp.handleIncoming(req.body); }
+  catch (e) { log("wa_webhook_error", { error: e.message }); }
 });
 
 app.post("/api/rebook", async (req, res) => {
@@ -175,11 +316,12 @@ Return JSON exactly: {"subject": string (no emoji spam, one allowed), "title": s
 });
 
 /* ── Demo Console: live DB inspector + email center ──────────── */
-const SHOW_TABLES = ["users","preferences","travel_history","vouchers","synced_searches","flights","ancillaries","destinations","baskets","fare_locks","holds","bookings","payments","events"];
+const SHOW_TABLES = ["users","preferences","travel_history","searches","wa_messages","vouchers","synced_searches","flights","bookings","payments","baskets","fare_locks","holds","routes","airports","ancillaries","destinations","events"];
 app.get("/api/admin/db", (req, res) => {
   const out = {};
   for (const t of SHOW_TABLES) {
-    const rows = db.prepare(`SELECT * FROM ${t} ORDER BY rowid DESC LIMIT 30`).all();
+    const cap = (t === "routes" || t === "airports") ? 200 : 40;
+    const rows = db.prepare(`SELECT * FROM ${t} ORDER BY rowid DESC LIMIT ${cap}`).all();
     out[t] = rows.map(r => { const { html, ...rest } = r; return rest; });
   }
   res.json({ dbPath: DB_PATH, tables: out });
@@ -189,12 +331,17 @@ app.get("/api/admin/emails", (req, res) =>
 app.get("/api/admin/emails/:id", (req, res) =>
   res.json(db.prepare("SELECT * FROM emails WHERE id=?").get(req.params.id) || {}));
 app.get("/api/health", (req, res) =>
-  res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", claude: hasKey() ? "live" : "fallback mode" }));
+  res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", claude: hasKey() ? "live" : "fallback mode", whatsapp: whatsapp.CONFIGURED() ? "configured — messages really send" : "not configured (messages logged to DB)" }));
 
 /* Reset for repeated demos */
 app.post("/api/admin/reset", (req, res) => {
-  for (const t of ["baskets","fare_locks","holds","bookings","payments","emails"]) db.exec(`DELETE FROM ${t}`);
+  for (const t of ["baskets","fare_locks","holds","bookings","payments","emails","searches","wa_messages"]) db.exec(`DELETE FROM ${t}`);
   db.exec("DELETE FROM events WHERE type != 'db_seeded'");
+  // Remove dynamically-generated flight rows (search created these); leave table empty — search regenerates on demand
+  db.exec("DELETE FROM flights");
+  // Trim travel_history back to the 15 originally-seeded rows (booking-appended rows have higher ids)
+  const seedRows = db.prepare("SELECT id FROM travel_history WHERE user_id=1 ORDER BY id LIMIT 15").all().map(r => r.id);
+  if (seedRows.length) db.prepare(`DELETE FROM travel_history WHERE user_id=1 AND id > ?`).run(seedRows[seedRows.length - 1]);
   db.prepare("UPDATE users SET miles=48230 WHERE id=1").run();
   db.prepare("UPDATE vouchers SET status='active' WHERE user_id=1").run();
   db.prepare("UPDATE flights SET status='scheduled', new_dep=NULL, new_arr=NULL").run();

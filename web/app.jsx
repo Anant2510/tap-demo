@@ -4,7 +4,8 @@ import {
   Plane, Sparkles, Lock, ShoppingBag, CreditCard, Wallet, Ticket, CheckCircle2,
   AlertTriangle, RefreshCw, Luggage, Armchair, Coffee, Wifi, Car, ChevronRight,
   X, Send, Bell, QrCode, CalendarClock, Laptop, Zap, ShieldCheck, ArrowRight,
-  Repeat, BadgeCheck, MessageCircle, Loader2, TimerReset, Database, Mail, Eye, RotateCcw
+  Repeat, BadgeCheck, MessageCircle, Loader2, TimerReset, Database, Mail, Eye, RotateCcw,
+  Search, MapPin, Globe, ArrowLeftRight, Calendar
 } from "lucide-react";
 
 /* ── API client — every byte of personalization comes from the backend ── */
@@ -14,6 +15,8 @@ const api = {
 };
 const EUR = (n) => `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;
 const MILES_RATE = 0.003;
+const AIRPORT_MAP = {};   // code → {city,country,region}, filled at load from /api/airports
+const cityName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].city) || code;
 
 /* ── Theme / primitives ── */
 const Fonts = () => (
@@ -161,7 +164,7 @@ function Login({ profile, onLogin }) {
 }
 
 /* ── HOME — Search & Inspiration ── */
-function Home({ profile, destinations, go, openAssistant, toast }) {
+function Home({ profile, destinations, go, openAssistant, toast, bookDestination, bookUsual }) {
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState(null);
   const [planning, setPlanning] = useState(false);
@@ -196,6 +199,7 @@ function Home({ profile, destinations, go, openAssistant, toast }) {
           </div>
         </div>
         <div className="flex gap-2">
+          <PrimaryBtn onClick={() => go("search")} className="!py-2.5"><Search size={15}/> Search flights</PrimaryBtn>
           <GhostBtn onClick={sendOffer}>{sendingOffer ? <Loader2 className="animate-spin" size={15}/> : <Mail size={15}/>} Email me this week's offer</GhostBtn>
           <GhostBtn onClick={() => go("manage")}><CalendarClock size={16}/> My bookings</GhostBtn>
         </div>
@@ -212,7 +216,7 @@ function Home({ profile, destinations, go, openAssistant, toast }) {
             <RouteRibbon small from={ss.origin} to={ss.dest}/>
             <Chip tone="ink">{ss.travel_date} · {ss.pax} adult</Chip>
           </div>
-          <PrimaryBtn onClick={() => go("flights")} className="!py-2 !px-4">Resume search <ArrowRight size={15}/></PrimaryBtn>
+          <PrimaryBtn onClick={() => go("search")} className="!py-2 !px-4">Resume search <ArrowRight size={15}/></PrimaryBtn>
         </Card>
       )}
 
@@ -228,7 +232,7 @@ function Home({ profile, destinations, go, openAssistant, toast }) {
           <div className="mt-4 p-3 rounded-xl text-sm font-semibold flex items-center justify-between" style={{ background: "var(--tap-mist)", color: "var(--tap-deep)" }}>
             <span>Mon 15 Jun · TP1927 07:05</span><span>{EUR(86)}</span>
           </div>
-          <PrimaryBtn onClick={() => go("flights")} className="w-full mt-4"><Zap size={16}/> Book my usual flight</PrimaryBtn>
+          <PrimaryBtn onClick={bookUsual} className="w-full mt-4"><Zap size={16}/> Book my usual flight</PrimaryBtn>
           <div className="text-[11px] text-gray-400 mt-2 text-center">Seat {profile.prefs.seat.split(" ")[0]}, {profile.prefs.bag.toLowerCase()} and espresso pre-selected</div>
         </Card>
 
@@ -261,7 +265,7 @@ function Home({ profile, destinations, go, openAssistant, toast }) {
                       <div className="text-sm font-semibold" style={{ color: "var(--tap-ink)" }}>{l.flight} · {l.route} · {l.times}</div>
                       <div className="text-xs text-gray-500 truncate">{l.why}</div>
                     </div>
-                    <button onClick={() => go("flights")} className="text-xs font-bold shrink-0" style={{ color: "var(--tap-green)" }}>Add →</button>
+                    <button onClick={() => { const code = (l.route || "").split(/[→\-]/).pop().trim().slice(0,3).toUpperCase(); bookDestination(destinations.find(d => d.code === code) || { code: code || "LIS", city: code }); }} className="text-xs font-bold shrink-0" style={{ color: "var(--tap-green)" }}>Add →</button>
                   </div>
                 ))}
               </div>
@@ -277,14 +281,22 @@ function Home({ profile, destinations, go, openAssistant, toast }) {
           <span className="text-xs text-gray-400">From your searches, trips and miles balance</span>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {destinations.map((d) => (
-            <Card key={d.code} className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-              <div className="text-3xl mb-2">{d.emoji}</div>
-              <div className="font-display font-extrabold" style={{ color: "var(--tap-ink)" }}>{d.city} <span className="text-gray-400 font-semibold text-sm">{d.code}</span></div>
-              <div className="text-xs text-gray-500 mt-0.5 mb-3">{d.tag}</div>
-              <div className="text-sm font-bold" style={{ color: "var(--tap-green)" }}>{d.miles_price ? `${d.miles_price.toLocaleString()} miles` : `from ${EUR(d.price)}`}</div>
-            </Card>
-          ))}
+          {destinations.map((d) => {
+            const booked = pat.destCounts?.[d.code] || 0;
+            return (
+              <Card key={d.code} className="p-4 hover:shadow-md transition-shadow cursor-pointer group" onClick={() => bookDestination(d)}>
+                <div className="text-3xl mb-2">{d.emoji}</div>
+                <div className="font-display font-extrabold flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>
+                  {d.city} <span className="text-gray-400 font-semibold text-sm">{d.code}</span>
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5 mb-3">{booked > 0 ? `Booked ${booked}× — a favourite` : d.tag}</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-bold" style={{ color: "var(--tap-green)" }}>{d.miles_price ? `${d.miles_price.toLocaleString()} miles` : `from ${EUR(d.price)}`}</div>
+                  <span className="text-xs font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--tap-green)" }}>Book <ArrowRight size={13}/></span>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       </div>
 
@@ -298,6 +310,8 @@ function Home({ profile, destinations, go, openAssistant, toast }) {
 /* ── FLIGHTS — recommendations + fare lock (persisted to DB) ── */
 function Flights({ flights, pattern, selectFlight, toast }) {
   const [locked, setLocked] = useState(null);
+  const dest = flights[0]?.dest || "LIS";
+  const origin = flights[0]?.origin || "OPO";
   const toggleLock = async (f) => {
     const active = locked !== f.flight_no;
     setLocked(active ? f.flight_no : null);
@@ -307,7 +321,7 @@ function Flights({ flights, pattern, selectFlight, toast }) {
   return (
     <div className="max-w-4xl mx-auto px-4 pb-24 pt-8">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
-        <h1 className="font-display font-black text-3xl" style={{color:"var(--tap-ink)"}}>Porto → Lisbon</h1>
+        <h1 className="font-display font-black text-3xl" style={{color:"var(--tap-ink)"}}>{cityName(origin)} → {cityName(dest)}</h1>
         <Chip tone="ink">Mon 15 Jun 2026 · 1 adult · Economy</Chip>
       </div>
       <p className="text-sm text-gray-500 mb-6">Sorted for you: your usual departure first, lowest fare flagged. Recommendations computed from your travel history.</p>
@@ -322,9 +336,11 @@ function Flights({ flights, pattern, selectFlight, toast }) {
                   <div className="text-[11px] text-gray-400">{f.aircraft}</div>
                 </div>
                 <div className="flex-1 min-w-[200px]">
-                  <RouteRibbon small from={f.dep} to={f.arr}/>
+                  <RouteRibbon small from={`${f.origin} ${f.dep}`} to={`${f.dest} ${f.arr}`}/>
                   <div className="flex gap-2 mt-2 flex-wrap">
-                    {!!f.recommended && <Chip tone="green"><Sparkles size={11}/> Recommended — matches {pattern.matching} of your last {pattern.last} departures</Chip>}
+                    {!!f.recommended && (f.dest === pattern.topRoute?.split("→")[1]
+                      ? <Chip tone="green"><Sparkles size={11}/> Recommended — matches {pattern.matching} of your last {pattern.last} departures</Chip>
+                      : <Chip tone="green"><Sparkles size={11}/> Best fit — earliest arrival for your meetings</Chip>)}
                     {!!f.lowest && <Chip tone="amber">Lowest fare today</Chip>}
                     {f.seats_left < 20 && <Chip tone="red">{f.seats_left} seats left</Chip>}
                   </div>
@@ -367,7 +383,7 @@ function Basket({ flight, ancillaries, items, toggleItem, go }) {
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · Mon 15 Jun 2026</div>
-                <RouteRibbon small from={`OPO ${flight.dep}`} to={`LIS ${flight.arr}`}/>
+                <RouteRibbon small from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
               </div>
               <div className="font-display font-black text-xl" style={{color:"var(--tap-ink)"}}>{EUR(flight.price)}</div>
             </div>
@@ -450,7 +466,7 @@ function Checkout({ profile, flight, ancillaries, items, go, hold, setHold, toas
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · Mon 15 Jun · Seat 4C</div>
-            <RouteRibbon small from={`OPO ${flight.dep}`} to={`LIS ${flight.arr}`}/>
+            <RouteRibbon small from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
           </div>
           <div className="text-right">
             <div className="font-display font-black text-2xl" style={{color:"var(--tap-ink)"}}>{EUR(total)}</div>
@@ -567,7 +583,7 @@ function Confirmed({ profile, flight, receipt, go }) {
       <p className="text-sm text-gray-500 mb-6">Confirmation <b>{receipt.pnr}</b> · written to the bookings table · email sent to {profile.user.email}.<br/>Auto check-in is ON — your boarding pass appears here 24h before departure.</p>
       <Card className="ticket-edge p-5 text-left mb-5">
         <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · Mon 15 Jun 2026 · Seat 4C · Gate close 06:45</div>
-        <RouteRibbon from={`OPO ${flight.dep}`} to={`LIS ${flight.arr}`}/>
+        <RouteRibbon from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
         <div className="h-px my-4" style={{background:"var(--tap-line)"}}/>
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
           <div><div className="text-gray-400">Voucher</div><div className="font-bold" style={{color:"var(--tap-deep)"}}>−{EUR(receipt.voucherVal)}</div></div>
@@ -654,7 +670,7 @@ function Manage({ profile, flight, openAssistant, toast }) {
             <span className="pulse-dot">●</span> {disrupted && !rebooked ? "Delayed · live updates on" : "On time · live tracking"}
           </Chip>
         </div>
-        <RouteRibbon from={`OPO ${disrupted && !rebooked ? "08:55" : flight.dep}`} to={`LIS ${disrupted && !rebooked ? "09:50" : flight.arr}`}/>
+        <RouteRibbon from={`${flight.origin} ${disrupted && !rebooked ? "08:55" : flight.dep}`} to={`${flight.dest} ${disrupted && !rebooked ? "09:50" : flight.arr}`}/>
         <div className="text-xs text-gray-500 mt-2">Seat 4C · Cabin bag · Espresso pre-ordered · Lisbon transfer 09:30</div>
         <div className="h-px my-4" style={{background:"var(--tap-line)"}}/>
         <div className="grid sm:grid-cols-3 gap-2">
@@ -691,9 +707,9 @@ function Manage({ profile, flight, openAssistant, toast }) {
             <div className="rounded-t-2xl p-5 text-white" style={{background:"var(--tap-deep)"}}>
               <div className="flex items-center justify-between mb-4"><TapLogo light size="text-base"/><button onClick={()=>setShowPass(false)} aria-label="Close"><X size={18}/></button></div>
               <div className="flex items-center justify-between">
-                <div><div className="text-3xl font-display font-black">OPO</div><div className="text-xs text-white/60">Porto</div></div>
+                <div><div className="text-3xl font-display font-black">{flight.origin}</div><div className="text-xs text-white/60">{cityName(flight.origin)}</div></div>
                 <Plane size={20} className="text-white/60"/>
-                <div className="text-right"><div className="text-3xl font-display font-black">LIS</div><div className="text-xs text-white/60">Lisbon</div></div>
+                <div className="text-right"><div className="text-3xl font-display font-black">{flight.dest}</div><div className="text-xs text-white/60">{cityName(flight.dest)}</div></div>
               </div>
             </div>
             <div className="bg-white rounded-b-2xl p-5 ticket-edge">
@@ -862,9 +878,147 @@ function Assistant({ open, onClose, screen }) {
   );
 }
 
+/* ── AIRPORT AUTOCOMPLETE ── */
+function AirportInput({ label, value, onChange, icon }) {
+  const [q, setQ] = useState("");
+  const [opts, setOpts] = useState([]);
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    const id = setTimeout(async () => {
+      const rows = await api.get(`/airports?q=${encodeURIComponent(q)}`);
+      setOpts(rows);
+    }, 120);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  useEffect(() => {
+    const close = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const display = value ? `${cityName(value)} (${value})` : "";
+  return (
+    <div className="flex-1 min-w-[160px] relative" ref={boxRef}>
+      <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1">{icon}{label}</label>
+      <input
+        value={open ? q : display}
+        onFocus={() => { setOpen(true); setQ(""); }}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        placeholder="City or airport"
+        className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none font-semibold"
+        style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}/>
+      {open && opts.length > 0 && (
+        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border rounded-xl shadow-lg max-h-64 overflow-auto" style={{ borderColor: "var(--tap-line)" }}>
+          {opts.map((a) => (
+            <button key={a.code} onMouseDown={() => { onChange(a.code); setOpen(false); }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between">
+              <span><span className="font-semibold text-sm" style={{ color: "var(--tap-ink)" }}>{a.city}</span> <span className="text-xs text-gray-400">{a.country}</span></span>
+              <span className="text-xs font-bold text-gray-400">{a.code}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── SEARCH SCREEN — search any of the 100 network routes ── */
+function SearchScreen({ origin, setOrigin, dest, setDest, onSearch, results, searching, lastQuery, selectFlight, routes }) {
+  const swap = () => { const o = origin; setOrigin(dest); setDest(o); };
+  const [showAll, setShowAll] = useState(false);
+
+  // Popular routes to suggest (from the network), Portugal-first
+  const popular = (routes || []).filter(r => r.originCity && r.destCity).slice(0, showAll ? 100 : 8);
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 pb-24 pt-8">
+      <div className="flex items-center gap-3 mb-1 flex-wrap">
+        <h1 className="font-display font-black text-3xl" style={{ color: "var(--tap-ink)" }}>Search flights</h1>
+        <Chip tone="green"><Globe size={11}/> {routes?.length || 100} routes worldwide · {routes?.filter(r => r.region === "Europe").length || 50} in Europe</Chip>
+      </div>
+      <p className="text-sm text-gray-500 mb-5">Every search is logged to the database and shapes what we recommend you next.</p>
+
+      <Card className="p-5 mb-6">
+        <div className="flex flex-wrap items-end gap-3">
+          <AirportInput label="From" value={origin} onChange={setOrigin} icon={<MapPin size={11}/>}/>
+          <button onClick={swap} className="mb-1 p-2.5 rounded-xl border hover:bg-gray-50 shrink-0" style={{ borderColor: "var(--tap-line)" }} aria-label="Swap"><ArrowLeftRight size={16} style={{ color: "var(--tap-green)" }}/></button>
+          <AirportInput label="To" value={dest} onChange={setDest} icon={<MapPin size={11}/>}/>
+          <div className="min-w-[140px]">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1"><Calendar size={11}/>Date</label>
+            <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>Mon 15 Jun 2026</div>
+          </div>
+          <PrimaryBtn onClick={onSearch} disabled={searching || !origin || !dest} className="!py-2.5 mb-[1px]">
+            {searching ? <Loader2 className="animate-spin" size={16}/> : <Search size={16}/>} Search
+          </PrimaryBtn>
+        </div>
+      </Card>
+
+      {searching && <div className="flex items-center gap-3 text-sm text-gray-500"><Loader2 className="animate-spin" size={16} style={{ color: "var(--tap-green)" }}/> Searching the network…</div>}
+
+      {!searching && results && !results.ok && (
+        <Card className="p-5 mb-6" style={{ borderColor: "var(--tap-red)", background: "#FFF6F7" }}>
+          <div className="text-sm font-semibold" style={{ color: "var(--tap-red)" }}>{results.message}</div>
+        </Card>
+      )}
+
+      {!searching && results && results.ok && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>{cityName(results.origin)} → {cityName(results.dest)}</h2>
+            <Chip tone="ink">{results.flights.length} flights · Mon 15 Jun</Chip>
+          </div>
+          <div className="space-y-3">
+            {results.flights.map((f) => (
+              <Card key={f.flight_no} className="ticket-edge p-0 overflow-hidden" style={f.recommended ? { boxShadow: "0 0 0 2px var(--tap-green)" } : {}}>
+                <div className="p-4 flex flex-wrap items-center gap-4">
+                  <div className="w-[84px]"><div className="text-xs font-bold text-gray-400">{f.flight_no}</div><div className="text-[11px] text-gray-400">{f.aircraft}</div></div>
+                  <div className="flex-1 min-w-[200px]">
+                    <RouteRibbon small from={`${f.origin} ${f.dep}`} to={`${f.dest} ${f.arr}`}/>
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      <Chip tone="ink">{f.duration}</Chip>
+                      {!!f.recommended && <Chip tone="green"><Sparkles size={11}/> Recommended for you</Chip>}
+                      {!!f.lowest && <Chip tone="amber">Lowest fare</Chip>}
+                      {f.seats_left < 15 && <Chip tone="red">{f.seats_left} seats left</Chip>}
+                    </div>
+                  </div>
+                  <div className="text-right"><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(f.price)}</div></div>
+                  <PrimaryBtn onClick={() => selectFlight(f)} className="!py-2.5">Select <ChevronRight size={15}/></PrimaryBtn>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>Popular routes</h2>
+          <button onClick={() => setShowAll(!showAll)} className="text-xs font-bold" style={{ color: "var(--tap-green)" }}>{showAll ? "Show fewer" : `See all ${routes?.length || 100}`}</button>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {popular.map((r) => (
+            <button key={`${r.origin}-${r.dest}`} onClick={() => { setOrigin(r.origin); setDest(r.dest); onSearch(r.origin, r.dest); }}
+              className="text-left p-3 rounded-xl border bg-white hover:shadow-sm transition-shadow flex items-center justify-between" style={{ borderColor: "var(--tap-line)" }}>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate" style={{ color: "var(--tap-ink)" }}>{r.originCity} → {r.destCity}</div>
+                <div className="text-[11px] text-gray-400">{r.origin}–{r.dest} · {r.destRegion}</div>
+              </div>
+              <div className="text-sm font-bold shrink-0 ml-2" style={{ color: "var(--tap-green)" }}>{EUR(r.base_fare)}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── APP SHELL ── */
 const STEPS = [
   { id: "home", label: "Search & Inspiration" },
+  { id: "search", label: "Search flights" },
   { id: "flights", label: "Flight selection" },
   { id: "basket", label: "Basket" },
   { id: "checkout", label: "Checkout" },
@@ -885,6 +1039,13 @@ function App() {
   const [receipt, setReceipt] = useState(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [activeDest, setActiveDest] = useState("LIS");
+  // Flight search
+  const [routes, setRoutes] = useState([]);
+  const [searchOrigin, setSearchOrigin] = useState("OPO");
+  const [searchDest, setSearchDest] = useState("LIS");
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
 
   const toast = (title, sub) => {
     const id = Date.now() + Math.random();
@@ -894,9 +1055,12 @@ function App() {
 
   useEffect(() => {
     (async () => {
-      const [p, f, a, d, b] = await Promise.all([
-        api.get("/profile"), api.get("/flights"), api.get("/ancillaries"), api.get("/destinations"), api.get("/basket"),
+      const [p, f, a, d, b, ap, rt] = await Promise.all([
+        api.get("/profile"), api.get("/flights?dest=LIS"), api.get("/ancillaries"), api.get("/destinations"), api.get("/basket"),
+        api.get("/airports"), api.get("/routes"),
       ]);
+      ap.forEach(x => { AIRPORT_MAP[x.code] = x; });   // populate city-name lookup
+      setRoutes(rt);
       setProfile(p); setFlights(f); setAncillaries(a); setDestinations(d);
       const rec = f.find(x => x.recommended) || f[0];
       if (b) { setFlight(f.find(x => x.flight_no === b.flight_no) || rec); setItems(b.items); }
@@ -907,6 +1071,35 @@ function App() {
   const refreshProfile = async () => setProfile(await api.get("/profile"));
   const go = (s) => { setScreen(s); window.scrollTo(0, 0); if (s === "home") refreshProfile(); };
   const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); go("basket"); };
+
+  // Flight search — logs to DB, feeds personalization
+  const runSearch = async (o, d) => {
+    const origin = (typeof o === "string" ? o : searchOrigin);
+    const dest = (typeof d === "string" ? d : searchDest);
+    setSearching(true); setSearchResults(null);
+    const r = await api.get(`/search?origin=${origin}&dest=${dest}&date=2026-06-15`);
+    setSearchResults(r); setSearching(false);
+    if (r.ok) toast("Search logged to DB", `${cityName(origin)} → ${cityName(dest)} · ${r.flights.length} flights · feeds personalization`);
+  };
+
+  // Load a destination's flights, then jump into selection — booking entry from cards / planner
+  const loadFlightsFor = async (code) => {
+    const f = await api.get(`/flights?dest=${code}`);
+    setFlights(f);
+    setActiveDest(code);
+    return f;
+  };
+  const bookDestination = async (d) => {
+    const code = d?.code || "LIS";
+    const f = await loadFlightsFor(code);
+    if (!f.length) { toast("No flights for that route", `${cityName(code)} isn't bookable in this demo`); return; }
+    go("flights");
+  };
+  const bookUsual = async () => {
+    const f = await loadFlightsFor("LIS");
+    const usual = f.find(x => x.flight_no === (profile?.pattern?.topFlight)) || f.find(x => x.recommended) || f[0];
+    await selectFlight(usual);   // straight to basket with the usual flight, the one-tap path
+  };
   const toggleItem = async (code) => {
     const next = items.includes(code) ? items.filter(x => x !== code) : [...items, code];
     setItems(next);
@@ -944,7 +1137,8 @@ function App() {
         </div>
       </header>
 
-      {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast}/>}
+      {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/>}
+      {screen === "search" && <SearchScreen origin={searchOrigin} setOrigin={setSearchOrigin} dest={searchDest} setDest={setSearchDest} onSearch={runSearch} results={searchResults} searching={searching} selectFlight={selectFlight} routes={routes}/>}
       {screen === "flights" && <Flights flights={flights} pattern={profile.pattern} selectFlight={selectFlight} toast={toast}/>}
       {screen === "basket" && flight && <Basket flight={flight} ancillaries={ancillaries} items={items} toggleItem={toggleItem} go={go}/>}
       {screen === "checkout" && flight && <Checkout profile={profile} flight={flight} ancillaries={ancillaries} items={items} go={go} hold={hold} setHold={setHold} toast={toast}/>}

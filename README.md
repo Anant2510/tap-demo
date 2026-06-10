@@ -83,16 +83,59 @@ If you edit the frontend (`web/app.jsx`), rebuild with `npm run build`.
 ## 6. Architecture
 
 ```
-public/        static frontend (index.html + bundled app.js)
-web/app.jsx    React source (rebuild: npm run build)
+public/         static frontend (index.html + bundled app.js)
+web/app.jsx     React source (rebuild: npm run build)
 server/
-  server.js    Express API + static hosting
-  db.js        SQLite schema + Daniel seed  → data/tap.db
-  email.js     Nodemailer + branded HTML templates + DB outbox
-  claude.js    server-side Claude calls (profile context built
-               live from the DB) + cached fallbacks
-data/tap.db    the visible customer database (open it in any
-               SQLite tool, e.g. DB Browser for SQLite)
+  server.js     Express API + static hosting
+  db.js         SQLite schema + Daniel seed + route network → data/tap.db
+  routes-data.js  100-route network (50 European) + 92 airports
+  search.js     flight-search engine — generates realistic flights
+                for any route on demand; pins Daniel's OPO→LIS shuttle
+  email.js      Nodemailer + branded HTML templates + DB outbox
+  claude.js     server-side Claude calls (profile context built
+                live from the DB) + cached fallbacks
+data/tap.db     the visible customer database (open it in any
+                SQLite tool, e.g. DB Browser for SQLite)
 ```
 
-API highlights: `/api/profile`, `/api/flights`, `/api/basket`, `/api/fare-lock`, `/api/hold`, `/api/pay`, `/api/disrupt`, `/api/rebook`, `/api/ai/plan`, `/api/ai/chat`, `/api/offers/send`, `/api/admin/db`, `/api/admin/emails`, `/api/admin/reset`, `/api/health`.
+API highlights: `/api/profile`, `/api/search` (any route), `/api/airports` (autocomplete), `/api/routes` (network), `/api/flights`, `/api/basket`, `/api/fare-lock`, `/api/hold`, `/api/pay`, `/api/disrupt`, `/api/rebook`, `/api/ai/plan`, `/api/ai/chat`, `/api/offers/send`, `/api/admin/db`, `/api/admin/emails`, `/api/admin/reset`, `/api/health`.
+
+## 7. Flight search & the personalization loop
+
+The app searches a network of **100 routes across 92 airports — 50 within Europe, with heavy Portugal coverage** (Lisbon, Porto, Faro, Funchal, the Azores, plus Portugal↔Europe and long-haul to Brazil, North America, and Africa). Rather than seeding tens of thousands of flight rows, `search.js` generates realistic, *deterministic* flights for any route on demand (the same route+date always returns the same flights). Daniel's OPO→LIS commute is pinned to his real flight numbers so his travel history lines up exactly.
+
+Every customer action is behavioural data that flows into the database and back into what the app recommends:
+
+- **Searches** are logged to the `searches` table. The most-searched destinations surface in the profile and shape recommendations.
+- **Bookings** append to `travel_history`. Per-destination booking counts drive the "Picked for you" cards ("Booked 3× — a favourite") and the recommended flight on each route is chosen to match the customer's usual departure time.
+
+So in the demo you can search and book *any* of the 100 routes end-to-end (search → select → basket → checkout → payment → confirmation + email), watch each step write to the database live in the Demo Console, and see the personalization shift as a result. This is the CDP story made tangible: the store maps 1:1 to customer-profile, behaviour, and consent objects for later CDP sync.
+
+
+## 8. WhatsApp integration (real, free, demo-only)
+
+The demo connects to **real WhatsApp** using Meta's official Cloud API **test number** — free, no business verification, designed exactly for development/demo use. You message the bot from your own phone; button taps hit your VM's webhook and run the same backend the portal uses (bookings, rebooking, ancillaries, cancellations — all in the same database, all feeding personalization).
+
+What works on WhatsApp: main menu (list message) → **book the usual flight** with one-tap pay or 48h hold → **add extras** (charged to the booking) → **check in** → **flight status** → **cancel with instant refund** (miles + voucher really restored). And the showpiece: triggering **Simulate flight delay** in the portal pushes a proactive WhatsApp message with two rebooking buttons — tap one and the booking changes, the email goes out, the DB updates, live on screen.
+
+### Setup (~20 minutes, free)
+
+1. **Meta app**: go to developers.facebook.com → My Apps → Create App → type **Business**. On the app dashboard, find the **WhatsApp** product and click *Set up*. This provisions a **free test phone number** and a temporary access token.
+2. **Verify your phone**: in WhatsApp → API Setup, under "To", choose *Manage phone number list* and add your own WhatsApp number (you'll get a confirmation code in WhatsApp). Up to 5 recipients allowed.
+3. **Copy credentials** into `.env`: the **temporary access token** → `WHATSAPP_TOKEN`, and the **Phone number ID** (shown under the test number, *not* the phone number itself) → `WHATSAPP_PHONE_NUMBER_ID`. Note: the temporary token lasts ~24h — regenerate it before each demo session, or create a System User token in Meta Business Settings for a long-lived one.
+4. **Public HTTPS webhook**: Meta requires HTTPS. Easiest for a demo is a tunnel. On the VM:
+   ```bash
+   # ngrok (sign up free at ngrok.com for an authtoken)
+   ngrok http 7801
+   ```
+   Copy the `https://xxxx.ngrok-free.app` URL it prints. (Cloudflare Tunnel `cloudflared tunnel --url http://localhost:7801` works too.)
+5. **Configure the webhook** in Meta: WhatsApp → Configuration → Webhook → *Edit*. Callback URL: `https://YOUR-TUNNEL-URL/api/whatsapp/webhook`. Verify token: whatever you set as `WHATSAPP_VERIFY_TOKEN` (default `tap-demo-verify`). Click *Verify and save*, then under **Webhook fields**, subscribe to **messages**.
+6. **Restart the app** (`pm2 restart tap-demo`) and check `GET /api/health` — it should report `whatsapp: configured`.
+
+### Demo flow
+
+Send **"Hi"** from your phone to the test number first — this opens WhatsApp's 24-hour customer-service window, inside which interactive messages are unlimited and free. The menu appears; everything is tap-driven from there. For the disruption push to reach you before you've messaged the bot, set `WHATSAPP_DEFAULT_TO` to your number in `.env`.
+
+Without credentials the demo still works: every WhatsApp message is logged to the `wa_messages` table and visible in the Demo Console, so you can rehearse the conversation logic offline.
+
+**Honest demo framing**: the test number is Meta's official developer sandbox — real WhatsApp delivery to your verified phones, free, but capped at 5 recipients and not for production traffic. Going commercial means business verification and a registered number; the code doesn't change.
