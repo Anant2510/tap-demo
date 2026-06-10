@@ -94,6 +94,18 @@ try { db.exec("ALTER TABLE users ADD COLUMN wa_id TEXT"); } catch {}
 
 const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
+// Seeded recent searches — reused by initial seed AND by reset, so the demo
+// always starts with realistic behavioural signals.
+function seedSearches() {
+  const isr = db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at) VALUES (1,?,?,?,?,?,?,?)`);
+  const dayAgo = (n) => new Date(Date.now() - n * 86400e3).toISOString().replace("T", " ").slice(0, 19);
+  isr.run("OPO","CDG","2026-06-19",1,3,"MacBook Pro",dayAgo(2));   // researching a Paris return
+  isr.run("OPO","CDG","2026-06-26",1,3,"iPhone",dayAgo(2));
+  isr.run("OPO","CDG","2026-07-03",1,3,"MacBook Pro",dayAgo(1));   // 3× → "searched 3× this month"
+  isr.run("OPO","BCN","2026-07-10",2,4,"iPhone",dayAgo(4));        // Barcelona, 2 pax — a getaway idea
+  isr.run("LIS","FNC","2026-08-01",3,2,"MacBook Pro",dayAgo(6));   // Funchal for 3 — family again
+}
+
 function seed() {
   const c = db.prepare("SELECT COUNT(*) n FROM users").get().n;
   if (c > 0) return;
@@ -114,19 +126,34 @@ function seed() {
     ir.run(o, d, dur, fare, region);
   }
 
-  // 15 past trips — 12 outbound OPO→LIS, of which 9 match the Monday 07:05 pattern
+  // ── Daniel's travel history — designed so every "Picked for you" card has a real reason ──
+  // Dominant pattern: OPO→LIS Mondays 07:05 (TP1927). Plus genuine Madrid (client), Paris,
+  // and a Funchal family weekend (Leisure) so personalization has depth across purposes.
   const hist = [
-    ["TP1927","OPO→LIS","2026-02-23","07:05"],["TP1927","OPO→LIS","2026-03-02","07:05"],
-    ["TP1921","OPO→LIS","2026-03-09","06:35"],
-    ["TP1927","OPO→LIS","2026-03-16","07:05"],["TP1943","LIS→OPO","2026-03-19","18:35"],
-    ["TP1927","OPO→LIS","2026-03-23","07:05"],["TP1943","LIS→OPO","2026-03-26","18:35"],
-    ["TP1927","OPO→LIS","2026-04-06","07:05"],["TP1943","LIS→OPO","2026-04-09","18:35"],
-    ["TP1931","OPO→LIS","2026-04-13","09:10"],["TP1927","OPO→LIS","2026-04-20","07:05"],
-    ["TP1927","OPO→LIS","2026-05-04","07:05"],["TP1927","OPO→LIS","2026-05-11","07:05"],
-    ["TP1937","OPO→LIS","2026-05-18","12:40"],["TP1927","OPO→LIS","2026-06-01","07:05"],
+    // Weekly Lisbon commute (the headline pattern: 9 of 12 outbound are TP1927 07:05)
+    ["TP1927","OPO→LIS","2026-02-23","07:05","Business"],["TP1943","LIS→OPO","2026-02-26","18:35","Business"],
+    ["TP1927","OPO→LIS","2026-03-02","07:05","Business"],["TP1943","LIS→OPO","2026-03-05","18:35","Business"],
+    ["TP1921","OPO→LIS","2026-03-09","06:35","Business"],["TP1943","LIS→OPO","2026-03-12","18:35","Business"],
+    ["TP1927","OPO→LIS","2026-03-16","07:05","Business"],["TP1943","LIS→OPO","2026-03-19","18:35","Business"],
+    ["TP1927","OPO→LIS","2026-03-23","07:05","Business"],["TP1943","LIS→OPO","2026-03-26","18:35","Business"],
+    ["TP1927","OPO→LIS","2026-04-06","07:05","Business"],["TP1943","LIS→OPO","2026-04-09","18:35","Business"],
+    ["TP1931","OPO→LIS","2026-04-13","09:10","Business"],["TP1927","OPO→LIS","2026-04-20","07:05","Business"],
+    ["TP1927","OPO→LIS","2026-05-04","07:05","Business"],["TP1927","OPO→LIS","2026-05-11","07:05","Business"],
+    ["TP1937","OPO→LIS","2026-05-18","12:40","Business"],["TP1927","OPO→LIS","2026-06-01","07:05","Business"],
+    // Madrid — recurring client visits (backs the Madrid card: "flown 3×")
+    ["TP1080","OPO→MAD","2026-03-11","07:40","Business"],["TP1081","MAD→OPO","2026-03-13","19:30","Business"],
+    ["TP1080","OPO→MAD","2026-04-15","07:40","Business"],["TP1081","MAD→OPO","2026-04-17","19:30","Business"],
+    ["TP1080","OPO→MAD","2026-05-20","07:40","Business"],["TP1081","MAD→OPO","2026-05-22","19:30","Business"],
+    // Paris — a single business trip earlier in the year (backs the Paris card alongside searches)
+    ["TP440","OPO→CDG","2026-02-10","08:20","Business"],["TP441","CDG→OPO","2026-02-12","20:10","Business"],
+    // Funchal — a family weekend (Leisure — adds a non-business dimension to the profile)
+    ["TP1690","OPO→FNC","2026-04-25","09:15","Leisure"],["TP1691","FNC→OPO","2026-04-27","17:00","Leisure"],
   ];
-  const ih = db.prepare("INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,'Business')");
+  const ih = db.prepare("INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,?)");
   hist.forEach(h => ih.run(...h));
+
+  // Seeded recent searches — behavioural signals that exist before the demo even starts
+  seedSearches();
 
   db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at)
     VALUES (1,'OPO','LIS','2026-06-15',1,'MacBook Pro', ?)`).run(now());
@@ -153,4 +180,4 @@ function seed() {
 }
 seed();
 
-module.exports = { db, now, DB_PATH };
+module.exports = { db, now, DB_PATH, seedSearches };

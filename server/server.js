@@ -6,12 +6,13 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const { db, now, DB_PATH } = require("./db");
+const { db, now, DB_PATH, seedSearches } = require("./db");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
 const { AIRPORTS } = require("./routes-data");
 const whatsapp = require("./whatsapp");
+const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
 const app = express();
 app.use(cors());
@@ -55,6 +56,43 @@ app.get("/api/routes", (req, res) => {
   // attach city labels
   const ap = (c) => db.prepare("SELECT city,country,region FROM airports WHERE code=?").get(c) || {};
   res.json(rows.map(r => ({ ...r, originCity: ap(r.origin).city, destCity: ap(r.dest).city, destCountry: ap(r.dest).country, destRegion: ap(r.dest).region })));
+});
+
+/* Personalized route suggestions — scored from THIS user's real activity:
+   flown routes (travel_history), booked destinations, and recent searches. */
+app.get("/api/routes/suggested", (req, res) => {
+  const ap = (c) => db.prepare("SELECT city,country,region FROM airports WHERE code=?").get(c) || {};
+  const allRoutes = db.prepare("SELECT * FROM routes").all();
+
+  // Signals
+  const flown = db.prepare("SELECT route, COUNT(*) c, MAX(trip_date) last FROM travel_history WHERE user_id=1 AND route LIKE '%→%' GROUP BY route").all();
+  const flownMap = {}; flown.forEach(f => { flownMap[f.route] = { c: f.c, last: f.last }; });
+  const bookedDest = {}; db.prepare("SELECT flight_no FROM bookings WHERE user_id=1 AND status != 'cancelled'").all()
+    .forEach(b => { const f = db.prepare("SELECT dest FROM flights WHERE flight_no=?").get(b.flight_no); if (f) bookedDest[f.dest] = (bookedDest[f.dest] || 0) + 1; });
+  const searchedPair = {}; const searchedDest = {};
+  db.prepare("SELECT origin, dest, COUNT(*) c FROM searches WHERE user_id=1 GROUP BY origin, dest").all()
+    .forEach(s => { searchedPair[`${s.origin}→${s.dest}`] = s.c; searchedDest[s.dest] = (searchedDest[s.dest] || 0) + s.c; });
+
+  const scored = allRoutes.map(r => {
+    const key = `${r.origin}→${r.dest}`;
+    let score = 0; const reasons = [];
+    if (flownMap[key]) { score += 50 + flownMap[key].c * 8; reasons.push(`Flown ${flownMap[key].c}×`); }
+    if (bookedDest[r.dest]) { score += 30 + bookedDest[r.dest] * 5; reasons.push(`Booked recently`); }
+    if (searchedPair[key]) { score += 25 + searchedPair[key] * 6; reasons.push(`You searched this ${searchedPair[key]}×`); }
+    else if (searchedDest[r.dest]) { score += 12; reasons.push(`Searched ${cityName(r.dest)} ${searchedDest[r.dest]}×`); }
+    // Home-airport affinity: routes from Porto (his base) get a nudge
+    if (r.origin === "OPO") { score += 6; if (!reasons.length) reasons.push("From your home airport"); }
+    if (r.origin === "LIS") { score += 3; }
+    return { ...r, originCity: ap(r.origin).city, destCity: ap(r.dest).city, destCountry: ap(r.dest).country, destRegion: ap(r.dest).region, score, reason: reasons.slice(0, 2).join(" · ") || null, reasons };
+  });
+
+  const personalized = scored.filter(r => r.score > 9).sort((a, b) => b.score - a.score);
+  // Fill out with popular Portugal/Europe routes if the user has little history yet
+  const filler = scored.filter(r => r.score <= 9)
+    .sort((a, b) => (a.destCountry === "Portugal" ? -1 : 0) - (b.destCountry === "Portugal" ? -1 : 0) || a.base_fare - b.base_fare);
+
+  log("routes_suggested", { personalized: personalized.length });
+  res.json({ personalized, filler, hasHistory: personalized.length > 0 });
 });
 
 /* ── Flight search: any origin → dest in the network ─────────── */
@@ -132,7 +170,31 @@ app.get("/api/flights", (req, res) => {
   res.json(rows);
 });
 app.get("/api/ancillaries", (req, res) => res.json(db.prepare("SELECT * FROM ancillaries").all()));
-app.get("/api/destinations", (req, res) => res.json(db.prepare("SELECT * FROM destinations").all()));
+app.get("/api/destinations", (req, res) => {
+  const dests = db.prepare("SELECT * FROM destinations").all();
+  res.json(dests.map(d => {
+    const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC").all(`%→${d.code}`);
+    const flown = flownRows.length;
+    const booked = db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(d.code).c;
+    const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=1 AND dest=?").get(d.code).c;
+    const purposes = [...new Set(flownRows.map(r => r.purpose))];
+    const leisure = purposes.includes("Leisure");
+    let reason;
+    if (flown > 0 && searched > 0)
+      reason = `You've flown to ${d.city} ${flown}× (${purposes.join("/").toLowerCase()}) and searched it ${searched}× recently — clearly on your mind.`;
+    else if (flown > 1)
+      reason = `${d.city} is a recurring ${leisure ? "getaway" : "work"} destination for you — ${flown} trips on record${leisure ? ", last one with the family" : ""}.`;
+    else if (flown === 1)
+      reason = `You flew to ${d.city} once before (${purposes[0]?.toLowerCase()}); we're keeping it within reach.`;
+    else if (booked > 0)
+      reason = `You recently booked ${d.city}, so we've kept it handy.`;
+    else if (searched > 0)
+      reason = `You searched ${d.city} ${searched}× in the last week — still comparing options?`;
+    else if (d.tag) reason = `Suggested because: ${d.tag.toLowerCase()}.`;
+    else reason = `A popular route from your home airport.`;
+    return { ...d, origin: "OPO", flown, booked, searched, purposes, reason };
+  }));
+});
 
 /* ── Persistent basket ───────────────────────────────────────── */
 app.get("/api/basket", (req, res) => {
@@ -340,11 +402,13 @@ app.post("/api/admin/reset", (req, res) => {
   // Remove dynamically-generated flight rows (search created these); leave table empty — search regenerates on demand
   db.exec("DELETE FROM flights");
   // Trim travel_history back to the 15 originally-seeded rows (booking-appended rows have higher ids)
-  const seedRows = db.prepare("SELECT id FROM travel_history WHERE user_id=1 ORDER BY id LIMIT 15").all().map(r => r.id);
+  const SEED_HISTORY_ROWS = 28;   // matches the seed in db.js
+  const seedRows = db.prepare("SELECT id FROM travel_history WHERE user_id=1 ORDER BY id LIMIT ?").all(SEED_HISTORY_ROWS).map(r => r.id);
   if (seedRows.length) db.prepare(`DELETE FROM travel_history WHERE user_id=1 AND id > ?`).run(seedRows[seedRows.length - 1]);
   db.prepare("UPDATE users SET miles=48230 WHERE id=1").run();
   db.prepare("UPDATE vouchers SET status='active' WHERE user_id=1").run();
   db.prepare("UPDATE flights SET status='scheduled', new_dep=NULL, new_arr=NULL").run();
+  seedSearches();   // restore the pre-demo behavioural signals
   res.json({ ok: true });
 });
 
