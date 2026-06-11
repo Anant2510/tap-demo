@@ -77,8 +77,8 @@ const Why = ({ text, className = "" }) => {
     </span>
   );
 };
-const Card = ({ children, className = "", style = {} }) => (
-  <div className={`bg-white rounded-2xl border ${className}`} style={{ borderColor: "var(--tap-line)", ...style }}>{children}</div>
+const Card = ({ children, className = "", style = {}, ...rest }) => (
+  <div className={`bg-white rounded-2xl border ${className}`} style={{ borderColor: "var(--tap-line)", ...style }} {...rest}>{children}</div>
 );
 const PrimaryBtn = ({ children, onClick, className = "", disabled }) => (
   <button onClick={onClick} disabled={disabled}
