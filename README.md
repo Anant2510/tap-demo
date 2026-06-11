@@ -112,30 +112,32 @@ Every customer action is behavioural data that flows into the database and back 
 So in the demo you can search and book *any* of the 100 routes end-to-end (search → select → basket → checkout → payment → confirmation + email), watch each step write to the database live in the Demo Console, and see the personalization shift as a result. This is the CDP story made tangible: the store maps 1:1 to customer-profile, behaviour, and consent objects for later CDP sync.
 
 
-## 8. WhatsApp integration (real, free, demo-only)
+## 8. WhatsApp integration (real, free, demo-only — via Twilio)
 
-The demo connects to **real WhatsApp** using Meta's official Cloud API **test number** — free, no business verification, designed exactly for development/demo use. You message the bot from your own phone; button taps hit your VM's webhook and run the same backend the portal uses (bookings, rebooking, ancillaries, cancellations — all in the same database, all feeding personalization).
+The demo connects to **real WhatsApp** using **Twilio's WhatsApp Sandbox** — free, no business verification, and far more reliable than Meta's developer test number for cross-border demos. You message the bot from your own phone; replies hit your VM's webhook and run the same backend the portal uses (bookings, rebooking, ancillaries, cancellations — all in the same database, all feeding personalization).
 
-What works on WhatsApp: main menu (list message) → **book the usual flight** with one-tap pay or 48h hold → **add extras** (charged to the booking) → **check in** → **flight status** → **cancel with instant refund** (miles + voucher really restored). And the showpiece: triggering **Simulate flight delay** in the portal pushes a proactive WhatsApp message with two rebooking buttons — tap one and the booking changes, the email goes out, the DB updates, live on screen.
+What works on WhatsApp: a **numbered main menu** (reply 1–5) → **book the usual flight** with one-tap pay (reply 1) or 48h hold (reply 2) → **add extras** (charged to the booking) → **check in** → **flight status** → **cancel with instant refund** (miles + voucher really restored). And the showpiece: triggering **Simulate flight delay** in the portal pushes a proactive WhatsApp message with two rebooking choices — reply 1 or 2 and the booking changes, the email goes out, the DB updates, live on screen.
 
-### Setup (~20 minutes, free)
+> **Why numbered menus, not tap-buttons?** Twilio's sandbox sends free-form **text** reliably to any number that's joined it. True tappable WhatsApp buttons/lists require pre-approved message *templates*, which the sandbox doesn't support. Numbered replies give the same guided flow with zero template friction — ideal for a demo. (In production with an approved WhatsApp sender, the same logic can be upgraded to interactive buttons without changing the backend.)
 
-1. **Meta app**: go to developers.facebook.com → My Apps → Create App → type **Business**. On the app dashboard, find the **WhatsApp** product and click *Set up*. This provisions a **free test phone number** and a temporary access token.
-2. **Verify your phone**: in WhatsApp → API Setup, under "To", choose *Manage phone number list* and add your own WhatsApp number (you'll get a confirmation code in WhatsApp). Up to 5 recipients allowed.
-3. **Copy credentials** into `.env`: the **temporary access token** → `WHATSAPP_TOKEN`, and the **Phone number ID** (shown under the test number, *not* the phone number itself) → `WHATSAPP_PHONE_NUMBER_ID`. Note: the temporary token lasts ~24h — regenerate it before each demo session, or create a System User token in Meta Business Settings for a long-lived one.
-4. **Public HTTPS webhook**: Meta requires HTTPS. Easiest for a demo is a tunnel. On the VM:
+### Setup (~10 minutes, free)
+
+1. **Twilio account**: sign up free at twilio.com. No credit card needed for the sandbox.
+2. **Open the WhatsApp Sandbox**: Console → **Messaging → Try it out → Send a WhatsApp message**. You'll see a sandbox number (**+1 415 523 8886**) and a **join code** like `join <two-words>`.
+3. **Join from your phone**: in WhatsApp, send `join <your-two-word-code>` to **+1 415 523 8886**. Twilio replies confirming you're connected. (Anyone demoing on their own phone joins the same way — repeat per device.)
+4. **Copy credentials** into `.env`: from the Console dashboard copy **Account SID** → `TWILIO_ACCOUNT_SID` and **Auth Token** → `TWILIO_AUTH_TOKEN`. Leave `TWILIO_WHATSAPP_FROM=whatsapp:+14155238886` as-is (the sandbox sender).
+5. **Public HTTPS webhook**: on the VM, expose port 7801 with a tunnel:
    ```bash
-   # ngrok (sign up free at ngrok.com for an authtoken)
-   ngrok http 7801
+   ngrok http 7801      # sign up free at ngrok.com for an authtoken
    ```
-   Copy the `https://xxxx.ngrok-free.app` URL it prints. (Cloudflare Tunnel `cloudflared tunnel --url http://localhost:7801` works too.)
-5. **Configure the webhook** in Meta: WhatsApp → Configuration → Webhook → *Edit*. Callback URL: `https://YOUR-TUNNEL-URL/api/whatsapp/webhook`. Verify token: whatever you set as `WHATSAPP_VERIFY_TOKEN` (default `tap-demo-verify`). Click *Verify and save*, then under **Webhook fields**, subscribe to **messages**.
-6. **Restart the app** (`pm2 restart tap-demo`) and check `GET /api/health` — it should report `whatsapp: configured`.
+   Copy the `https://xxxx.ngrok-free.dev` URL it prints.
+6. **Point the sandbox at your webhook**: back in **Sandbox settings** (Messaging → Try it out → Send a WhatsApp message → *Sandbox settings*), set **"When a message comes in"** to `https://YOUR-TUNNEL-URL/api/whatsapp/webhook`, method **POST**. Save.
+7. **Restart the app** (`npm start`) and check `GET /api/health` — it should report `whatsapp: configured`.
 
 ### Demo flow
 
-Send **"Hi"** from your phone to the test number first — this opens WhatsApp's 24-hour customer-service window, inside which interactive messages are unlimited and free. The menu appears; everything is tap-driven from there. For the disruption push to reach you before you've messaged the bot, set `WHATSAPP_DEFAULT_TO` to your number in `.env`.
+Send **any message** ("Hi") from your phone to the sandbox number — the numbered menu appears. Reply with a number to drive the whole journey; every action writes to the same SQLite DB and shows live in the Demo Console. For the disruption push to reach you before you've messaged the bot, set `WHATSAPP_DEFAULT_TO` to your number (international format, no `+`) in `.env`.
 
 Without credentials the demo still works: every WhatsApp message is logged to the `wa_messages` table and visible in the Demo Console, so you can rehearse the conversation logic offline.
 
-**Honest demo framing**: the test number is Meta's official developer sandbox — real WhatsApp delivery to your verified phones, free, but capped at 5 recipients and not for production traffic. Going commercial means business verification and a registered number; the code doesn't change.
+**Honest demo framing**: Twilio's sandbox is real WhatsApp delivery to any phone that's joined it, free, with no recipient cap to worry about for a demo. Sandbox sessions expire after ~3 days of inactivity (just re-send the join code) and the standard 24-hour customer-service window applies (the user messages first). Going commercial means a registered WhatsApp sender on Twilio; the backend logic doesn't change.

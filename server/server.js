@@ -17,6 +17,7 @@ const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));   // Twilio posts x-www-form-urlencoded
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 const log = (type, payload) =>
@@ -311,18 +312,16 @@ app.post("/api/bookings/cancel", async (req, res) => {
   res.json({ ok: true, pnr: b.pnr, email });
 });
 
-/* ── WhatsApp webhook (Meta Cloud API) ───────────────────────── */
-app.get("/api/whatsapp/webhook", (req, res) => {
-  const mode = req.query["hub.mode"], token = req.query["hub.verify_token"], challenge = req.query["hub.challenge"];
-  if (mode === "subscribe" && token === (process.env.WHATSAPP_VERIFY_TOKEN || "tap-demo-verify")) {
-    log("wa_webhook_verified", {});
-    return res.status(200).send(challenge);
-  }
-  res.sendStatus(403);
-});
+/* ── WhatsApp webhook (Twilio Sandbox) ───────────────────────────
+   Twilio POSTs application/x-www-form-urlencoded with fields incl.
+   From="whatsapp:+91...", Body="1". We ack immediately with empty
+   TwiML (200) and process the message; our reply is sent via the
+   Twilio REST API inside handleIncoming, not via TwiML. A GET on the
+   same path just returns OK so you can sanity-check it in a browser. */
+app.get("/api/whatsapp/webhook", (_req, res) => res.status(200).send("TAP WhatsApp webhook OK"));
 app.post("/api/whatsapp/webhook", async (req, res) => {
-  res.sendStatus(200);                           // ack immediately (Meta requires fast 200)
-  try { await whatsapp.handleIncoming(req.body); }
+  res.set("Content-Type", "text/xml").status(200).send("<Response></Response>");  // ack fast, no TwiML reply
+  try { await whatsapp.handleIncoming({ from: req.body.From, text: req.body.Body }); }
   catch (e) { log("wa_webhook_error", { error: e.message }); }
 });
 
