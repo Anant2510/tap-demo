@@ -89,16 +89,17 @@ function resolveChoice(to, text) {
 /* ── Conversation logic ──────────────────────────────────────── */
 async function sendMainMenu(to) {
   const u = db.prepare("SELECT first_name, miles, tier FROM users WHERE id=1").get();
-  setMenu(to, { "1": "BOOK_USUAL", "2": "MY_BOOKING", "3": "EXTRAS", "4": "STATUS", "5": "CANCEL" });
+  setMenu(to, { "1": "BOOK_USUAL", "2": "MY_BOOKING", "3": "EXTRAS", "4": "STATUS", "5": "CHECKIN", "6": "CANCEL" });
   await sendText(to,
-`Olá ${u.first_name} 👋 This is TAP on WhatsApp — linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles).
+`Olá ${u.first_name} 👋 You're chatting with TAP AI on WhatsApp — linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles).
 
-Reply with a number:
+Reply with a number — or just type where you want to go (e.g. "flights to Madrid"):
 1️⃣  Book my usual flight  (TP1927 Porto→Lisbon, Mon 07:05)
 2️⃣  My booking
 3️⃣  Add extras
 4️⃣  Flight status
-5️⃣  Cancel booking
+5️⃣  Check in
+6️⃣  Cancel booking
 
 Every action updates the same TAP database as the app.`);
 }
@@ -118,12 +119,34 @@ Total €90.50 — €35 voucher + 6,000 miles applied, €37.50 to Visa ••4
 Reply:  1 to Pay now   ·   2 to Hold 48h free   ·   0 for menu`);
     return;
   }
+
+  /* Pick a flight returned by a free-route search → offer pay/hold */
+  if (id.startsWith("PICK_")) {
+    const fno = id.slice(5);
+    const f = flightByNo(fno);
+    if (!f) { await sendText(to, "That flight's no longer available — reply \"menu\" to start over."); return; }
+    setMenu(to, { "1": `PAY_${f.flight_no}`, "2": `HOLD_${f.flight_no}`, "0": "MENU" });
+    await sendText(to,
+`✈️ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)}
+${f.flight_date} · ${f.dep}–${f.arr} · Seat 4C
+Cabin bag + espresso pre-selected (your usuals)
+
+Total €${(f.price + 18.5).toFixed(2)} — €35 voucher + 6,000 miles can apply, rest to Visa ••4417.
+
+Reply:  1 to Pay now   ·   2 to Hold 48h free   ·   0 for menu`);
+    return;
+  }
   if (id.startsWith("PAY_")) {
     const fno = id.slice(4);
-    const r = await apiCall("POST", "/pay", { flight_no: fno, items: ["seat","bag","meal"], total: 90.5, voucher_amt: 35, miles_used: 6000, miles_amt: 18, card_amt: 37.5 });
+    const f = flightByNo(fno);
+    const extras = 18.5;                                  // bag + espresso bundle
+    const gross = +((f ? f.price : 72) + extras).toFixed(2);
+    const voucher_amt = 35, miles_used = 6000, miles_amt = 18;
+    const card_amt = Math.max(0, +(gross - voucher_amt - miles_amt).toFixed(2));
+    const r = await apiCall("POST", "/pay", { flight_no: fno, items: ["seat","bag","meal"], total: gross, voucher_amt, miles_used, miles_amt, card_amt });
     await sendText(to, `✅ Booked! Confirmation ${r.pnr}.
 
-Payment split: voucher −€35 · 6,000 miles −€18 · Visa ••4417 €37.50.
+Payment split: voucher −€${voucher_amt} · 6,000 miles −€${miles_amt} · Visa ••4417 €${card_amt.toFixed(2)}.
 Confirmation email sent. Auto check-in is ON — your boarding pass appears 24h before departure.`);
     await sendMainMenu(to);
     return;
@@ -236,13 +259,60 @@ async function handleIncoming({ from, text }) {
 
   // 2) Keyword intents (also covers "hi"/"menu"/"hello")
   if (/^(hi|hello|hey|menu|start|olá|ola)\b/.test(t) || t === "") return sendMainMenu(from);
+
+  // 2a) Free-route search: "flights to madrid", "find me a flight to paris", "go to lisbon"
+  const dest = detectDest(t);
+  if (dest && /\b(flight|fly|go|search|travel|trip|to)\b/.test(t)) return searchRoute(from, "OPO", dest);
+
   if (/book/.test(t)) return handleAction(from, "BOOK_USUAL");
   if (/cancel/.test(t)) return handleAction(from, "CANCEL");
+  if (/check.?in/.test(t)) return handleAction(from, "CHECKIN");
   if (/status|delay/.test(t)) return handleAction(from, "STATUS");
   if (/extra|wifi|meal|bag|lounge|transfer/.test(t)) return handleAction(from, "EXTRAS");
 
   // 3) Anything else → menu
   return sendMainMenu(from);
+}
+
+/* Resolve a destination from free text → IATA code, using the airports table. */
+function detectDest(t) {
+  // direct IATA code mention
+  const codeMatch = t.toUpperCase().match(/\b(LIS|OPO|MAD|CDG|FNC|BCN|LON|LHR|FCO|FRA|BRU|AMS|GVA|ZRH|MUC|MXP|ORY)\b/);
+  if (codeMatch && AIRPORTS[codeMatch[1]]) return codeMatch[1];
+  // city-name mention — scan known airports
+  for (const [code, a] of Object.entries(AIRPORTS)) {
+    if (!a.city) continue;
+    const city = a.city.toLowerCase();
+    if (t.includes(city)) return code;
+  }
+  // a few common aliases
+  const alias = { lisbon: "LIS", porto: "OPO", madrid: "MAD", paris: "CDG", funchal: "FNC", barcelona: "BCN", london: "LHR", rome: "FCO", frankfurt: "FRA", brussels: "BRU", amsterdam: "AMS", geneva: "GVA", zurich: "ZRH", munich: "MUC", milan: "MXP" };
+  for (const [name, code] of Object.entries(alias)) if (t.includes(name) && AIRPORTS[code]) return code;
+  return null;
+}
+
+/* Free-route search → numbered flight list (mirrors the web AI chat). */
+async function searchRoute(to, origin, dest, date = "2026-06-15") {
+  const r = await apiCall("GET", `/search?origin=${origin}&dest=${dest}&date=${date}`);
+  if (!r.ok || !r.flights?.length) {
+    await sendText(to, `Hmm, I couldn't find a ${cityName(origin)} → ${cityName(dest)} flight in our network. Try another city, or reply "menu".`);
+    return;
+  }
+  const flights = r.flights.slice(0, 5);
+  const map = { "0": "MENU" }; const lines = [];
+  flights.forEach((f, i) => {
+    const n = String(i + 1);
+    map[n] = `PICK_${f.flight_no}`;
+    lines.push(`${n}️⃣  ${f.flight_no} · ${f.dep}–${f.arr} · €${f.price}${f.recommended ? " ⭐" : ""}`);
+  });
+  setMenu(to, map);
+  await sendText(to,
+`✈️ ${cityName(origin)} → ${cityName(dest)} · ${date}
+Found ${flights.length} flights — reply with a number to pick:
+
+${lines.join("\n")}
+
+0 for menu`);
 }
 
 /* ── Proactive push: portal disruption → WhatsApp text ───────── */

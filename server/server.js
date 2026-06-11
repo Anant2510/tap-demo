@@ -8,7 +8,7 @@ const cors = require("cors");
 const path = require("path");
 const { db, now, DB_PATH, seedSearches } = require("./db");
 const { sendEmail, SMTP_READY } = require("./email");
-const { callClaude, FALLBACKS, hasKey } = require("./claude");
+const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
 const { AIRPORTS } = require("./routes-data");
 const whatsapp = require("./whatsapp");
@@ -363,6 +363,186 @@ app.post("/api/ai/chat", async (req, res) => {
   catch { res.json({ reply: FALLBACKS.chat, ai: "cached" }); }
 });
 
+/* ── Agentic chat: Claude calls real tools that read/write the same
+   DB and emit UI directives. Returns { reply, cards, command, ai }.
+   `cards` render inline in the chat; `command` tells the main screen
+   what to do (chat is primary, screen follows). ─────────────────── */
+const AGENT_TOOLS = [
+  { name: "search_flights", description: "Search TAP flights for a route and date. Use when the customer wants to find or compare flights. Dates like 'next Friday' should be resolved to YYYY-MM-DD (today is 2026-06-11).",
+    input_schema: { type: "object", properties: {
+      origin: { type: "string", description: "Origin IATA code, e.g. OPO. Default OPO (Daniel's home airport) if unspecified." },
+      dest: { type: "string", description: "Destination IATA code, e.g. LIS, MAD, CDG, FNC." },
+      date: { type: "string", description: "Travel date YYYY-MM-DD. Default 2026-06-15 (next Monday) if unspecified." },
+    }, required: ["dest"] } },
+  { name: "get_suggestions", description: "Get Daniel's personalized suggested destinations, computed from his real flown/booked/searched history. Use when he asks 'where should I go' or for ideas.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "select_flight", description: "Select a specific flight by its flight number (from a prior search) and put it in the basket. Use when the customer picks one.",
+    input_schema: { type: "object", properties: { flight_no: { type: "string" } }, required: ["flight_no"] } },
+  { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer).",
+    input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
+  { name: "checkout", description: "Pay for the currently selected flight using Daniel's saved profile (voucher €35 + miles + Visa). Creates a real booking and sends a confirmation email. Only call after a flight is selected and the customer confirms they want to pay.",
+    input_schema: { type: "object", properties: { use_voucher: { type: "boolean" }, use_miles: { type: "boolean" } } } },
+  { name: "get_booking", description: "Get Daniel's current/latest active booking with status. Use for 'my booking', 'am I checked in', 'is my flight on time'.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "check_in", description: "Check Daniel in for his current active booking. Issues the boarding pass. Use when he says 'check me in' or 'check in'.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "cancel_booking", description: "Cancel Daniel's current active booking with an instant refund (miles restored, voucher reactivated, card amount returned). Only call after the customer clearly confirms they want to cancel.",
+    input_schema: { type: "object", properties: { confirm: { type: "boolean", description: "Must be true — the customer has confirmed the cancellation." } }, required: ["confirm"] } },
+];
+
+// tiny per-process agent memory (single demo user)
+const agentState = { lastSearch: null, selected: null };
+
+function agentRunTool(name, input) {
+  if (name === "search_flights") {
+    const origin = (input.origin || "OPO").toUpperCase();
+    const dest = (input.dest || "LIS").toUpperCase();
+    const date = input.date || "2026-06-15";
+    const route = getRoute(origin, dest);
+    if (!route) return { ok: false, message: `TAP doesn't fly ${origin}→${dest} directly in this network.` };
+    const flights = generateFlights(origin, dest, date);
+    persistFlights(flights);
+    const stored = db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, date);
+    db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at) VALUES (1,?,?,?,?,?,?,?)`)
+      .run(origin, dest, date, 1, stored.length, "Chat agent", now());
+    log("agent_search", { origin, dest, date, results: stored.length });
+    agentState.lastSearch = { origin, dest, date, flights: stored };
+    return { ok: true, origin, dest, date, city: cityName(dest),
+      flights: stored.map(f => ({ flight_no: f.flight_no, dep: f.dep, arr: f.arr, price: f.price, status: f.status, recommended: !!f.recommended })) };
+  }
+  if (name === "get_suggestions") {
+    const sug = db.prepare("SELECT * FROM destinations").all().slice(0, 6).map(d => {
+      const flown = db.prepare("SELECT COUNT(*) c FROM travel_history WHERE user_id=1 AND route LIKE ?").get(`%→${d.code}`).c;
+      const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=1 AND dest=?").get(d.code).c;
+      return { code: d.code, city: d.city, flown, searched };
+    });
+    return { ok: true, suggestions: sug };
+  }
+  if (name === "select_flight") {
+    const f = flightByNo((input.flight_no || "").toUpperCase());
+    if (!f) return { ok: false, message: "That flight number isn't in the latest results — search the route first." };
+    const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code);
+    db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
+    db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)").run(f.flight_no, JSON.stringify(auto), now());
+    agentState.selected = { flight_no: f.flight_no, items: auto };
+    log("agent_select", { flight_no: f.flight_no });
+    return { ok: true, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, arr: f.arr, price: f.price, seat: "4C", auto_extras: auto };
+  }
+  if (name === "add_extras") {
+    const sel = agentState.selected;
+    if (!sel) return { ok: false, message: "No flight selected yet." };
+    const codes = (input.codes || []).map(c => c.toLowerCase());
+    sel.items = [...new Set([...sel.items, ...codes])];
+    db.prepare("UPDATE baskets SET items_json=? WHERE user_id=1 AND status='open'").run(JSON.stringify(sel.items));
+    const named = db.prepare(`SELECT code,name,price FROM ancillaries`).all().filter(a => sel.items.includes(a.code));
+    log("agent_extras", { flight_no: sel.flight_no, items: sel.items });
+    return { ok: true, items: named };
+  }
+  if (name === "checkout") {
+    const sel = agentState.selected;
+    if (!sel) return { ok: false, message: "No flight selected to pay for." };
+    const f = flightByNo(sel.flight_no);
+    const anc = db.prepare("SELECT code,price FROM ancillaries").all();
+    const extras = sel.items.reduce((s, c) => s + (anc.find(a => a.code === c)?.price || 0), 0);
+    const gross = f.price + extras;
+    const voucher_amt = input.use_voucher === false ? 0 : 35;
+    const miles_used = input.use_miles === false ? 0 : 6000;
+    const miles_amt = miles_used / 1000 * 3;  // 6000 miles ≈ €18
+    const card_amt = Math.max(0, +(gross - voucher_amt - miles_amt).toFixed(2));
+    const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at) VALUES (?,1,?,?,'4C',?,?)`)
+      .run(pnr, f.flight_no, f.flight_date, JSON.stringify(sel.items), now());
+    db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)`)
+      .run(Number(b.lastInsertRowid), gross, voucher_amt, miles_used, miles_amt, card_amt, now());
+    if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
+    if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=1 AND status='active'").run();
+    db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
+    db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,'Business')`)
+      .run(f.flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
+    log("agent_checkout", { pnr, gross, split: { voucher_amt, miles_used, card_amt } });
+    sendEmail("booking_confirmation", { f, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
+    agentState.selected = null;
+    return { ok: true, pnr, total: gross, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
+  }
+  if (name === "get_booking") {
+    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status!='cancelled' ORDER BY id DESC LIMIT 1").get();
+    if (!b) return { ok: true, booking: null };
+    const f = flightByNo(b.flight_no) || {};
+    return { ok: true, booking: { pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, seat: b.seat, status: f.status, checked_in: !!b.checked_in } };
+  }
+  if (name === "check_in") {
+    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status!='cancelled' ORDER BY id DESC LIMIT 1").get();
+    if (!b) return { ok: false, message: "No active booking to check in for." };
+    db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
+    db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('agent_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
+    log("agent_checkin", { pnr: b.pnr });
+    return { ok: true, pnr: b.pnr, seat: b.seat || "4C", group: "A (Gold)" };
+  }
+  if (name === "cancel_booking") {
+    if (input.confirm !== true) return { ok: false, needs_confirm: true, message: "Ask the customer to confirm before cancelling." };
+    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status!='cancelled' ORDER BY id DESC LIMIT 1").get();
+    if (!b) return { ok: false, message: "No active booking to cancel." };
+    db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
+    const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(b.id);
+    if (pay) {
+      if (pay.miles_used > 0) db.prepare("UPDATE users SET miles = miles + ? WHERE id=1").run(pay.miles_used);
+      if (pay.voucher_amt > 0) db.prepare("UPDATE vouchers SET status='active' WHERE user_id=1").run();
+    }
+    log("agent_cancel", { pnr: b.pnr, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : null });
+    sendEmail("cancelled", { b, pay });
+    return { ok: true, pnr: b.pnr, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : { miles: 0, voucher: 0, card: 0 } };
+  }
+  return { ok: false, message: "unknown tool" };
+}
+
+// Turn the ordered tool calls into UI cards + one screen command for the main app.
+function buildUI(toolCalls) {
+  let cards = [], command = null;
+  for (const tc of toolCalls) {
+    if (tc.name === "search_flights" && tc.result?.ok) {
+      cards = [{ type: "flights", origin: tc.result.origin, dest: tc.result.dest, city: tc.result.city, date: tc.result.date, flights: tc.result.flights }];
+      command = { action: "show_search", origin: tc.result.origin, dest: tc.result.dest, date: tc.result.date };
+    } else if (tc.name === "get_suggestions" && tc.result?.ok) {
+      cards = [{ type: "suggestions", suggestions: tc.result.suggestions }];
+      command = { action: "navigate", screen: "search" };
+    } else if (tc.name === "select_flight" && tc.result?.ok) {
+      cards = [{ type: "selected", ...tc.result }];
+      command = { action: "select_flight", flight_no: tc.result.flight_no };
+    } else if (tc.name === "checkout" && tc.result?.ok) {
+      cards = [{ type: "confirmation", ...tc.result }];
+      command = { action: "show_confirmation", pnr: tc.result.pnr };
+    } else if (tc.name === "get_booking" && tc.result?.ok && tc.result.booking) {
+      cards = [{ type: "booking", ...tc.result.booking }];
+      command = { action: "navigate", screen: "manage" };
+    } else if (tc.name === "check_in" && tc.result?.ok) {
+      cards = [{ type: "checkin", ...tc.result }];
+      command = { action: "navigate", screen: "manage" };
+    } else if (tc.name === "cancel_booking" && tc.result?.ok) {
+      cards = [{ type: "cancelled", ...tc.result }];
+      command = { action: "navigate", screen: "manage" };
+    }
+  }
+  return { cards, command };
+}
+
+app.post("/api/ai/agent", async (req, res) => {
+  const messages = (req.body.messages || []).slice(-12);
+  const screen = req.body.screen || "home";
+  log("ai_agent_message", { screen, last: typeof messages[messages.length - 1]?.content === "string" ? messages[messages.length - 1].content.slice(0, 120) : "" });
+  // Prepend a small situational note so Claude knows where Daniel is
+  const withContext = messages.length
+    ? [...messages.slice(0, -1), { role: "user", content: `(Daniel is on the "${screen}" screen.) ${typeof messages[messages.length - 1].content === "string" ? messages[messages.length - 1].content : ""}` }]
+    : messages;
+  try {
+    const { reply, toolCalls } = await callClaudeAgent(withContext, AGENT_TOOLS, async (n, i) => agentRunTool(n, i));
+    const { cards, command } = buildUI(toolCalls);
+    res.json({ reply: reply || "Done.", cards, command, ai: "live", tools: toolCalls.map(t => t.name) });
+  } catch (e) {
+    log("ai_agent_error", { error: e.message });
+    res.json({ reply: FALLBACKS.chat, cards: [], command: null, ai: "cached" });
+  }
+});
+
 /* Personalized marketing offer — generated from DB history, then emailed */
 app.post("/api/offers/send", async (req, res) => {
   let offer, ai = "live";
@@ -392,7 +572,7 @@ app.get("/api/admin/emails", (req, res) =>
 app.get("/api/admin/emails/:id", (req, res) =>
   res.json(db.prepare("SELECT * FROM emails WHERE id=?").get(req.params.id) || {}));
 app.get("/api/health", (req, res) =>
-  res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", claude: hasKey() ? "live" : "fallback mode", whatsapp: whatsapp.CONFIGURED() ? "configured — messages really send" : "not configured (messages logged to DB)" }));
+  res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", ai: hasKey() ? "live" : "fallback mode", whatsapp: whatsapp.CONFIGURED() ? "configured — messages really send" : "not configured (messages logged to DB)" }));
 
 /* Reset for repeated demos */
 app.post("/api/admin/reset", (req, res) => {
@@ -418,5 +598,5 @@ app.listen(PORT, () => {
   console.log(`\n✈  TAP demo running  →  http://localhost:${PORT}`);
   console.log(`   DB:      ${DB_PATH}`);
   console.log(`   SMTP:    ${SMTP_READY ? "configured — emails will really send" : "not configured — emails stored in DB outbox"}`);
-  console.log(`   Claude:  ${hasKey() ? "live (ANTHROPIC_API_KEY found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}\n`);
+  console.log(`   AI:      ${hasKey() ? "live (API key found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}\n`);
 });

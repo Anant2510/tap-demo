@@ -44,6 +44,55 @@ async function callClaude(messages, { json = false, maxTokens = 1000 } = {}) {
   return JSON.parse(text.replace(/```json|```/g, "").trim());
 }
 
+/* ── Agentic tool-use call ───────────────────────────────────────
+   Lets Claude call real tools (defined by the caller) in a loop.
+   `runTool(name, input)` must return a JSON-serialisable result.
+   Returns { reply, toolCalls } where reply is the final text and
+   toolCalls is the ordered list of {name, input, result} executed,
+   which the server turns into UI cards + a screen command. */
+async function callClaudeAgent(messages, tools, runTool, { maxTokens = 1200, maxTurns = 5 } = {}) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("no_api_key");
+  const convo = [...messages];
+  const toolCalls = [];
+  const sys = danielContext() + `
+
+You are an in-app booking agent. You can take real actions through tools that read and write the same database the website uses. When the customer wants to find, choose, add extras to, or pay for a flight, USE THE TOOLS — don't just describe what you'd do. After acting, reply in one or two crisp sentences confirming what you did or showing what you found; the UI will render the flight cards and update the screen, so don't list every flight in prose. Always work from Daniel's real profile (saved card, voucher, miles, seat 4C, the OPO⇄LIS pattern).`;
+
+  for (let turn = 0; turn < maxTurns; turn++) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
+        max_tokens: maxTokens, system: sys, tools, messages: convo,
+      }),
+    });
+    if (!res.ok) throw new Error("api_" + res.status + ": " + (await res.text()).slice(0, 200));
+    const data = await res.json();
+    const blocks = data.content || [];
+    convo.push({ role: "assistant", content: blocks });
+
+    const toolUses = blocks.filter(b => b.type === "tool_use");
+    if (toolUses.length === 0) {
+      const reply = blocks.filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+      return { reply, toolCalls };
+    }
+    // Execute each requested tool and feed results back
+    const results = [];
+    for (const tu of toolUses) {
+      let result;
+      try { result = await runTool(tu.name, tu.input || {}); }
+      catch (e) { result = { error: e.message }; }
+      toolCalls.push({ name: tu.name, input: tu.input || {}, result });
+      results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result).slice(0, 4000) });
+    }
+    convo.push({ role: "user", content: results });
+  }
+  // Ran out of turns — return whatever text we have
+  return { reply: "Done.", toolCalls };
+}
+
 /* Cached fallbacks so the demo never stalls without a key/network */
 const FALLBACKS = {
   plan: {
@@ -74,4 +123,4 @@ const FALLBACKS = {
   chat: "I can help with that. Your next confirmed trip is TP1927 OPO→LIS on Mon 15 Jun, 07:05, seat 4C — say the word if you want to change, hold, or check disruption risk. (Live AI is offline in this environment, but all booking tools are fully functional.)",
 };
 
-module.exports = { callClaude, FALLBACKS, hasKey: () => !!process.env.ANTHROPIC_API_KEY };
+module.exports = { callClaude, callClaudeAgent, FALLBACKS, hasKey: () => !!process.env.ANTHROPIC_API_KEY };

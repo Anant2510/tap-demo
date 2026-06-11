@@ -262,7 +262,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
         <Card className="lg:col-span-3 p-6 slide-up">
           <div className="flex items-center justify-between mb-3">
             <Chip tone="gold"><Sparkles size={11}/> AI itinerary planner</Chip>
-            <span className="text-[11px] text-gray-400">Claude · reads your profile from the DB{aiMode === "cached" ? " · cached mode" : ""}</span>
+            <span className="text-[11px] text-gray-400">TAP AI · reads your profile from the DB{aiMode === "cached" ? " · cached mode" : ""}</span>
           </div>
           <div className="flex gap-2">
             <input value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runPlanner()}
@@ -328,7 +328,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
       </div>
 
       <button onClick={openAssistant} className="fixed bottom-6 right-6 z-30 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg text-white text-sm font-semibold" style={{ background: "var(--tap-deep)" }}>
-        <MessageCircle size={17}/> TAP Assistant
+        <MessageCircle size={17}/> TAP AI
       </button>
     </div>
   );
@@ -757,12 +757,12 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
       </Card>
 
       <Card className="p-4 flex flex-wrap items-center gap-3" style={{background:"#FBFDFC"}}>
-        <div className="text-xs text-gray-500 flex-1 min-w-[200px]"><b>Demo control:</b> trigger a live disruption — the ops event hits the DB, Claude writes the recovery, and the notification email goes out in real time.</div>
+        <div className="text-xs text-gray-500 flex-1 min-w-[200px]"><b>Demo control:</b> trigger a live disruption — the ops event hits the DB, TAP AI writes the recovery, and the notification email goes out in real time.</div>
         <button onClick={simulateDisruption} disabled={loadingRec}
           className="px-4 py-2.5 rounded-xl text-sm font-bold text-white flex items-center gap-2 disabled:opacity-50" style={{background:"var(--tap-red)"}}>
           <AlertTriangle size={15}/> Simulate flight delay
         </button>
-        <GhostBtn onClick={openAssistant}><MessageCircle size={15}/> Ask the assistant</GhostBtn>
+        <GhostBtn onClick={openAssistant}><MessageCircle size={15}/> Ask TAP AI</GhostBtn>
       </Card>
 
       {showPass && passBooking && (
@@ -889,21 +889,100 @@ function Console({ toast }) {
   );
 }
 
-/* ── ASSISTANT — Claude concierge via backend ── */
-function Assistant({ open, onClose, screen }) {
-  const [msgs, setMsgs] = useState([{ role: "assistant", content: "Olá Daniel 👋 I can rebook, change seats, check disruption risk or answer anything about your trip — just ask." }]);
+/* ── ASSISTANT — TAP AI concierge via backend ── */
+/* ── Inline cards rendered inside the chat by the agent ── */
+function ChatCards({ cards, onSelectFlight }) {
+  if (!cards || !cards.length) return null;
+  return (
+    <div className="space-y-2">
+      {cards.map((c, i) => {
+        if (c.type === "flights") return (
+          <div key={i} className="bg-white border rounded-2xl p-3 space-y-2" style={{borderColor:"var(--tap-line)"}}>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">{c.city} · {c.date}</div>
+            {c.flights.map(f => (
+              <div key={f.flight_no} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0" style={{borderColor:"var(--tap-line)"}}>
+                <div className="min-w-0">
+                  <div className="font-bold text-sm flex items-center gap-1.5" style={{color:"var(--tap-ink)"}}>
+                    {f.flight_no} {f.recommended && <span className="text-[9px] px-1.5 py-0.5 rounded-full text-white" style={{background:"var(--tap-green)"}}>For you</span>}
+                    {f.status==="delayed" && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">delayed</span>}
+                  </div>
+                  <div className="text-xs text-gray-500">{f.dep}–{f.arr}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="font-bold text-sm" style={{color:"var(--tap-ink)"}}>{EUR(f.price)}</span>
+                  <button onClick={()=>onSelectFlight(f.flight_no)} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style={{background:"var(--tap-green)"}}>Select</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+        if (c.type === "selected") return (
+          <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
+            <div className="text-[11px] font-bold uppercase tracking-wide" style={{color:"var(--tap-green)"}}>In your basket</div>
+            <div className="font-bold text-sm mt-0.5" style={{color:"var(--tap-ink)"}}>{c.flight_no} · {c.route}</div>
+            <div className="text-xs text-gray-500">{c.dep}–{c.arr} · seat {c.seat} · {EUR(c.price)}</div>
+          </div>
+        );
+        if (c.type === "confirmation") return (
+          <div key={i} className="rounded-2xl p-3 text-white" style={{background:"var(--tap-deep)"}}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-white/70"><BadgeCheck size={13}/> Booked</div>
+            <div className="font-extrabold text-base mt-0.5">{c.pnr}</div>
+            <div className="text-xs text-white/80 mt-1">{c.route} · {c.dep} · {EUR(c.total)}</div>
+            <div className="text-[11px] text-white/60 mt-1">Voucher −{EUR(c.split.voucher)} · {c.split.miles.toLocaleString()} miles −{EUR(c.split.miles_eur)} · Visa {EUR(c.split.card)}</div>
+          </div>
+        );
+        if (c.type === "suggestions") return (
+          <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1">Picked from your history</div>
+            <div className="flex flex-wrap gap-1.5">{c.suggestions.map(s => <span key={s.code} className="text-xs px-2 py-1 rounded-full border" style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>{s.city} {s.flown?`· flown ${s.flown}×`:s.searched?`· searched ${s.searched}×`:""}</span>)}</div>
+          </div>
+        );
+        if (c.type === "booking") return (
+          <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
+            <div className="font-bold text-sm" style={{color:"var(--tap-ink)"}}>{c.pnr} · {c.route}</div>
+            <div className="text-xs text-gray-500">{c.dep} · seat {c.seat} · {c.status==="delayed"?"⚠️ delayed":"on time"} · {c.checked_in?"checked in":"auto check-in"}</div>
+          </div>
+        );
+        if (c.type === "checkin") return (
+          <div key={i} className="rounded-2xl p-3 text-white" style={{background:"var(--tap-green)"}}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-white/80"><QrCode size={13}/> Checked in</div>
+            <div className="font-extrabold text-base mt-0.5">{c.pnr}</div>
+            <div className="text-xs text-white/85 mt-0.5">Boarding group {c.group} · seat {c.seat} · pass issued in the app</div>
+          </div>
+        );
+        if (c.type === "cancelled") return (
+          <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"#fecaca"}}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-red-600"><X size={13}/> Cancelled · instant refund</div>
+            <div className="font-bold text-sm mt-0.5" style={{color:"var(--tap-ink)"}}>{c.pnr}</div>
+            <div className="text-xs text-gray-500 mt-0.5">Refunded: {c.refund.miles?.toLocaleString?.()||c.refund.miles} miles · voucher reactivated · {EUR(c.refund.card||0)} to Visa</div>
+          </div>
+        );
+        return null;
+      })}
+    </div>
+  );
+}
+
+function Assistant({ open, onClose, screen, onCommand, onSelectFlight }) {
+  const [msgs, setMsgs] = useState([{ role: "assistant", content: "Olá Daniel 👋 I'm TAP AI. I can do everything right here in the chat — find flights, book them, add extras, check you in, and even cancel with an instant refund. Try \"find me a flight to Madrid next Friday\", \"book my usual Monday flight\", \"check me in\", or \"cancel my booking\". The main screen follows along as we go." }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs, open]);
 
-  const send = async () => {
-    const q = input.trim(); if (!q || busy) return;
-    const next = [...msgs.slice(1), { role: "user", content: q }];
-    setMsgs([msgs[0], ...next]); setInput(""); setBusy(true);
-    const payload = [...next.slice(0, -1), { role: "user", content: `(Daniel is on the "${screen}" screen. Active booking: TP1927 OPO→LIS Mon 15 Jun 07:05, seat 4C.) ${q}` }];
-    const r = await api.post("/ai/chat", { messages: payload });
-    setMsgs(m => [...m, { role: "assistant", content: r.reply }]); setBusy(false);
+  const send = async (preset) => {
+    const q = (preset || input).trim(); if (!q || busy) return;
+    const history = msgs.filter(m => typeof m.content === "string").map(m => ({ role: m.role, content: m.content }));
+    const next = [...history.slice(1), { role: "user", content: q }];
+    setMsgs(m => [...m, { role: "user", content: q }]); setInput(""); setBusy(true);
+    try {
+      const r = await api.post("/ai/agent", { messages: next, screen });
+      setMsgs(m => [...m, { role: "assistant", content: r.reply, cards: r.cards }]);
+      if (r.command) onCommand?.(r.command);   // chat drives the main screen
+    } catch {
+      setMsgs(m => [...m, { role: "assistant", content: "Something went wrong reaching the agent — try again." }]);
+    }
+    setBusy(false);
   };
 
   if (!open) return null;
@@ -913,28 +992,31 @@ function Assistant({ open, onClose, screen }) {
         <div className="p-4 flex items-center justify-between border-b" style={{borderColor:"var(--tap-line)", background:"var(--tap-deep)"}}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{background:"var(--tap-green)"}}><Sparkles size={17} className="text-white"/></div>
-            <div><div className="text-white font-bold text-sm">TAP Assistant</div><div className="text-white/60 text-[11px]">Knows your Gold profile · Claude via backend</div></div>
+            <div><div className="text-white font-bold text-sm">TAP AI</div><div className="text-white/60 text-[11px]">Books flights live · AI with tools</div></div>
           </div>
           <button onClick={onClose} className="text-white/70 hover:text-white" aria-label="Close assistant"><X size={18}/></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{background:"var(--tap-mist)"}}>
           {msgs.map((m,i)=>(
-            <div key={i} className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${m.role==="user"?"ml-auto text-white rounded-br-md":"bg-white rounded-bl-md border"}`}
-              style={m.role==="user" ? {background:"var(--tap-green)"} : {borderColor:"var(--tap-line)", color:"var(--tap-ink)"}}>{m.content}</div>
+            <div key={i} className="space-y-2">
+              {m.content && <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${m.role==="user"?"ml-auto text-white rounded-br-md":"bg-white rounded-bl-md border"}`}
+                style={m.role==="user" ? {background:"var(--tap-green)"} : {borderColor:"var(--tap-line)", color:"var(--tap-ink)"}}>{m.content}</div>}
+              {m.cards && <ChatCards cards={m.cards} onSelectFlight={(no)=>{ onSelectFlight?.(no); setMsgs(mm=>[...mm,{role:"assistant",content:`Selected ${no} — it's in your basket and on screen now. Say "check out" to pay with your voucher + miles.`}]); }}/>}
+            </div>
           ))}
           {busy && <div className="bg-white border px-4 py-2.5 rounded-2xl rounded-bl-md w-fit" style={{borderColor:"var(--tap-line)"}}><Loader2 className="animate-spin" size={15} style={{color:"var(--tap-green)"}}/></div>}
           <div ref={endRef}/>
         </div>
         <div className="p-3 border-t" style={{borderColor:"var(--tap-line)"}}>
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {["Will my Monday flight be on time?","Move me to the 18:35 on Thursday","What do my miles get me?"].map(s=>(
-              <button key={s} onClick={()=>setInput(s)} className="text-[11px] px-2.5 py-1 rounded-full border text-gray-500 hover:bg-gray-50" style={{borderColor:"var(--tap-line)"}}>{s}</button>
+            {["Find a flight to Madrid next Friday","Book my usual Monday flight","Add wifi and a meal","Check me in","Cancel my booking"].map(s=>(
+              <button key={s} onClick={()=>send(s)} className="text-[11px] px-2.5 py-1 rounded-full border text-gray-500 hover:bg-gray-50" style={{borderColor:"var(--tap-line)"}}>{s}</button>
             ))}
           </div>
           <div className="flex gap-2">
             <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send()}
-              placeholder="Ask anything about your trip…" className="flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none" style={{borderColor:"var(--tap-line)"}}/>
-            <PrimaryBtn onClick={send} disabled={busy} className="!px-4 !py-2.5"><Send size={15}/></PrimaryBtn>
+              placeholder="Ask me to find or book a flight…" className="flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none" style={{borderColor:"var(--tap-line)"}}/>
+            <PrimaryBtn onClick={()=>send()} disabled={busy} className="!px-4 !py-2.5"><Send size={15}/></PrimaryBtn>
           </div>
         </div>
       </div>
@@ -1177,25 +1259,30 @@ function App() {
   const go = (s) => { setScreen(s); window.scrollTo(0, 0); if (s === "home") refreshProfile(); if (s === "search") refreshSuggested(); };
   const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); go("basket"); };
 
-  // Flight search — logs to DB, feeds personalization
-  const runSearch = async (o, d) => {
+  // Flight search — logs to DB, feeds personalization.
+  // keepReason=true preserves the "picked for you" banner (set by bookDestination).
+  const runSearch = async (o, d, keepReason = false) => {
     const origin = (typeof o === "string" ? o : searchOrigin);
     const dest = (typeof d === "string" ? d : searchDest);
-    setSearching(true); setSearchResults(null); setPrefilledReason(null);
+    setSearching(true); setSearchResults(null);
+    if (!keepReason) setPrefilledReason(null);
     const r = await api.get(`/search?origin=${origin}&dest=${dest}&date=${searchDate}`);
     setSearchResults(r); setSearching(false);
     if (r.ok) toast("Search logged to DB", `${cityName(origin)} → ${cityName(dest)} · ${r.flights.length} flights · feeds personalization`);
     refreshSuggested();   // searching this route nudges it up the suggested list
   };
 
-  // Card tap → pre-fill the search with the route + the reason, let the user pick a date
+  // Card tap → pre-fill the route + reason, jump to search, AND run the search
+  // so flight options appear immediately (route already selected, ready to book).
   const bookDestination = (d) => {
     const code = d?.code || "LIS";
-    setSearchOrigin(d?.origin || "OPO");
+    const origin = d?.origin || "OPO";
+    setSearchOrigin(origin);
     setSearchDest(code);
     setSearchResults(null);
     setPrefilledReason(d?.reason || d?.reasons?.join("; ") || d?.tag || `Suggested route to ${cityName(code)}.`);
     go("search");
+    runSearch(origin, code, true);   // keepReason=true so the banner survives
   };
   const bookUsual = async () => {
     const f = await api.get(`/flights?dest=LIS&origin=OPO`);
@@ -1209,6 +1296,32 @@ function App() {
     await api.post("/basket", { flight_no: flight.flight_no, items: next });
   };
   const onPaid = (r) => { setReceipt(r); refreshProfile(); go("confirmed"); };
+
+  // ── Agent command bridge: the chat is primary; the main screen follows ──
+  const handleAgentCommand = async (cmd) => {
+    if (!cmd) return;
+    if (cmd.action === "show_search") {
+      setSearchOrigin(cmd.origin); setSearchDest(cmd.dest); if (cmd.date) setSearchDate(cmd.date);
+      const r = await api.get(`/search?origin=${cmd.origin}&dest=${cmd.dest}&date=${cmd.date || searchDate}`);
+      setSearchResults(r); setPrefilledReason(`Found in chat — ${cityName(cmd.origin)} → ${cityName(cmd.dest)}.`);
+      go("search");
+    } else if (cmd.action === "navigate") {
+      go(cmd.screen);
+    } else if (cmd.action === "select_flight") {
+      let picked = (searchResults?.flights || flights || []).find(x => x.flight_no === cmd.flight_no);
+      if (!picked) { const all = await api.get(`/search?origin=${searchOrigin}&dest=${searchDest}&date=${searchDate}`); picked = (all.flights||[]).find(x=>x.flight_no===cmd.flight_no); }
+      if (picked) { setFlight(picked); await api.post("/basket", { flight_no: picked.flight_no, items }); go("basket"); }
+    } else if (cmd.action === "show_confirmation") {
+      await refreshProfile();
+      const bookings = await api.get("/bookings");
+      const latest = bookings?.[0];
+      if (latest) {
+        setFlight(latest.flight);
+        setReceipt({ pnr: cmd.pnr, flight: latest.flight });
+        go("confirmed");
+      }
+    }
+  };
 
   if (!profile || screen === "login")
     return (<><Fonts/><Login profile={profile} onLogin={() => go("home")}/><Toasts list={toasts} dismiss={(id)=>setToasts(t=>t.filter(x=>x.id!==id))}/></>);
@@ -1250,11 +1363,11 @@ function App() {
       {screen === "manage" && <Manage profile={profile} flight={flight} openAssistant={()=>setAssistantOpen(true)} toast={toast} go={go}/>}
       {screen === "console" && <Console toast={toast}/>}
 
-      <Assistant open={assistantOpen} onClose={()=>setAssistantOpen(false)} screen={screen}/>
+      <Assistant open={assistantOpen} onClose={()=>setAssistantOpen(false)} screen={screen} onCommand={handleAgentCommand} onSelectFlight={(no)=>handleAgentCommand({action:"select_flight",flight_no:no})}/>
       <Toasts list={toasts} dismiss={(id)=>setToasts(t=>t.filter(x=>x.id!==id))}/>
 
       <footer className="border-t py-4 text-center text-[11px] text-gray-400" style={{borderColor:"var(--tap-line)"}}>
-        Demo · Reimagined pre-travel journey for Daniel, the Digital Commuter · Frontend + Express API + SQLite + Email + Claude
+        Demo · Reimagined pre-travel journey for Daniel, the Digital Commuter · Frontend + Express API + SQLite + Email + AI
       </footer>
     </div>
   );
