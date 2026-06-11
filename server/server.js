@@ -6,7 +6,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const { db, now, DB_PATH, seedSearches } = require("./db");
+const { db, now, DB_PATH, seedSearches, seedBookings } = require("./db");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -176,7 +176,7 @@ app.get("/api/destinations", (req, res) => {
   res.json(dests.map(d => {
     const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC").all(`%→${d.code}`);
     const flown = flownRows.length;
-    const booked = db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(d.code).c;
+    const booked = db.prepare(`SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(d.code).c;
     const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=1 AND dest=?").get(d.code).c;
     const purposes = [...new Set(flownRows.map(r => r.purpose))];
     const leisure = purposes.includes("Leisure");
@@ -287,7 +287,7 @@ TP1931 departs 09:10 arrives 10:05 — be honest it lands after 10:00; keeping $
 /* ── Booking management (used by portal + WhatsApp) ──────────── */
 app.post("/api/bookings/ancillary", async (req, res) => {
   const { code } = req.body;
-  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status != 'cancelled' ORDER BY id DESC LIMIT 1").get();
+  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
   if (!b || !a) return res.json({ ok: false });
   const items = JSON.parse(b.items_json || "[]");
@@ -298,7 +298,7 @@ app.post("/api/bookings/ancillary", async (req, res) => {
 });
 
 app.post("/api/bookings/cancel", async (req, res) => {
-  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status != 'cancelled' ORDER BY id DESC LIMIT 1").get();
+  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
   if (!b) return res.json({ ok: false });
   db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
   // Instant refund: restore miles + voucher from the payment record
@@ -340,6 +340,16 @@ app.post("/api/checkin", (req, res) => {
   db.prepare("UPDATE preferences SET auto_checkin=? WHERE user_id=1").run(auto ? 1 : 0);
   log("auto_checkin_toggled", { auto });
   res.json({ ok: true });
+});
+
+/* Check in the current active booking (issues boarding pass). */
+app.post("/api/bookings/checkin", (req, res) => {
+  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+  if (!b) return res.json({ ok: false, message: "No active booking to check in for." });
+  db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
+  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('checkin',?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web" }), now());
+  log("booking_checkin", { pnr: b.pnr });
+  res.json({ ok: true, pnr: b.pnr, seat: b.seat || "4C", group: "A (Gold)" });
 });
 
 /* ── AI endpoints ────────────────────────────────────────────── */
@@ -465,13 +475,13 @@ function agentRunTool(name, input) {
     return { ok: true, pnr, total: gross, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
   }
   if (name === "get_booking") {
-    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status!='cancelled' ORDER BY id DESC LIMIT 1").get();
+    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
     if (!b) return { ok: true, booking: null };
     const f = flightByNo(b.flight_no) || {};
     return { ok: true, booking: { pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, seat: b.seat, status: f.status, checked_in: !!b.checked_in } };
   }
   if (name === "check_in") {
-    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status!='cancelled' ORDER BY id DESC LIMIT 1").get();
+    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
     if (!b) return { ok: false, message: "No active booking to check in for." };
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
     db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('agent_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
@@ -480,7 +490,7 @@ function agentRunTool(name, input) {
   }
   if (name === "cancel_booking") {
     if (input.confirm !== true) return { ok: false, needs_confirm: true, message: "Ask the customer to confirm before cancelling." };
-    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status!='cancelled' ORDER BY id DESC LIMIT 1").get();
+    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
     if (!b) return { ok: false, message: "No active booking to cancel." };
     db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
     const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(b.id);
@@ -588,6 +598,7 @@ app.post("/api/admin/reset", (req, res) => {
   db.prepare("UPDATE vouchers SET status='active' WHERE user_id=1").run();
   db.prepare("UPDATE flights SET status='scheduled', new_dep=NULL, new_arr=NULL").run();
   seedSearches();   // restore the pre-demo behavioural signals
+  seedBookings();   // restore the 10-booking history (8 past + 2 active) + their flights
   res.json({ ok: true });
 });
 

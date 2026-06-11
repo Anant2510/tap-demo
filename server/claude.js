@@ -9,12 +9,15 @@ function danielContext() {
   const u = db.prepare("SELECT * FROM users WHERE id=1").get();
   const p = db.prepare("SELECT * FROM preferences WHERE user_id=1").get();
   const hist = db.prepare("SELECT flight_no,route,trip_date,dep_time FROM travel_history WHERE user_id=1 ORDER BY trip_date").all();
+  const upcoming = db.prepare("SELECT pnr,flight_no,flight_date,seat FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY flight_date").all();
+  const pastCount = db.prepare("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='completed'").get().c;
   return `You are the AI inside TAP Air Portugal's digital channel, serving one logged-in customer.
 CUSTOMER PROFILE (live from the customer database):
 - ${u.full_name}, 41, ${u.nationality}. Senior Digital Strategy Consultant. TAP Miles&Go ${u.tier.toUpperCase()}.
 - Miles: ${u.miles.toLocaleString()}. Voucher: €35. Saved card ${u.card_brand} ••${u.card_last4}.
 - Preferences: seat ${p.seat}; ${p.bag}; meal ${p.meal}; auto check-in ${p.auto_checkin ? "ON" : "OFF"}.
 - Travel history (last ${hist.length} flights): ${hist.map(h => `${h.trip_date} ${h.flight_no} ${h.route} ${h.dep_time}`).join("; ")}.
+- Bookings on file: ${pastCount} completed past trips, and ${upcoming.length} upcoming/active: ${upcoming.map(b => `${b.pnr} ${b.flight_no} on ${b.flight_date} seat ${b.seat}`).join("; ") || "none"}.
 - Pattern: flies OPO⇄LIS for business, outbound Mondays ~07:05 (TP1927), return Thursdays ~18:35 (TP1943). Tight client schedules in Lisbon.
 - Personality: time-pressed, values efficiency and control, hates redirects and extra steps.
 Tone: crisp, professional, warm but brief. 24h times, EUR. Today is ${new Date().toDateString()}.`;

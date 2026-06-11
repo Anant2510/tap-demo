@@ -72,7 +72,7 @@ const apiCall = (method, p, body) =>
   }).then(r => r.json());
 
 const latestBooking = () =>
-  db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status != 'cancelled' ORDER BY id DESC LIMIT 1").get();
+  db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 
 /* ── Per-sender menu context: maps the number the user just typed
@@ -257,21 +257,55 @@ async function handleIncoming({ from, text }) {
   const choice = resolveChoice(from, text);
   if (choice) return handleAction(from, choice);
 
-  // 2) Keyword intents (also covers "hi"/"menu"/"hello")
+  // 2) Fast deterministic paths (instant, no LLM needed)
   if (/^(hi|hello|hey|menu|start|olá|ola)\b/.test(t) || t === "") return sendMainMenu(from);
+  if (/^(book|book my usual|usual)\b/.test(t)) return handleAction(from, "BOOK_USUAL");
+  if (/^cancel\b/.test(t)) return handleAction(from, "CANCEL");
+  if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
+  if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
 
-  // 2a) Free-route search: "flights to madrid", "find me a flight to paris", "go to lisbon"
+  // 2a) Simple "flights to X" still uses the fast deterministic search
   const dest = detectDest(t);
   if (dest && /\b(flight|fly|go|search|travel|trip|to)\b/.test(t)) return searchRoute(from, "OPO", dest);
 
-  if (/book/.test(t)) return handleAction(from, "BOOK_USUAL");
-  if (/cancel/.test(t)) return handleAction(from, "CANCEL");
-  if (/check.?in/.test(t)) return handleAction(from, "CHECKIN");
-  if (/status|delay/.test(t)) return handleAction(from, "STATUS");
-  if (/extra|wifi|meal|bag|lounge|transfer/.test(t)) return handleAction(from, "EXTRAS");
+  // 3) EVERYTHING ELSE → the LLM agent (same brain as the web chat).
+  //    This makes WhatsApp intelligent: recommendations, questions, multi-step
+  //    requests, etc. The agent can also call tools (search/book/etc).
+  return runAgent(from, text);
+}
 
-  // 3) Anything else → menu
-  return sendMainMenu(from);
+/* Route a free-form message through the AI agent endpoint and relay the reply
+   to WhatsApp. If the agent searched flights, render them as a numbered pick
+   list so the user can act with a reply. Falls back to the menu on error. */
+async function runAgent(to, text) {
+  try {
+    const r = await apiCall("POST", "/ai/agent", { messages: [{ role: "user", content: text }], screen: "whatsapp" });
+    if (!r || (!r.reply && !(r.cards && r.cards.length))) return sendMainMenu(to);
+
+    // If the agent produced a flight list, present it as a numbered pick menu
+    const flightsCard = (r.cards || []).find(c => c.type === "flights");
+    if (flightsCard && flightsCard.flights?.length) {
+      const flights = flightsCard.flights.slice(0, 5);
+      const map = { "0": "MENU" }; const lines = [];
+      flights.forEach((f, i) => { const n = String(i + 1); map[n] = `PICK_${f.flight_no}`; lines.push(`${n}️⃣  ${f.flight_no} · ${f.dep}–${f.arr} · €${f.price}${f.recommended ? " ⭐" : ""}`); });
+      setMenu(to, map);
+      const head = r.reply ? r.reply + "\n\n" : "";
+      await sendText(to, `${head}✈️ ${cityName(flightsCard.origin)} → ${cityName(flightsCard.dest)} · ${flightsCard.date}\nReply with a number:\n\n${lines.join("\n")}\n\n0 for menu`);
+      return;
+    }
+
+    // If the agent confirmed a booking/checkout, relay it and return to menu
+    const conf = (r.cards || []).find(c => c.type === "confirmation");
+    if (conf) { await sendText(to, r.reply || `✅ Booked! Confirmation ${conf.pnr}.`); return sendMainMenu(to); }
+
+    // Otherwise just relay the agent's text answer (recommendations, Q&A, etc.)
+    await sendText(to, r.reply);
+    // keep the conversation actionable
+    setMenu(to, { "1": "BOOK_USUAL", "2": "MY_BOOKING", "3": "EXTRAS", "4": "STATUS", "5": "CHECKIN", "6": "CANCEL" });
+  } catch (e) {
+    await sendText(to, "Let me show you what I can do:");
+    return sendMainMenu(to);
+  }
 }
 
 /* Resolve a destination from free text → IATA code, using the airports table. */

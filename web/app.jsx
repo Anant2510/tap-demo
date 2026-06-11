@@ -186,6 +186,53 @@ function Login({ profile, onLogin }) {
 }
 
 /* ── HOME — Search & Inspiration ── */
+/* TAP-style segmented quick-book widget (Book flight · Check-in · Manage · Status) */
+function QuickBook({ go }) {
+  const [tab, setTab] = useState("book");
+  const TABS = [
+    { id: "book",   label: "Book flight",     icon: <Plane size={15}/> },
+    { id: "checkin",label: "Check-in",        icon: <BadgeCheck size={15}/> },
+    { id: "manage", label: "Manage booking",  icon: <CalendarClock size={15}/> },
+    { id: "status", label: "Flight status",   icon: <Clock size={15}/> },
+  ];
+  const onTab = (id) => {
+    setTab(id);
+    if (id === "checkin") go("checkin");
+    else if (id === "manage") go("manage");
+    else if (id === "status") go("manage");
+  };
+  return (
+    <Card className="p-2 mt-2 slide-up">
+      <div className="flex flex-wrap gap-1 mb-2">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => onTab(t.id)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${t.id===tab?"text-white":"text-gray-600 hover:bg-gray-100"}`}
+            style={t.id===tab?{background:"var(--tap-green)"}:{}}>
+            {t.icon}{t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "book" && (
+        <div className="flex flex-wrap items-end gap-3 p-3 pt-1">
+          <div className="flex-1 min-w-[130px]">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Origin</label>
+            <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>Porto (OPO)</div>
+          </div>
+          <div className="flex-1 min-w-[130px]">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Destination</label>
+            <div className="px-3 py-2.5 rounded-xl border text-sm text-gray-400" style={{borderColor:"var(--tap-line)"}}>Choose destination</div>
+          </div>
+          <div className="min-w-[120px]">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Passengers</label>
+            <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>1 adult</div>
+          </div>
+          <PrimaryBtn onClick={() => go("search")} className="!py-2.5"><Search size={15}/> Search</PrimaryBtn>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Home({ profile, destinations, go, openAssistant, toast, bookDestination, bookUsual }) {
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState(null);
@@ -297,6 +344,9 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           )}
         </Card>
       </div>
+
+      {/* TAP-style quick-action booking widget (mirrors flytap.com), placed below the personalized hero */}
+      <QuickBook go={go} />
 
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
@@ -637,7 +687,8 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
   const loadBookings = async () => setBookings(await api.get("/bookings"));
   useEffect(() => { loadBookings(); }, []);
 
-  const active = bookings ? bookings.filter(b => b.status !== "cancelled") : [];
+  const active = bookings ? bookings.filter(b => b.status === "confirmed" || b.status === "rebooked") : [];
+  const past = bookings ? bookings.filter(b => b.status === "completed") : [];
   const primary = active[0];   // newest active booking drives disruption demo
 
   const simulateDisruption = async () => {
@@ -662,8 +713,8 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 pb-24 pt-8">
-      <h1 className="font-display font-black text-3xl mb-1" style={{color:"var(--tap-ink)"}}>Your bookings</h1>
-      <p className="text-sm text-gray-500 mb-6">Live from the bookings table — change, cancel, check in, all in-app.</p>
+      <h1 className="font-display font-black text-3xl mb-1" style={{color:"var(--tap-ink)"}}>My flights</h1>
+      <p className="text-sm text-gray-500 mb-6">Live from the bookings table — {active.length} upcoming, {past.length} past. Change, cancel or check in, all in-app.</p>
 
       {disrupted && (
         <Card className="p-5 mb-5 slide-up" style={{ borderColor: "var(--tap-red)", background: "#FFF6F7" }}>
@@ -716,6 +767,8 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
         </Card>
       )}
 
+      {active.length > 0 && <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Upcoming</div>}
+
       {active.map((b, idx) => {
         const f = b.flight || {};
         const isPrimary = idx === 0;
@@ -740,8 +793,31 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
         );
       })}
 
+      {past.length > 0 && (
+        <div className="mt-6">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Past trips · {past.length}</div>
+          <Card className="divide-y" style={{ borderColor: "var(--tap-line)" }}>
+            {past.map((b) => {
+              const f = b.flight || {};
+              return (
+                <div key={b.id} className="flex items-center justify-between gap-3 px-4 py-3" style={{ borderColor: "var(--tap-line)" }}>
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>{cityName(f.origin)} → {cityName(f.dest)} <span className="text-gray-400 font-semibold">· {b.flight_no}</span></div>
+                    <div className="text-xs text-gray-500">{b.flight_date} · {f.dep}–{f.arr} · seat {b.seat} · {b.pnr}</div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[11px] text-gray-400">Flown</span>
+                    <GhostBtn onClick={()=>go("search")} className="!py-1.5 !px-3 text-xs">Book again</GhostBtn>
+                  </div>
+                </div>
+              );
+            })}
+          </Card>
+        </div>
+      )}
+
       {bookings && bookings.some(b => b.status === "cancelled") && (
-        <div className="text-xs text-gray-400 mb-4">+ {bookings.filter(b => b.status === "cancelled").length} cancelled booking(s) in your history (visible in Demo Console).</div>
+        <div className="text-xs text-gray-400 mb-4 mt-4">+ {bookings.filter(b => b.status === "cancelled").length} cancelled booking(s) in your history (visible in Demo Console).</div>
       )}
 
       <Card className="p-4 mb-5 flex items-center gap-4">
@@ -1199,16 +1275,176 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
 }
 
 /* ── APP SHELL ── */
-const STEPS = [
-  { id: "home", label: "Search & Inspiration" },
-  { id: "search", label: "Search flights" },
-  { id: "flights", label: "Flight selection" },
-  { id: "basket", label: "Basket" },
-  { id: "checkout", label: "Checkout" },
-  { id: "payment", label: "Payment" },
-  { id: "manage", label: "Manage booking" },
-  { id: "console", label: "🗄 Demo Console" },
+// Nav mirrors the real flytap.com labels, with our cleaner styling.
+const NAV = [
+  { id: "home",   label: "Plan a trip" },
+  { id: "manage", label: "My flights" },
+  { id: "checkin",label: "Check-in" },
+  { id: "miles",  label: "TAP Miles&Go" },
+  { id: "help",   label: "Help" },
 ];
+// which nav item is "active" for a given screen
+const NAV_ACTIVE = {
+  home: "home", search: "home", flights: "home", basket: "home", checkout: "home", payment: "home", confirmed: "manage",
+  manage: "manage", checkin: "checkin", miles: "miles", help: "help", console: null,
+};
+
+function CheckIn({ go, toast }) {
+  const [booking, setBooking] = useState(undefined);   // undefined=loading, null=none
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+  useEffect(() => { (async () => {
+    const rows = await api.get("/bookings");
+    setBooking((rows || []).find(b => b.status !== "cancelled") || null);
+  })(); }, []);
+
+  const doCheckIn = async () => {
+    setBusy(true);
+    const r = await api.post("/bookings/checkin", {});
+    setBusy(false);
+    if (r.ok) { setDone(r); toast("Checked in", `${r.pnr} · boarding group ${r.group} · seat ${r.seat}`); }
+    else toast("Nothing to check in", "Book a flight first");
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 pb-24 pt-8">
+      <h1 className="font-display font-black text-3xl mb-1" style={{ color: "var(--tap-ink)" }}>Check-in</h1>
+      <p className="text-sm text-gray-500 mb-6">Online check-in opens 24h before departure. As Gold, you board with Group A.</p>
+
+      {booking === undefined && <div className="flex items-center gap-3 text-sm text-gray-500"><Loader2 className="animate-spin" size={16} style={{ color: "var(--tap-green)" }}/> Loading your trip…</div>}
+
+      {booking === null && (
+        <Card className="p-6 text-center">
+          <div className="text-sm text-gray-500 mb-3">You have no active booking to check in for.</div>
+          <PrimaryBtn onClick={() => go("home")} className="!py-2.5"><Zap size={15}/> Book a flight</PrimaryBtn>
+        </Card>
+      )}
+
+      {booking && !done && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Your upcoming flight</div>
+              <div className="font-display font-extrabold text-xl" style={{ color: "var(--tap-ink)" }}>{booking.flight?.flight_no} · {cityName(booking.flight?.origin)} → {cityName(booking.flight?.dest)}</div>
+              <div className="text-sm text-gray-500">{booking.flight?.dep}–{booking.flight?.arr} · seat {booking.seat} · {booking.pnr}</div>
+            </div>
+            <Chip tone={booking.checked_in ? "green" : "amber"}>{booking.checked_in ? "Checked in" : "Not checked in"}</Chip>
+          </div>
+          {booking.checked_in
+            ? <div className="text-sm text-gray-600">You're already checked in. Your boarding pass is in My flights.</div>
+            : <PrimaryBtn onClick={doCheckIn} disabled={busy} className="w-full !py-2.5">{busy ? <Loader2 className="animate-spin" size={16}/> : <BadgeCheck size={16}/>} Check in now</PrimaryBtn>}
+        </Card>
+      )}
+
+      {done && (
+        <Card className="p-6 text-center" style={{ borderColor: "var(--tap-green)" }}>
+          <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "var(--tap-green)" }}><QrCode size={22} className="text-white"/></div>
+          <div className="font-display font-extrabold text-xl mb-1" style={{ color: "var(--tap-ink)" }}>You're checked in!</div>
+          <div className="text-sm text-gray-600 mb-4">{done.pnr} · Boarding group {done.group} · seat {done.seat}. Your boarding pass is ready in My flights.</div>
+          <PrimaryBtn onClick={() => go("manage")} className="!py-2.5"><QrCode size={15}/> View boarding pass</PrimaryBtn>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function MilesGo({ profile, go }) {
+  const u = profile.user;
+  const nextTier = 60000;
+  const pct = Math.min(100, Math.round((u.miles / nextTier) * 100));
+  const perks = [
+    "Priority check-in, boarding (Group A) and baggage",
+    "Two free checked bags on every TAP flight",
+    "Lounge access at Lisbon, Porto and partner lounges",
+    "Free 24h fare lock and seat selection",
+    "Double miles on your weekly commute routes",
+  ];
+  return (
+    <div className="max-w-4xl mx-auto px-4 pb-24 pt-8">
+      <div className="flex items-center gap-3 mb-1 flex-wrap">
+        <h1 className="font-display font-black text-3xl" style={{ color: "var(--tap-ink)" }}>TAP Miles&Go</h1>
+        <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: "linear-gradient(120deg,#C9A227,#E8C75A)", color: "#3A2D04" }}>{u.tier} member</span>
+      </div>
+      <p className="text-sm text-gray-500 mb-6">Member {u.member_no || "PT-884512"} · {u.full_name}</p>
+
+      <Card className="p-6 mb-5">
+        <div className="flex items-end justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Miles balance</div>
+            <div className="font-display font-black text-4xl" style={{ color: "var(--tap-green)" }}>{u.miles.toLocaleString()}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-[11px] text-gray-400">{(nextTier - u.miles).toLocaleString()} miles to next status</div>
+            <div className="text-xs font-semibold" style={{ color: "var(--tap-ink)" }}>{pct}% there</div>
+          </div>
+        </div>
+        <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--tap-green)" }}/>
+        </div>
+      </Card>
+
+      <div className="grid sm:grid-cols-2 gap-4 mb-5">
+        <Card className="p-5">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Your wallet</div>
+          <div className="flex items-center justify-between py-1.5 border-b" style={{ borderColor: "var(--tap-line)" }}>
+            <span className="text-sm text-gray-600">Travel voucher</span><span className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>€35</span>
+          </div>
+          <div className="flex items-center justify-between py-1.5 border-b" style={{ borderColor: "var(--tap-line)" }}>
+            <span className="text-sm text-gray-600">Saved card</span><span className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>{u.card_brand} ••{u.card_last4}</span>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-sm text-gray-600">Miles value (approx)</span><span className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>€{Math.round(u.miles / 1000 * 3).toLocaleString()}</span>
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Your Gold benefits</div>
+          <ul className="space-y-1.5">
+            {perks.map((p, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-gray-600"><BadgeCheck size={15} style={{ color: "var(--tap-green)" }} className="mt-0.5 shrink-0"/>{p}</li>
+            ))}
+          </ul>
+        </Card>
+      </div>
+
+      <PrimaryBtn onClick={() => go("home")} className="!py-2.5"><Zap size={15}/> Use miles on your next trip</PrimaryBtn>
+    </div>
+  );
+}
+
+function Help({ openAssistant }) {
+  const faqs = [
+    { q: "How do I change or cancel a booking?", a: "Open My trips, or just ask TAP AI — it can rebook, change seats, or cancel with an instant refund in one step." },
+    { q: "When does online check-in open?", a: "24 hours before departure. With auto check-in on, your boarding pass is issued automatically and appears in the app." },
+    { q: "What can I spend my miles on?", a: "Flights, seat upgrades, extra bags and lounge passes. Your current balance and its approximate value are on the Miles&Go page." },
+    { q: "What happens if my flight is disrupted?", a: "We notify you proactively with rebooking options — by email and on WhatsApp — and your Gold + EU261 entitlements are applied automatically." },
+  ];
+  return (
+    <div className="max-w-3xl mx-auto px-4 pb-24 pt-8">
+      <h1 className="font-display font-black text-3xl mb-1" style={{ color: "var(--tap-ink)" }}>Help</h1>
+      <p className="text-sm text-gray-500 mb-6">Quick answers — or ask TAP AI anything and it'll handle it for you.</p>
+
+      <Card className="p-5 mb-5 flex items-center justify-between gap-3 flex-wrap" style={{ background: "#FBFDFC", borderColor: "var(--tap-green)" }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "var(--tap-green)" }}><Sparkles size={18} className="text-white"/></div>
+          <div>
+            <div className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>Ask TAP AI</div>
+            <div className="text-xs text-gray-500">Find flights, book, check in or cancel — right in the chat.</div>
+          </div>
+        </div>
+        <PrimaryBtn onClick={openAssistant} className="!py-2.5"><MessageCircle size={15}/> Open TAP AI</PrimaryBtn>
+      </Card>
+
+      <div className="space-y-3">
+        {faqs.map((f, i) => (
+          <Card key={i} className="p-4">
+            <div className="font-bold text-sm mb-1" style={{ color: "var(--tap-ink)" }}>{f.q}</div>
+            <div className="text-sm text-gray-600">{f.a}</div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const [screen, setScreen] = useState("login");
@@ -1326,7 +1562,7 @@ function App() {
   if (!profile || screen === "login")
     return (<><Fonts/><Login profile={profile} onLogin={() => go("home")}/><Toasts list={toasts} dismiss={(id)=>setToasts(t=>t.filter(x=>x.id!==id))}/></>);
 
-  const stepIdx = STEPS.findIndex(s => s.id === (screen === "confirmed" ? "manage" : screen));
+  const activeNav = NAV_ACTIVE[screen] || null;
 
   return (
     <div className="min-h-screen" style={{background:"var(--tap-mist)"}}>
@@ -1334,21 +1570,32 @@ function App() {
       <header className="sticky top-0 z-40 bg-white border-b" style={{borderColor:"var(--tap-line)"}}>
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <button onClick={()=>go("home")}><TapLogo/></button>
-          <nav className="hidden md:flex items-center gap-1 overflow-x-auto">
-            {STEPS.map((s,i)=>(
+          <nav className="hidden md:flex items-center gap-1">
+            {NAV.map((s)=>(
               <button key={s.id} onClick={()=>go(s.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${i===stepIdx?"text-white":"text-gray-500 hover:bg-gray-100"}`}
-                style={i===stepIdx?{background: s.id==="console" ? "var(--tap-deep)" : "var(--tap-green)"}:{}}>
+                className={`px-3.5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${s.id===activeNav?"text-white":"text-gray-600 hover:bg-gray-100"}`}
+                style={s.id===activeNav?{background:"var(--tap-green)"}:{}}>
                 {s.label}
               </button>
             ))}
           </nav>
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="hidden sm:block text-right">
-              <div className="text-xs font-bold" style={{color:"var(--tap-ink)"}}>{profile.user.first_name}</div>
-              <div className="text-[10px] text-gray-400">{profile.user.miles.toLocaleString()} miles</div>
+          <div className="flex items-center gap-2.5 shrink-0">
+            {/* Demo Console — set apart as a small demo-only badge */}
+            <button onClick={()=>go("console")}
+              className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors"
+              style={screen==="console"
+                ? {background:"var(--tap-deep)", color:"white", borderColor:"var(--tap-deep)"}
+                : {color:"var(--tap-deep)", borderColor:"var(--tap-line)"}}
+              title="Demo-only: live view of the database">
+              <Database size={12}/> Demo
+            </button>
+            <button className="hidden md:flex w-8 h-8 rounded-full items-center justify-center hover:bg-gray-100" aria-label="Search"><Search size={16} className="text-gray-500"/></button>
+            <div className="hidden sm:block text-right leading-tight">
+              <div className="text-xs font-bold" style={{color:"var(--tap-ink)"}}>Hi, {profile.user.first_name}</div>
+              <div className="text-[10px] text-gray-400">{profile.user.tier} · {profile.user.miles.toLocaleString()} miles</div>
             </div>
             <div className="w-9 h-9 rounded-full flex items-center justify-center font-display font-extrabold text-white text-sm" style={{background:"var(--tap-deep)"}}>DF</div>
+            <span className="hidden md:flex items-center gap-1 text-[11px] font-bold text-gray-500 border rounded-full px-2 py-1" style={{borderColor:"var(--tap-line)"}}>🇬🇧 EN</span>
           </div>
         </div>
       </header>
@@ -1361,6 +1608,9 @@ function App() {
       {screen === "payment" && flight && <Payment profile={profile} flight={flight} ancillaries={ancillaries} items={items} onPaid={onPaid} toast={toast}/>}
       {screen === "confirmed" && receipt && <Confirmed profile={profile} flight={flight} receipt={receipt} go={go}/>}
       {screen === "manage" && <Manage profile={profile} flight={flight} openAssistant={()=>setAssistantOpen(true)} toast={toast} go={go}/>}
+      {screen === "checkin" && <CheckIn go={go} toast={toast}/>}
+      {screen === "miles" && <MilesGo profile={profile} go={go}/>}
+      {screen === "help" && <Help openAssistant={()=>setAssistantOpen(true)}/>}
       {screen === "console" && <Console toast={toast}/>}
 
       <Assistant open={assistantOpen} onClose={()=>setAssistantOpen(false)} screen={screen} onCommand={handleAgentCommand} onSelectFlight={(no)=>handleAgentCommand({action:"select_flight",flight_no:no})}/>

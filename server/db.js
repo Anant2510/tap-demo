@@ -106,6 +106,48 @@ function seedSearches() {
   isr.run("LIS","FNC","2026-08-01",3,2,"MacBook Pro",dayAgo(6));   // Funchal for 3 — family again
 }
 
+// Seeded bookings — 10 total: 8 past (completed) + 2 active/upcoming. Reused by
+// initial seed AND reset, so Daniel always has a real booking history that drives
+// personalization across the site, web chat, WhatsApp and the AI planner.
+// Each booking needs a matching flights row (personalization joins bookings→flights),
+// so we seed those too.
+function seedBookings() {
+  // [pnr, flight_no, origin, dest, dep, arr, price, date, seat, status, checked_in, items]
+  const B = [
+    // ── 8 PAST bookings (completed trips) ──
+    ["TPQ4K2","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-02","4C","completed",1,["seat","bag","meal"]],
+    ["TPM8R1","TP1943","LIS","OPO","18:35","19:30",84,"2026-03-05","4C","completed",1,["seat","bag"]],
+    ["TPW2N7","TP1080","OPO","MAD","07:40","09:55",97,"2026-03-11","4C","completed",1,["seat","bag","meal"]],
+    ["TPL9V3","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-23","4C","completed",1,["seat","bag","meal"]],
+    ["TPF5J8","TP1080","OPO","MAD","07:40","09:55",92,"2026-04-15","4C","completed",1,["seat","bag","meal","wifi"]],
+    ["TPB7H4","TP1690","OPO","FNC","09:15","10:45",54,"2026-04-25","11A","completed",1,["seat","bag"]],
+    ["TPX1C9","TP1927","OPO","LIS","07:05","08:00",79,"2026-05-04","4C","completed",1,["seat","bag","meal"]],
+    ["TPK6D2","TP1080","OPO","MAD","07:40","09:55",95,"2026-05-20","4C","completed",1,["seat","bag","meal"]],
+    // ── 2 ACTIVE / UPCOMING bookings ──
+    ["TPN3T5","TP1927","OPO","LIS","07:05","08:00",86,"2026-06-15","4C","confirmed",0,["seat","bag","meal"]],
+    ["TPG8Y1","TP1080","OPO","MAD","07:40","09:55",98,"2026-06-22","4C","confirmed",0,["seat","bag","meal"]],
+  ];
+  // Seed ONE flights row per unique flight_no (personalization joins bookings→flights;
+  // duplicate flight_no rows would inflate counts). Booking carries its own date/seat.
+  const seenFlights = new Set(db.prepare("SELECT flight_no FROM flights").all().map(r => r.flight_no));
+  const insF = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?, 'scheduled')`);
+  const insB = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,created_at)
+    VALUES (?,1,?,?,?,?,?,?,?)`);
+  const insP = db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
+    VALUES (?,?,?,?,?,?,?)`);
+  B.forEach(([pnr,fno,o,d,dep,arr,price,date,seat,status,ci,items]) => {
+    if (!seenFlights.has(fno)) {
+      const dur = d === "FNC" ? "1h30" : (d === "MAD" ? "2h15" : "0h55");
+      insF.run(fno, o, d, dep, arr, dur, "A320neo", price, 9, date, fno === "TP1927" ? 1 : 0);
+      seenFlights.add(fno);
+    }
+    const createdAt = date + " 08:30:00";
+    const r = insB.run(pnr, fno, date, seat, status, ci, JSON.stringify(items), createdAt);
+    insP.run(Number(r.lastInsertRowid), price, 0, 0, 0, +price.toFixed(2), createdAt);
+  });
+}
+
 function seed() {
   const c = db.prepare("SELECT COUNT(*) n FROM users").get().n;
   if (c > 0) return;
@@ -152,6 +194,9 @@ function seed() {
   const ih = db.prepare("INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,?)");
   hist.forEach(h => ih.run(...h));
 
+  // Seeded bookings — 8 past + 2 active/upcoming, with matching flights + payments
+  seedBookings();
+
   // Seeded recent searches — behavioural signals that exist before the demo even starts
   seedSearches();
 
@@ -180,4 +225,4 @@ function seed() {
 }
 seed();
 
-module.exports = { db, now, DB_PATH, seedSearches };
+module.exports = { db, now, DB_PATH, seedSearches, seedBookings };
