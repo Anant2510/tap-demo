@@ -171,14 +171,21 @@ function Login({ profile, onLogin }) {
 
   const pick = async (p) => {
     if (busy || switching) return;
-    if (p.id !== active) {
-      setSwitching(p.id);
-      await api.post("/persona", { persona: p.id });   // re-seed the DB to this persona
-      setActive(p.id); setSwitching(null);
+    try {
+      if (p.id !== active) {
+        setSwitching(p.id);
+        await api.post("/persona", { persona: p.id });   // re-seed the DB to this persona
+        setActive(p.id); setSwitching(null);
+      }
+      setBusy(true);
+      // mark that we're entering the app, then reload so the freshly-seeded
+      // profile + persona data load everywhere. The hash makes the app open
+      // on Home instead of bouncing back to this login screen.
+      window.location.hash = "app";
+      setTimeout(() => window.location.reload(), 500);
+    } catch (e) {
+      setBusy(false); setSwitching(null);
     }
-    setBusy(true);
-    // small delay, then reload the app so the freshly-seeded profile loads everywhere
-    setTimeout(() => window.location.reload(), 600);
   };
 
   return (
@@ -2037,7 +2044,7 @@ function Help({ openAssistant }) {
 }
 
 function App() {
-  const [screen, setScreen] = useState("login");
+  const [screen, setScreen] = useState(() => (typeof window !== "undefined" && window.location.hash === "#app") ? "home" : "login");
   const [profile, setProfile] = useState(null);
   const [flights, setFlights] = useState([]);
   const [ancillaries, setAncillaries] = useState([]);
@@ -2067,22 +2074,26 @@ function App() {
 
   useEffect(() => {
     (async () => {
-      const [p, f, a, d, b, ap, rt, sug] = await Promise.all([
-        api.get("/profile"), api.get("/flights?dest=LIS"), api.get("/ancillaries"), api.get("/destinations"), api.get("/basket"),
-        api.get("/airports"), api.get("/routes"), api.get("/routes/suggested"),
-      ]);
-      ap.forEach(x => { AIRPORT_MAP[x.code] = x; });   // populate city-name lookup
-      setRoutes(rt); setSuggested(sug);
-      setProfile(p); setFlights(f); setAncillaries(a); setDestinations(d);
-      const rec = f.find(x => x.recommended) || f[0];
-      if (b) { setFlight(f.find(x => x.flight_no === b.flight_no) || rec); setItems(b.items); }
-      else { setFlight(rec); setItems(a.filter(x => x.auto).map(x => x.code)); }
+      try {
+        const [p, f, a, d, b, ap, rt, sug] = await Promise.all([
+          api.get("/profile"), api.get("/flights?dest=LIS"), api.get("/ancillaries"), api.get("/destinations"), api.get("/basket"),
+          api.get("/airports"), api.get("/routes"), api.get("/routes/suggested"),
+        ]);
+        (ap || []).forEach(x => { AIRPORT_MAP[x.code] = x; });   // populate city-name lookup
+        setRoutes(rt || []); setSuggested(sug || []);
+        setProfile(p); setFlights(f || []); setAncillaries(a || []); setDestinations(d || []);
+        const rec = (f || []).find(x => x.recommended) || (f || [])[0];
+        if (b && b.flight_no) { setFlight((f || []).find(x => x.flight_no === b.flight_no) || rec); setItems(b.items || []); }
+        else { setFlight(rec); setItems((a || []).filter(x => x.auto).map(x => x.code)); }
+      } catch (e) {
+        console.error("Initial load failed:", e);
+      }
     })();
   }, []);
 
   const refreshSuggested = async () => setSuggested(await api.get("/routes/suggested"));
   const refreshProfile = async () => setProfile(await api.get("/profile"));
-  const go = (s) => { setScreen(s); window.scrollTo(0, 0); if (s === "home") refreshProfile(); if (s === "search") refreshSuggested(); };
+  const go = (s) => { setScreen(s); window.scrollTo(0, 0); if (s === "login" && typeof window !== "undefined") window.location.hash = ""; if (s === "home") refreshProfile(); if (s === "search") refreshSuggested(); };
   const [seat, setSeat] = useState("4C");
   const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); go("seatmap"); };
 
