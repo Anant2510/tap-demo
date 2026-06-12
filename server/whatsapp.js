@@ -430,17 +430,31 @@ async function handleIncoming({ from, text }) {
   if (/\b(extras|add.?ons?|ancillar|upgrade my)\b/.test(t)) return handleAction(from, "EXTRAS");
   if (/\b(miles|voucher|balance|points|wallet)\b/.test(t) && !/book|pay|use|redeem|fly|flight/.test(t)) return handleAction(from, "WALLET");
 
-  // 2a) Fast deterministic search ONLY for an explicit "to <city>" destination,
-  //     e.g. "flights to Madrid", "fly to Paris". We must NOT fire on "from <city>"
-  //     (that's an origin) or on questions ("do we only fly to porto from lisbon?").
+  // 2a) Fast deterministic search for an explicit route the user typed, e.g.
+  //     "flights to Madrid", "fly to Paris", "options to London from Lisbon",
+  //     "Lisbon to Amsterdam". We parse BOTH a destination ("to X") and an
+  //     optional origin ("from Y"), so "to London from Lisbon" → LIS→LHR, not
+  //     a mangled home-airport guess. Questions go to the AI agent instead.
   const isQuestion = /\?|^(do|does|can|is|are|why|what|which|where|how)\b/.test(t);
-  const toMatch = t.match(/\b(?:to|fly to|flights? to|going to|travel to)\s+([a-z][a-z\s]{2,}?)(?:\s+(?:on|next|this|tomorrow|today|for|in)\b|[?.,]|$)/);
-  if (!isQuestion && toMatch) {
-    const destCode = detectDest(toMatch[1].trim());
-    // make sure it's a real destination word, and the message isn't an origin-only "from X" phrasing
-    if (destCode && !/\bfrom\b/.test(t.split(toMatch[0])[0] || "")) {
+  if (!isQuestion) {
+    // Capture the city right after "to" (a single city token, not the rest of the sentence)
+    const toMatch = t.match(/\bto\s+([a-zà-ÿ]+(?:\s+[a-zà-ÿ]+)?)\b/);
+    // Capture the city right after "from"
+    const fromMatch = t.match(/\bfrom\s+([a-zà-ÿ]+(?:\s+[a-zà-ÿ]+)?)\b/);
+    // Also handle "X to Y" without the word "from" (e.g. "Lisbon to Amsterdam")
+    const pairMatch = t.match(/\b([a-zà-ÿ]+(?:\s+[a-zà-ÿ]+)?)\s+to\s+([a-zà-ÿ]+(?:\s+[a-zà-ÿ]+)?)\b/);
+
+    let originCode = null, destCode = null;
+    if (fromMatch) originCode = detectDest(fromMatch[1].trim());
+    if (toMatch) destCode = detectDest(toMatch[1].trim());
+    // "X to Y" pattern fills in origin from the word before "to" when not already set
+    if (pairMatch && !originCode) originCode = detectDest(pairMatch[1].trim());
+    if (pairMatch && !destCode) destCode = detectDest(pairMatch[2].trim());
+
+    // Only fire the deterministic search when we have a real destination.
+    if (destCode && destCode !== originCode) {
       const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
-      return searchRoute(from, home, destCode);
+      return searchRoute(from, originCode || home, destCode);
     }
   }
 
@@ -492,20 +506,25 @@ async function runAgent(to, text) {
   }
 }
 
-/* Resolve a destination from free text → IATA code, using the airports table. */
+/* Resolve a destination from free text → IATA code, using the airports table.
+   Uses word-boundary matching so "london" never accidentally matches inside
+   another token, and checks the curated alias map first for reliability. */
 function detectDest(t) {
+  t = (t || "").toLowerCase().trim();
   // direct IATA code mention
   const codeMatch = t.toUpperCase().match(/\b(LIS|OPO|MAD|CDG|FNC|BCN|LON|LHR|FCO|FRA|BRU|AMS|GVA|ZRH|MUC|MXP|ORY|JFK|GRU|MIA|FAO|EWR)\b/);
   if (codeMatch && AIRPORTS[codeMatch[1]]) return codeMatch[1];
-  // city-name mention — scan known airports
+  // curated aliases first (incl. multi-word + persona cities) — most reliable
+  const alias = { lisbon: "LIS", porto: "OPO", oporto: "OPO", madrid: "MAD", paris: "CDG", funchal: "FNC", barcelona: "BCN", london: "LHR", rome: "FCO", frankfurt: "FRA", brussels: "BRU", amsterdam: "AMS", geneva: "GVA", zurich: "ZRH", munich: "MUC", milan: "MXP", "new york": "JFK", "newyork": "JFK", nyc: "JFK", "sao paulo": "GRU", "são paulo": "GRU", saopaulo: "GRU", miami: "MIA", faro: "FAO", dublin: "DUB", "ponta delgada": "PDL" };
+  for (const [name, code] of Object.entries(alias)) {
+    if (new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(t) && AIRPORTS[code]) return code;
+  }
+  // city-name scan with WORD BOUNDARIES (so "london" can't match inside other text)
   for (const [code, a] of Object.entries(AIRPORTS)) {
     if (!a.city) continue;
     const city = a.city.toLowerCase();
-    if (t.includes(city)) return code;
+    if (new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(t)) return code;
   }
-  // a few common aliases (incl. multi-word + persona cities)
-  const alias = { lisbon: "LIS", porto: "OPO", madrid: "MAD", paris: "CDG", funchal: "FNC", barcelona: "BCN", london: "LHR", rome: "FCO", frankfurt: "FRA", brussels: "BRU", amsterdam: "AMS", geneva: "GVA", zurich: "ZRH", munich: "MUC", milan: "MXP", "new york": "JFK", "newyork": "JFK", nyc: "JFK", "sao paulo": "GRU", "são paulo": "GRU", saopaulo: "GRU", miami: "MIA", faro: "FAO" };
-  for (const [name, code] of Object.entries(alias)) if (t.includes(name) && AIRPORTS[code]) return code;
   return null;
 }
 
