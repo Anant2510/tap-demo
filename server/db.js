@@ -114,15 +114,15 @@ function seedSearches() {
 function seedBookings() {
   // [pnr, flight_no, origin, dest, dep, arr, price, date, seat, status, checked_in, items]
   const B = [
-    // ── 8 PAST bookings (completed trips) ──
+    // ── 8 PAST bookings (completed trips) — varied ancillary history drives upsell personalization ──
     ["TPQ4K2","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-02","4C","completed",1,["seat","bag","meal"]],
-    ["TPM8R1","TP1943","LIS","OPO","18:35","19:30",84,"2026-03-05","4C","completed",1,["seat","bag"]],
-    ["TPW2N7","TP1080","OPO","MAD","07:40","09:55",97,"2026-03-11","4C","completed",1,["seat","bag","meal"]],
-    ["TPL9V3","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-23","4C","completed",1,["seat","bag","meal"]],
-    ["TPF5J8","TP1080","OPO","MAD","07:40","09:55",92,"2026-04-15","4C","completed",1,["seat","bag","meal","wifi"]],
-    ["TPB7H4","TP1690","OPO","FNC","09:15","10:45",54,"2026-04-25","11A","completed",1,["seat","bag"]],
-    ["TPX1C9","TP1927","OPO","LIS","07:05","08:00",79,"2026-05-04","4C","completed",1,["seat","bag","meal"]],
-    ["TPK6D2","TP1080","OPO","MAD","07:40","09:55",95,"2026-05-20","4C","completed",1,["seat","bag","meal"]],
+    ["TPM8R1","TP1943","LIS","OPO","18:35","19:30",84,"2026-03-05","4C","completed",1,["seat","bag","meal","wifi"]],
+    ["TPW2N7","TP1080","OPO","MAD","07:40","09:55",97,"2026-03-11","4C","completed",1,["seat","bag","meal","lounge"]],
+    ["TPL9V3","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-23","4C","completed",1,["seat","bag","meal","wifi"]],
+    ["TPF5J8","TP1080","OPO","MAD","07:40","09:55",92,"2026-04-15","4C","completed",1,["seat","bag","meal","wifi","lounge"]],
+    ["TPB7H4","TP1690","OPO","FNC","09:15","10:45",54,"2026-04-25","11A","completed",1,["seat","bag","meal"]],
+    ["TPX1C9","TP1927","OPO","LIS","07:05","08:00",79,"2026-05-04","4C","completed",1,["seat","bag","meal","wifi","transfer"]],
+    ["TPK6D2","TP1080","OPO","MAD","07:40","09:55",95,"2026-05-20","4C","completed",1,["seat","bag","meal","wifi","lounge"]],
     // ── 2 ACTIVE / UPCOMING bookings ──
     ["TPN3T5","TP1927","OPO","LIS","07:05","08:00",86,"2026-06-15","4C","confirmed",0,["seat","bag","meal"]],
     ["TPG8Y1","TP1080","OPO","MAD","07:40","09:55",98,"2026-06-22","4C","confirmed",0,["seat","bag","meal"]],

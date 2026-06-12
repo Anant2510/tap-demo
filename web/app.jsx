@@ -186,21 +186,42 @@ function Login({ profile, onLogin }) {
 }
 
 /* ── HOME — Search & Inspiration ── */
-/* TAP-style segmented quick-book widget (Book flight · Check-in · Manage · Status) */
-function QuickBook({ go }) {
+/* TAP-style segmented quick-book widget — fully functional, DB-backed.
+   Destination lists real TAP destinations; Search runs the real flight
+   search and lands on results with the route pre-filled. The other tabs
+   navigate to the real Check-in / My flights / Flight status screens. */
+function QuickBook({ go, destinations, bookDestination }) {
   const [tab, setTab] = useState("book");
+  const [origin, setOrigin] = useState("OPO");
+  const [dest, setDest] = useState("");
+  const [pax, setPax] = useState(1);
   const TABS = [
     { id: "book",   label: "Book flight",     icon: <Plane size={15}/> },
     { id: "checkin",label: "Check-in",        icon: <BadgeCheck size={15}/> },
     { id: "manage", label: "Manage booking",  icon: <CalendarClock size={15}/> },
     { id: "status", label: "Flight status",   icon: <Clock size={15}/> },
   ];
+  // Origins Daniel can fly from (his home + common hubs)
+  const ORIGINS = [["OPO","Porto"],["LIS","Lisbon"],["MAD","Madrid"],["CDG","Paris"]];
+  // Destinations come from the live DB list (plus a couple of staples)
+  const DESTS = (destinations && destinations.length)
+    ? destinations.map(d => [d.code, d.city])
+    : [["LIS","Lisbon"],["MAD","Madrid"],["CDG","Paris"],["FNC","Funchal"]];
+
   const onTab = (id) => {
     setTab(id);
     if (id === "checkin") go("checkin");
     else if (id === "manage") go("manage");
-    else if (id === "status") go("manage");
+    else if (id === "status") go("status");
   };
+  const doSearch = () => {
+    if (!dest) return;                       // require a destination
+    const city = (DESTS.find(([c]) => c === dest) || [])[1] || dest;
+    // Reuse the real booking flow: pre-fills route + navigates + runs the DB search
+    bookDestination({ code: dest, city, origin, reason: `${cityName(origin)} → ${city} — searched from the home widget.` });
+  };
+
+  const selCls = "px-3 py-2.5 rounded-xl border text-sm font-semibold bg-white w-full outline-none";
   return (
     <Card className="p-2 mt-2 slide-up">
       <div className="flex flex-wrap gap-1 mb-2">
@@ -216,17 +237,25 @@ function QuickBook({ go }) {
         <div className="flex flex-wrap items-end gap-3 p-3 pt-1">
           <div className="flex-1 min-w-[130px]">
             <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Origin</label>
-            <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>Porto (OPO)</div>
+            <select value={origin} onChange={e=>setOrigin(e.target.value)} className={selCls} style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>
+              {ORIGINS.map(([c,n]) => <option key={c} value={c}>{n} ({c})</option>)}
+            </select>
           </div>
-          <div className="flex-1 min-w-[130px]">
+          <div className="flex-1 min-w-[150px]">
             <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Destination</label>
-            <div className="px-3 py-2.5 rounded-xl border text-sm text-gray-400" style={{borderColor:"var(--tap-line)"}}>Choose destination</div>
+            <select value={dest} onChange={e=>setDest(e.target.value)} className={selCls}
+              style={{borderColor: dest ? "var(--tap-line)" : "#e8b4b4", color: dest ? "var(--tap-ink)" : "#9ca3af"}}>
+              <option value="">Choose destination</option>
+              {DESTS.filter(([c]) => c !== origin).map(([c,n]) => <option key={c} value={c}>{n} ({c})</option>)}
+            </select>
           </div>
-          <div className="min-w-[120px]">
+          <div className="min-w-[110px]">
             <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Passengers</label>
-            <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>1 adult</div>
+            <select value={pax} onChange={e=>setPax(+e.target.value)} className={selCls} style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>
+              {[1,2,3,4].map(n => <option key={n} value={n}>{n} adult{n>1?"s":""}</option>)}
+            </select>
           </div>
-          <PrimaryBtn onClick={() => go("search")} className="!py-2.5"><Search size={15}/> Search</PrimaryBtn>
+          <PrimaryBtn onClick={doSearch} disabled={!dest} className="!py-2.5"><Search size={15}/> Search</PrimaryBtn>
         </div>
       )}
     </Card>
@@ -346,7 +375,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
       </div>
 
       {/* TAP-style quick-action booking widget (mirrors flytap.com), placed below the personalized hero */}
-      <QuickBook go={go} />
+      <QuickBook go={go} destinations={destinations} bookDestination={bookDestination} />
 
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
@@ -444,6 +473,107 @@ function Flights({ flights, pattern, selectFlight, toast }) {
 }
 
 /* ── BASKET — persisted server-side on every change ── */
+/* ── SEAT MAP — pick a seat, with a recommendation from booking history ── */
+function SeatMap({ flight, seat, setSeat, go, toast }) {
+  const [rec, setRec] = useState(null);
+  const [taken, setTaken] = useState([]);
+  useEffect(() => { (async () => {
+    const r = await api.get("/seat-recommendation");
+    setRec(r);
+    if (r?.seat && !seat) setSeat(r.seat);
+    // deterministic "occupied" seats so the map looks alive (seat 4C stays free for Daniel)
+    const occ = ["1A","1B","2C","2D","3F","5A","6B","7C","7D","8F","9A","10C","11F","12B","14A","15D","16C","18B","20A"];
+    setTaken(occ.filter(s => s !== (r?.seat || "4C")));
+  })(); }, []);
+
+  const ROWS = 20, COLS = ["A","B","C","D","E","F"];
+  const recSeat = rec?.seat || "4C";
+  const seatPrice = (row) => row <= 5 ? 0 : (row <= 10 ? 6 : 0);   // front rows free for Gold
+
+  const pick = (s, row) => {
+    if (taken.includes(s)) return;
+    setSeat(s);
+    const p = seatPrice(row);
+    toast("Seat selected", `${s}${p ? ` · €${p}` : " · free for Gold"}`);
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 pb-24 pt-8">
+      <div className="flex items-center gap-3 mb-1 flex-wrap">
+        <h1 className="font-display font-black text-3xl" style={{ color: "var(--tap-ink)" }}>Choose your seat</h1>
+        <Chip tone="green"><Armchair size={11}/> {flight?.flight_no} · {flight?.origin}→{flight?.dest}</Chip>
+      </div>
+      <p className="text-sm text-gray-500 mb-5">Pick any open seat. We've pre-selected your usual.</p>
+
+      {rec && (
+        <Card className="p-4 mb-5 flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: "var(--tap-green)", background: "#FBFDFC" }}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-display font-extrabold" style={{ background: "var(--tap-green)" }}>{recSeat}</div>
+            <div>
+              <div className="font-bold text-sm flex items-center gap-1.5" style={{ color: "var(--tap-ink)" }}>Recommended for you <Why text="Computed live from your past bookings — the seat you choose most often."/></div>
+              <div className="text-xs text-gray-500">{rec.reason} · front aisle, quick exit · free for Gold</div>
+            </div>
+          </div>
+          <PrimaryBtn onClick={() => { setSeat(recSeat); go("basket"); }} className="!py-2.5">Keep {recSeat} <ArrowRight size={15}/></PrimaryBtn>
+        </Card>
+      )}
+
+      <div className="grid lg:grid-cols-3 gap-5">
+        <Card className="lg:col-span-2 p-5 overflow-x-auto">
+          <div className="flex justify-center mb-3"><div className="text-[11px] text-gray-400 px-3 py-1 rounded-full border" style={{ borderColor: "var(--tap-line)" }}>✈ Front of cabin</div></div>
+          <div className="space-y-1.5 min-w-[320px]">
+            {Array.from({ length: ROWS }, (_, i) => i + 1).map(row => (
+              <div key={row} className="flex items-center justify-center gap-1.5">
+                <div className="w-5 text-[10px] text-gray-400 text-right">{row}</div>
+                {COLS.map((col, ci) => {
+                  const s = `${row}${col}`;
+                  const isTaken = taken.includes(s);
+                  const isSel = seat === s;
+                  const isRec = s === recSeat && !isSel;
+                  return (
+                    <React.Fragment key={s}>
+                      <button onClick={() => pick(s, row)} disabled={isTaken}
+                        title={isTaken ? "Occupied" : `Seat ${s}${seatPrice(row) ? ` · €${seatPrice(row)}` : " · free"}`}
+                        className="w-7 h-7 rounded-md text-[9px] font-bold flex items-center justify-center transition-all"
+                        style={{
+                          background: isSel ? "var(--tap-green)" : isTaken ? "#e5e7eb" : isRec ? "#d1fae5" : "#fff",
+                          color: isSel ? "#fff" : isTaken ? "#9ca3af" : "var(--tap-ink)",
+                          border: `1.5px solid ${isSel ? "var(--tap-green)" : isRec ? "var(--tap-green)" : "var(--tap-line)"}`,
+                          cursor: isTaken ? "not-allowed" : "pointer",
+                        }}>
+                        {isSel ? "✓" : col}
+                      </button>
+                      {ci === 2 && <div className="w-4"/>}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-center gap-4 mt-4 text-[11px] text-gray-500 flex-wrap">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "var(--tap-green)" }}/> Selected</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "#d1fae5", border: "1px solid var(--tap-green)" }}/> Recommended</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white border"/> Available</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "#e5e7eb" }}/> Occupied</span>
+          </div>
+        </Card>
+
+        <div>
+          <Card className="p-5 sticky top-20">
+            <div className="font-display font-extrabold mb-3" style={{ color: "var(--tap-ink)" }}>Your seat</div>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-display font-black text-lg" style={{ background: "var(--tap-deep)" }}>{seat || recSeat}</div>
+              <div className="text-sm text-gray-600">{(seat || recSeat) === recSeat ? "Your usual seat" : "Window/aisle as selected"}<br/><span className="text-xs text-gray-400">{seatPrice(parseInt(seat || recSeat)) ? `€${seatPrice(parseInt(seat || recSeat))}` : "Free for Gold"}</span></div>
+            </div>
+            <PrimaryBtn onClick={() => go("basket")} className="w-full"><ArrowRight size={15}/> Continue to extras</PrimaryBtn>
+            <div className="text-[11px] text-gray-400 mt-3 flex items-center gap-1.5"><Database size={12}/> Seat choice saved with your basket.</div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Basket({ flight, ancillaries, items, toggleItem, go }) {
   const extras = items.reduce((s, id) => s + (ancillaries.find(a=>a.code===id)?.price || 0), 0);
   const total = flight.price + extras;
@@ -465,7 +595,7 @@ function Basket({ flight, ancillaries, items, toggleItem, go }) {
               <div className="font-display font-black text-xl" style={{color:"var(--tap-ink)"}}>{EUR(flight.price)}</div>
             </div>
           </Card>
-          {ancillaries.map(a => {
+          {[...ancillaries].sort((a,b) => (b.recommended?1:0)-(a.recommended?1:0) || (b.bought||0)-(a.bought||0)).map(a => {
             const on = items.includes(a.code);
             return (
               <Card key={a.code} className={`p-4 transition-all ${on ? "" : "opacity-60"}`} style={on ? { borderColor: "var(--tap-green)" } : {}}>
@@ -473,9 +603,12 @@ function Basket({ flight, ancillaries, items, toggleItem, go }) {
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--tap-mist)" }}><AncIcon k={a.icon}/></div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-bold flex items-center gap-2 flex-wrap" style={{color:"var(--tap-ink)"}}>
-                      {a.name}{!!a.auto && on && <Chip tone="green">Pre-selected for you</Chip>}
+                      {a.name}
+                      {a.recommended && <Chip tone="green"><Sparkles size={10}/> Recommended for you</Chip>}
+                      {!!a.auto && on && !a.recommended && <Chip tone="green">Pre-selected</Chip>}
                     </div>
                     <div className="text-xs text-gray-500">{a.descr}</div>
+                    {a.reason && <div className="text-[11px] mt-0.5 font-semibold flex items-center gap-1" style={{ color: "var(--tap-green)" }}><Repeat size={10}/> {a.reason}</div>}
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-sm font-bold" style={{color: a.price===0 ? "var(--tap-green)" : "var(--tap-ink)"}}>{a.price === 0 ? "Free" : EUR(a.price)}</div>
@@ -1289,6 +1422,64 @@ const NAV_ACTIVE = {
   manage: "manage", checkin: "checkin", miles: "miles", help: "help", console: null,
 };
 
+function FlightStatus({ go }) {
+  const [booking, setBooking] = useState(undefined);
+  useEffect(() => { (async () => {
+    const rows = await api.get("/bookings");
+    setBooking((rows || []).find(b => b.status === "confirmed") || null);
+  })(); }, []);
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 pb-24 pt-8">
+      <h1 className="font-display font-black text-3xl mb-1" style={{ color: "var(--tap-ink)" }}>Flight status</h1>
+      <p className="text-sm text-gray-500 mb-6">Live status of your next flight, straight from the operations feed.</p>
+
+      {booking === undefined && <div className="flex items-center gap-3 text-sm text-gray-500"><Loader2 className="animate-spin" size={16} style={{ color: "var(--tap-green)" }}/> Checking the latest status…</div>}
+
+      {booking === null && (
+        <Card className="p-6 text-center">
+          <div className="text-sm text-gray-500 mb-3">You have no upcoming flight to track right now.</div>
+          <PrimaryBtn onClick={() => go("home")} className="!py-2.5"><Plane size={15}/> Book a flight</PrimaryBtn>
+        </Card>
+      )}
+
+      {booking && (() => {
+        const f = booking.flight || {};
+        const delayed = f.status === "delayed";
+        const cancelled = f.status === "cancelled";
+        return (
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="font-display font-extrabold text-xl" style={{ color: "var(--tap-ink)" }}>{f.flight_no} · {cityName(f.origin)} → {cityName(f.dest)}</div>
+              <Chip tone={cancelled ? "red" : delayed ? "amber" : "green"}>
+                <span className="pulse-dot">●</span> {cancelled ? "Cancelled" : delayed ? "Delayed" : "On time"}
+              </Chip>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="p-3 rounded-xl" style={{ background: "var(--tap-mist)" }}>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Departure</div>
+                <div className="font-bold" style={{ color: "var(--tap-ink)" }}>{delayed && f.new_dep ? <><span className="line-through text-gray-400">{f.dep}</span> {f.new_dep}</> : f.dep}</div>
+                <div className="text-xs text-gray-500">{cityName(f.origin)} · {booking.flight_date}</div>
+              </div>
+              <div className="p-3 rounded-xl" style={{ background: "var(--tap-mist)" }}>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Arrival</div>
+                <div className="font-bold" style={{ color: "var(--tap-ink)" }}>{delayed && f.new_arr ? <><span className="line-through text-gray-400">{f.arr}</span> {f.new_arr}</> : f.arr}</div>
+                <div className="text-xs text-gray-500">{cityName(f.dest)}</div>
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 mt-3">{booking.pnr} · seat {booking.seat} · {booking.checked_in ? "checked in ✓" : "auto check-in 24h before"}</div>
+            {(delayed || cancelled) && (
+              <div className="mt-4">
+                <PrimaryBtn onClick={() => go("manage")} className="!py-2.5"><RefreshCw size={15}/> See rebooking options</PrimaryBtn>
+              </div>
+            )}
+          </Card>
+        );
+      })()}
+    </div>
+  );
+}
+
 function CheckIn({ go, toast, profile }) {
   const [booking, setBooking] = useState(undefined);   // undefined=loading, null=none
   const [busy, setBusy] = useState(false);
@@ -1544,7 +1735,8 @@ function App() {
   const refreshSuggested = async () => setSuggested(await api.get("/routes/suggested"));
   const refreshProfile = async () => setProfile(await api.get("/profile"));
   const go = (s) => { setScreen(s); window.scrollTo(0, 0); if (s === "home") refreshProfile(); if (s === "search") refreshSuggested(); };
-  const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); go("basket"); };
+  const [seat, setSeat] = useState("4C");
+  const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); go("seatmap"); };
 
   // Flight search — logs to DB, feeds personalization.
   // keepReason=true preserves the "picked for you" banner (set by bookDestination).
@@ -1654,12 +1846,14 @@ function App() {
       {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/>}
       {screen === "search" && <SearchScreen origin={searchOrigin} setOrigin={setSearchOrigin} dest={searchDest} setDest={setSearchDest} date={searchDate} setDate={setSearchDate} onSearch={runSearch} results={searchResults} searching={searching} selectFlight={selectFlight} routes={routes} suggested={suggested} prefilledReason={prefilledReason}/>}
       {screen === "flights" && <Flights flights={flights} pattern={profile.pattern} selectFlight={selectFlight} toast={toast}/>}
+      {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast}/>}
       {screen === "basket" && flight && <Basket flight={flight} ancillaries={ancillaries} items={items} toggleItem={toggleItem} go={go}/>}
       {screen === "checkout" && flight && <Checkout profile={profile} flight={flight} ancillaries={ancillaries} items={items} go={go} hold={hold} setHold={setHold} toast={toast}/>}
       {screen === "payment" && flight && <Payment profile={profile} flight={flight} ancillaries={ancillaries} items={items} onPaid={onPaid} toast={toast}/>}
       {screen === "confirmed" && receipt && <Confirmed profile={profile} flight={flight} receipt={receipt} go={go}/>}
       {screen === "manage" && <Manage profile={profile} flight={flight} openAssistant={()=>setAssistantOpen(true)} toast={toast} go={go}/>}
       {screen === "checkin" && <CheckIn go={go} toast={toast} profile={profile}/>}
+      {screen === "status" && <FlightStatus go={go}/>}
       {screen === "miles" && <MilesGo profile={profile} go={go}/>}
       {screen === "help" && <Help openAssistant={()=>setAssistantOpen(true)}/>}
       {screen === "console" && <Console toast={toast}/>}

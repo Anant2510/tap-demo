@@ -87,6 +87,11 @@ function resolveChoice(to, text) {
   return map[key] || null;
 }
 
+// Per-sender booking draft, carries flight + seat + extras through the WhatsApp flow
+const draft = {};   // { "<bareNumber>": { flight_no, seat, items:[] } }
+const getDraft = (to) => (draft[bareNumber(to)] = draft[bareNumber(to)] || { flight_no: null, seat: "4C", items: ["seat","bag","meal"] });
+const clearDraft = (to) => { delete draft[bareNumber(to)]; };
+
 /* ── Conversation logic ──────────────────────────────────────── */
 async function sendMainMenu(to) {
   const u = db.prepare("SELECT first_name, miles, tier FROM users WHERE id=1").get();
@@ -105,58 +110,140 @@ Reply with a number — or just type where you want to go (e.g. "flights to Madr
 Every action updates the same TAP database as the app.`);
 }
 
+/* ── Booking-flow step helpers (flight → seat → extras → checkout → pay) ── */
+
+// Price a draft: flight + paid extras, with Gold voucher + miles applied
+function priceDraft(d, f) {
+  const anc = db.prepare("SELECT code,price FROM ancillaries").all();
+  const extras = (d.items || []).reduce((s, c) => s + (anc.find(a => a.code === c)?.price || 0), 0);
+  const gross = +(((f?.price) || 72) + extras).toFixed(2);
+  const voucher = Math.min(35, gross);
+  const miles_used = 6000, miles_amt = 18;
+  const card = Math.max(0, +(gross - voucher - miles_amt).toFixed(2));
+  return { gross, extras, voucher, miles_used, miles_amt, card };
+}
+
+// SEAT step — recommend the seat Daniel uses most (from history)
+async function startSeatStep(to, f) {
+  const rec = await apiCall("GET", "/seat-recommendation");
+  const recSeat = rec?.seat || "4C";
+  // a few alternative seats to offer
+  const alts = ["4C", "2A", "1C", "10F"].filter((s, i, arr) => arr.indexOf(s) === i);
+  if (!alts.includes(recSeat)) alts.unshift(recSeat);
+  const map = { "0": "MENU" }; const lines = [];
+  alts.slice(0, 4).forEach((s, i) => { const n = String(i + 1); map[n] = `SEAT_${s}`; lines.push(`${n}️⃣  Seat ${s}${s === recSeat ? "  ⭐ your usual" : ""}`); });
+  setMenu(to, map);
+  await sendText(to,
+`✈️ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
+
+Choose your seat — ${rec?.reason || "seat 4C is your usual"}:
+
+${lines.join("\n")}
+
+0 for menu`);
+}
+
+// EXTRAS step — history-personalized ancillaries, toggle then done
+async function startExtrasStep(to, note) {
+  const d = getDraft(to);
+  const anc = await apiCall("GET", "/ancillaries");   // includes bought/reason/recommended
+  const paid = anc.filter(a => a.price > 0);
+  const map = {}; const lines = [];
+  paid.forEach((a, i) => {
+    const n = String(i + 1);
+    map[n] = `XTOG_${a.code}`;
+    const on = d.items.includes(a.code);
+    const tag = a.recommended ? `  ⭐ ${a.reason}` : (a.reason ? `  · ${a.reason}` : "");
+    lines.push(`${n}️⃣  ${on ? "✅" : "➕"} ${a.name} — €${a.price}${tag}`);
+  });
+  map["9"] = "XDONE";
+  setMenu(to, map);
+  const head = note ? `${note}\n\n` : "";
+  await sendText(to,
+`${head}🧳 Add extras (reply a number to toggle):
+
+${lines.join("\n")}
+
+9️⃣  Done — review & pay`);
+}
+
+// CHECKOUT review — full summary before payment
+async function startCheckoutReview(to) {
+  const d = getDraft(to);
+  const f = flightByNo(d.flight_no);
+  if (!f) { await sendText(to, "Your selection expired — reply \"menu\" to start again."); clearDraft(to); return sendMainMenu(to); }
+  const priced = priceDraft(d, f);
+  const anc = db.prepare("SELECT code,name,price FROM ancillaries").all();
+  const extraNames = d.items.filter(c => !["seat","bag","meal"].includes(c)).map(c => anc.find(a => a.code === c)?.name || c);
+  setMenu(to, { "1": "DO_PAY", "2": "DO_HOLD", "0": "MENU" });
+  await sendText(to,
+`🧾 Review your booking
+${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
+Seat ${d.seat} · cabin bag + espresso${extraNames.length ? " + " + extraNames.join(", ") : ""}
+
+Total €${priced.gross.toFixed(2)}
+ • Voucher −€${priced.voucher}
+ • ${priced.miles_used.toLocaleString()} miles −€${priced.miles_amt}
+ • Visa ••4417 €${priced.card.toFixed(2)}
+
+Reply:  1 to Pay now   ·   2 to Hold 48h free   ·   0 for menu`);
+}
+
 async function handleAction(to, id) {
   if (id === "BOOK_USUAL") {
     const flights = await apiCall("GET", "/flights?dest=LIS&origin=OPO");
     const f = flights.find(x => x.flight_no === "TP1927") || flights[0];
-    setMenu(to, { "1": `PAY_${f.flight_no}`, "2": `HOLD_${f.flight_no}`, "0": "MENU" });
-    await sendText(to,
-`✈️ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)}
-Mon 15 Jun · ${f.dep}–${f.arr} · Seat 4C
-Cabin bag + espresso pre-selected (your usuals)
-
-Total €90.50 — €35 voucher + 6,000 miles applied, €37.50 to Visa ••4417.
-
-Reply:  1 to Pay now   ·   2 to Hold 48h free   ·   0 for menu`);
-    return;
+    const d = getDraft(to); d.flight_no = f.flight_no; d.seat = "4C"; d.items = ["seat","bag","meal"];
+    return startSeatStep(to, f);
   }
 
-  /* Pick a flight returned by a free-route search → offer pay/hold */
+  /* Pick a flight returned by a search → go to SEAT selection */
   if (id.startsWith("PICK_")) {
     const fno = id.slice(5);
     const f = flightByNo(fno);
     if (!f) { await sendText(to, "That flight's no longer available — reply \"menu\" to start over."); return; }
-    setMenu(to, { "1": `PAY_${f.flight_no}`, "2": `HOLD_${f.flight_no}`, "0": "MENU" });
-    await sendText(to,
-`✈️ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)}
-${f.flight_date} · ${f.dep}–${f.arr} · Seat 4C
-Cabin bag + espresso pre-selected (your usuals)
-
-Total €${(f.price + 18.5).toFixed(2)} — €35 voucher + 6,000 miles can apply, rest to Visa ••4417.
-
-Reply:  1 to Pay now   ·   2 to Hold 48h free   ·   0 for menu`);
-    return;
+    const d = getDraft(to); d.flight_no = f.flight_no; d.seat = "4C"; d.items = ["seat","bag","meal"];
+    return startSeatStep(to, f);
   }
-  if (id.startsWith("PAY_")) {
-    const fno = id.slice(4);
-    const f = flightByNo(fno);
-    const extras = 18.5;                                  // bag + espresso bundle
-    const gross = +((f ? f.price : 72) + extras).toFixed(2);
-    const voucher_amt = 35, miles_used = 6000, miles_amt = 18;
-    const card_amt = Math.max(0, +(gross - voucher_amt - miles_amt).toFixed(2));
-    const r = await apiCall("POST", "/pay", { flight_no: fno, items: ["seat","bag","meal"], total: gross, voucher_amt, miles_used, miles_amt, card_amt });
-    await sendText(to, `✅ Booked! Confirmation ${r.pnr}.
 
-Payment split: voucher −€${voucher_amt} · 6,000 miles −€${miles_amt} · Visa ••4417 €${card_amt.toFixed(2)}.
-Confirmation email sent. Auto check-in is ON — your boarding pass appears 24h before departure.`);
+  /* SEAT step: choose a seat with a history-based recommendation */
+  if (id.startsWith("SEAT_")) {
+    const seat = id.slice(5);
+    const d = getDraft(to); d.seat = seat;
+    return startExtrasStep(to);
+  }
+
+  /* EXTRAS step: toggle history-recommended ancillaries, then checkout */
+  if (id.startsWith("XTOG_")) {
+    const code = id.slice(5);
+    const d = getDraft(to);
+    if (d.items.includes(code)) d.items = d.items.filter(c => c !== code);
+    else d.items.push(code);
+    return startExtrasStep(to, `${d.items.includes(code) ? "Added" : "Removed"} ${code}.`);
+  }
+  if (id === "XDONE") return startCheckoutReview(to);
+
+  /* CHECKOUT → PAY / HOLD using the full draft */
+  if (id === "DO_PAY") {
+    const d = getDraft(to);
+    const f = flightByNo(d.flight_no);
+    if (!f) { await sendText(to, "Your selection expired — reply \"menu\" to start again."); clearDraft(to); return sendMainMenu(to); }
+    const priced = priceDraft(d, f);
+    const r = await apiCall("POST", "/pay", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross, voucher_amt: priced.voucher, miles_used: priced.miles_used, miles_amt: priced.miles_amt, card_amt: priced.card });
+    const facts = { action: "checkout", state: "booked", pnr: r.pnr, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: f.flight_date, seat: d.seat, extras: d.items.filter(c=>!["seat","bag","meal"].includes(c)), split: { voucher: priced.voucher, miles: priced.miles_used, miles_eur: priced.miles_amt, card: priced.card } };
+    await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
+      fallback: `✅ Booked! ${r.pnr} — ${f.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${f.flight_date}, seat ${d.seat}.\nPayment: voucher −€${priced.voucher} · ${priced.miles_used.toLocaleString()} miles −€${priced.miles_amt} · Visa ••4417 €${priced.card.toFixed(2)}.\nConfirmation emailed. Auto check-in is ON.` }));
+    clearDraft(to);
     await sendMainMenu(to);
     return;
   }
-  if (id.startsWith("HOLD_")) {
-    const fno = id.slice(5);
-    const r = await apiCall("POST", "/hold", { flight_no: fno, items: ["seat","bag","meal"], total: 90.5 });
-    await sendText(to, `⏳ Held until ${r.expires} — price, seat 4C and extras frozen, free as a Gold benefit. Hold confirmation emailed. Reply 1 anytime to complete the booking.`);
-    setMenu(to, { "1": `PAY_${fno}`, "0": "MENU" });
+  if (id === "DO_HOLD") {
+    const d = getDraft(to);
+    const f = flightByNo(d.flight_no);
+    const priced = priceDraft(d, f);
+    const r = await apiCall("POST", "/hold", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross });
+    setMenu(to, { "1": "DO_PAY", "0": "MENU" });
+    await sendText(to, `⏳ Held until ${r.expires} — price, seat ${d.seat} and extras frozen, free as a Gold benefit. Hold confirmation emailed.\n\nReply 1 to complete payment · 0 for menu`);
     return;
   }
 

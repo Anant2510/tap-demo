@@ -170,7 +170,33 @@ app.get("/api/flights", (req, res) => {
   log("api_flights_fetch", { origin, dest, count: rows.length });
   res.json(rows);
 });
-app.get("/api/ancillaries", (req, res) => res.json(db.prepare("SELECT * FROM ancillaries").all()));
+app.get("/api/ancillaries", (req, res) => {
+  const anc = db.prepare("SELECT * FROM ancillaries").all();
+  // Personalization: how often did Daniel buy each ancillary on PAST (completed) trips?
+  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all();
+  const totalTrips = past.length || 1;
+  const counts = {};
+  past.forEach(b => { (JSON.parse(b.items_json || "[]")).forEach(code => { counts[code] = (counts[code] || 0) + 1; }); });
+  res.json(anc.map(a => {
+    const bought = counts[a.code] || 0;
+    let reason = null, recommended = false;
+    if (bought >= Math.ceil(totalTrips * 0.6)) { recommended = true; reason = `You added this on ${bought} of your last ${totalTrips} trips`; }
+    else if (bought > 0) { reason = `Added on ${bought} past trip${bought > 1 ? "s" : ""}`; }
+    return { ...a, bought, trips: totalTrips, reason, recommended };
+  }));
+});
+
+/* Recommended seat from history: Daniel's most-used seat on past bookings. */
+app.get("/api/seat-recommendation", (req, res) => {
+  const past = db.prepare("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC").all();
+  const top = past[0];
+  res.json({
+    seat: top ? top.seat : "4C",
+    count: top ? top.c : 0,
+    total: db.prepare("SELECT COUNT(*) c FROM bookings WHERE user_id=1").get().c,
+    reason: top ? `Your usual — seat ${top.seat} on ${top.c} of your trips` : "Front aisle, quick exit",
+  });
+});
 app.get("/api/destinations", (req, res) => {
   const dests = db.prepare("SELECT * FROM destinations").all();
   res.json(dests.map(d => {
@@ -238,12 +264,12 @@ app.post("/api/hold", async (req, res) => {
 
 /* ── Payment → booking + confirmation email ──────────────────── */
 app.post("/api/pay", async (req, res) => {
-  const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt } = req.body;
+  const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt, seat } = req.body;
   const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
   const f = flightByNo(flight_no);
   if (!f) { log("pay_unknown_flight", { flight_no }); return res.status(400).json({ ok: false, error: "unknown flight — search the route first" }); }
   const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at)
-    VALUES (?,1,?,?,'4C',?,?)`).run(pnr, flight_no, f.flight_date, JSON.stringify(items || []), now());
+    VALUES (?,1,?,?,?,?,?)`).run(pnr, flight_no, f.flight_date, seat || "4C", JSON.stringify(items || []), now());
   db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), total, voucher_amt, miles_used, miles_amt, card_amt, now());
   if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
