@@ -16,6 +16,7 @@
    ────────────────────────────────────────────────────────────── */
 const { db, now } = require("./db");
 const { AIRPORTS } = require("./routes-data");
+const { phraseFromFacts } = require("./claude");
 
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 const SID = () => process.env.TWILIO_ACCOUNT_SID;
@@ -161,12 +162,16 @@ Confirmation email sent. Auto check-in is ON — your boarding pass appears 24h 
 
   if (id === "MY_BOOKING") {
     const b = latestBooking();
-    if (!b) { await sendText(to, "You have no active booking yet."); return sendMainMenu(to); }
+    if (!b) {
+      const facts = { action: "my_booking", state: "no_booking", message: "You have no upcoming booking right now." };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message + " Reply 1 to book your usual flight." }));
+      return sendMainMenu(to);
+    }
     const f = flightByNo(b.flight_no) || {};
     setMenu(to, { "1": "CHECKIN", "2": "EXTRAS", "0": "MENU" });
     await sendText(to,
 `📄 ${b.pnr} — ${b.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)}
-Mon 15 Jun · ${f.dep}–${f.arr} · Seat ${b.seat}
+${b.flight_date} · ${f.dep}–${f.arr} · Seat ${b.seat}
 Status: ${f.status === "delayed" ? `⚠️ delayed, new departure ${f.new_dep}` : "on time"} · ${b.checked_in ? "Checked in ✓" : "Auto check-in 24h before"}
 
 Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
@@ -174,9 +179,31 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
   }
   if (id === "CHECKIN") {
     const b = latestBooking();
-    if (b) db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
-    db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_checkin',?,?)").run(JSON.stringify({ pnr: b?.pnr }), now());
-    await sendText(to, `🎫 Checked in! Boarding pass issued — Group A (Gold), seat ${b?.seat || "4C"}. It updates live if anything changes.`);
+    // Verify real DB state first — never claim success blindly.
+    if (!b) {
+      const facts = { action: "check_in", state: "no_booking", message: "You don't have any upcoming flight to check in for right now." };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message + " Reply 1 to book your usual flight." }));
+      return;
+    }
+    const f = flightByNo(b.flight_no) || {};
+    const route = `${cityName(f.origin)}→${cityName(f.dest)}`;
+    if (b.checked_in) {
+      const facts = { action: "check_in", state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, seat: b.seat, group: "A (Gold)" };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
+        fallback: `You're already checked in for ${b.pnr} (${b.flight_no} ${route}, ${b.flight_date}), seat ${b.seat}, boarding group A. Nothing more to do — your boarding pass is in the app.` }));
+      return;
+    }
+    if (f.status === "cancelled") {
+      const facts = { action: "check_in", state: "flight_cancelled", pnr: b.pnr, flight_no: b.flight_no, route };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `${b.flight_no} (${route}) is cancelled, so check-in isn't available. Reply 1 and I'll help you rebook.` }));
+      return;
+    }
+    // Action actually happens here
+    db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
+    db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
+    const facts = { action: "check_in", state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, dep: f.dep, seat: b.seat, group: "A (Gold)" };
+    await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
+      fallback: `🎫 Checked in for ${b.pnr} — ${b.flight_no} ${route}, ${b.flight_date}${f.dep ? " · departs " + f.dep : ""}. Boarding group A (Gold), seat ${b.seat}. Boarding pass issued; it updates live if anything changes.` }));
     return;
   }
 
@@ -191,27 +218,46 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
   if (id.startsWith("ANC_")) {
     const code = id.slice(4);
     const r = await apiCall("POST", "/bookings/ancillary", { code });
-    if (r.ok) await sendText(to, `✅ Added ${r.name} (€${r.price}) to ${r.pnr} — charged to Visa ••4417. Updated itinerary emailed.`);
-    else await sendText(to, "You need an active booking first — reply 1 to book your usual flight.");
+    if (r.ok) {
+      const facts = { action: "add_extra", state: "added", item: r.name, price: r.price, pnr: r.pnr, card: "Visa ••4417" };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ Added ${r.name} (€${r.price}) to ${r.pnr} — charged to Visa ••4417. Updated itinerary emailed.` }));
+    } else {
+      const facts = { action: "add_extra", state: "no_booking", message: "There's no active booking to add extras to yet." };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message + " Reply 1 to book your usual flight." }));
+    }
     return;
   }
 
   if (id === "STATUS") {
     const b = latestBooking();
     const f = b ? flightByNo(b.flight_no) : null;
-    if (!f) { await sendText(to, "No upcoming flight on file. Reply 1 to book one!"); return; }
-    await sendText(to, f.status === "delayed"
-      ? `⚠️ ${f.flight_no} is delayed — new departure ${f.new_dep}, landing ${f.new_arr}. We've emailed your options; reply here and I can rebook you.`
-      : `🟢 ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} is on time. Departure ${f.dep}, gate closes 20 min before. Live tracking on — I'll message you if anything changes.`);
+    if (!f) {
+      const facts = { action: "flight_status", state: "no_booking", message: "You have no upcoming flight on file." };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message + " Reply 1 to book one!" }));
+      return;
+    }
+    const route = `${cityName(f.origin)} → ${cityName(f.dest)}`;
+    const facts = f.status === "delayed"
+      ? { action: "flight_status", state: "delayed", flight_no: f.flight_no, route, new_dep: f.new_dep, new_arr: f.new_arr, pnr: b.pnr }
+      : { action: "flight_status", state: "on_time", flight_no: f.flight_no, route, dep: f.dep, date: b.flight_date, pnr: b.pnr };
+    const fb = f.status === "delayed"
+      ? `⚠️ ${f.flight_no} (${route}) is delayed — new departure ${f.new_dep}, landing ${f.new_arr}. Reply here and I can rebook you.`
+      : `🟢 ${f.flight_no} ${route} on ${b.flight_date} is on time. Departure ${f.dep}, gate closes 20 min before. I'll message you if anything changes.`;
+    await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: fb }));
     return;
   }
 
   if (id === "CANCEL") {
     const b = latestBooking();
-    if (!b) { await sendText(to, "Nothing to cancel — you have no active booking."); return; }
+    if (!b) {
+      const facts = { action: "cancel", state: "no_booking", message: "You have no active booking to cancel." };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message }));
+      return;
+    }
+    const f = flightByNo(b.flight_no) || {};
     setMenu(to, { "1": `CONFIRM_CANCEL_${b.id}`, "0": "MENU" });
     await sendText(to,
-`You're about to cancel ${b.pnr} (${b.flight_no}, Mon 15 Jun).
+`You're about to cancel ${b.pnr} (${b.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${b.flight_date}).
 Refund goes back instantly to the original split — voucher, miles and card.
 
 Reply:  1 to confirm cancel   ·   0 to keep my booking`);
@@ -219,8 +265,13 @@ Reply:  1 to confirm cancel   ·   0 to keep my booking`);
   }
   if (id.startsWith("CONFIRM_CANCEL_")) {
     const r = await apiCall("POST", "/bookings/cancel", {});
-    if (r.ok) await sendText(to, `✅ ${r.pnr} cancelled. Refund issued instantly: miles restored, voucher reactivated, card amount returned to Visa ••4417. Confirmation emailed — no forms, no queue.`);
-    else await sendText(to, "No active booking found to cancel.");
+    if (r.ok) {
+      const facts = { action: "cancel", state: "cancelled", pnr: r.pnr, refund: r.refund || { note: "original payment split" } };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ ${r.pnr} cancelled. Refund issued instantly: miles restored, voucher reactivated, card amount returned to Visa ••4417. Confirmation emailed — no forms, no queue.` }));
+    } else {
+      const facts = { action: "cancel", state: "no_booking", message: "No active booking was found to cancel." };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message }));
+    }
     await sendMainMenu(to);
     return;
   }

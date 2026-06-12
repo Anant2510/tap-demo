@@ -342,14 +342,16 @@ app.post("/api/checkin", (req, res) => {
   res.json({ ok: true });
 });
 
-/* Check in the current active booking (issues boarding pass). */
+/* Check in the current active booking (issues boarding pass). Verifies real state. */
 app.post("/api/bookings/checkin", (req, res) => {
   const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
-  if (!b) return res.json({ ok: false, message: "No active booking to check in for." });
+  if (!b) return res.json({ ok: false, state: "no_booking", message: "No upcoming flight to check in for." });
+  const f = flightByNo(b.flight_no) || {};
+  if (b.checked_in) return res.json({ ok: true, state: "already_checked_in", pnr: b.pnr, seat: b.seat, group: "A (Gold)", route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
   db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
-  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('checkin',?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web" }), now());
+  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('checkin',?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web", doc: req.body?.doc_id || null }), now());
   log("booking_checkin", { pnr: b.pnr });
-  res.json({ ok: true, pnr: b.pnr, seat: b.seat || "4C", group: "A (Gold)" });
+  res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: "A (Gold)", route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
 });
 
 /* ── AI endpoints ────────────────────────────────────────────── */
@@ -482,16 +484,19 @@ function agentRunTool(name, input) {
   }
   if (name === "check_in") {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
-    if (!b) return { ok: false, message: "No active booking to check in for." };
+    if (!b) return { ok: false, state: "no_booking", message: "Daniel has no upcoming flight to check in for." };
+    const f = flightByNo(b.flight_no) || {};
+    if (b.checked_in) return { ok: true, state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat, group: "A (Gold)", message: "Daniel is already checked in for this flight." };
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
     db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('agent_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
     log("agent_checkin", { pnr: b.pnr });
-    return { ok: true, pnr: b.pnr, seat: b.seat || "4C", group: "A (Gold)" };
+    return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "4C", group: "A (Gold)" };
   }
   if (name === "cancel_booking") {
-    if (input.confirm !== true) return { ok: false, needs_confirm: true, message: "Ask the customer to confirm before cancelling." };
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
-    if (!b) return { ok: false, message: "No active booking to cancel." };
+    if (!b) return { ok: false, state: "no_booking", message: "Daniel has no active booking to cancel." };
+    const f = flightByNo(b.flight_no) || {};
+    if (input.confirm !== true) return { ok: false, state: "needs_confirm", pnr: b.pnr, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, message: `Confirm before cancelling ${b.pnr} (${b.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${b.flight_date}). Ask Daniel to confirm.` };
     db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
     const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(b.id);
     if (pay) {
@@ -500,7 +505,7 @@ function agentRunTool(name, input) {
     }
     log("agent_cancel", { pnr: b.pnr, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : null });
     sendEmail("cancelled", { b, pay });
-    return { ok: true, pnr: b.pnr, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : { miles: 0, voucher: 0, card: 0 } };
+    return { ok: true, state: "cancelled", pnr: b.pnr, route: `${cityName(f.origin)}→${cityName(f.dest)}`, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : { miles: 0, voucher: 0, card: 0 } };
   }
   return { ok: false, message: "unknown tool" };
 }
@@ -524,10 +529,13 @@ function buildUI(toolCalls) {
     } else if (tc.name === "get_booking" && tc.result?.ok && tc.result.booking) {
       cards = [{ type: "booking", ...tc.result.booking }];
       command = { action: "navigate", screen: "manage" };
-    } else if (tc.name === "check_in" && tc.result?.ok) {
+    } else if (tc.name === "check_in" && tc.result?.ok && tc.result.state === "checked_in_now") {
       cards = [{ type: "checkin", ...tc.result }];
       command = { action: "navigate", screen: "manage" };
-    } else if (tc.name === "cancel_booking" && tc.result?.ok) {
+    } else if (tc.name === "check_in" && tc.result?.ok && tc.result.state === "already_checked_in") {
+      cards = [{ type: "booking", pnr: tc.result.pnr, flight_no: tc.result.flight_no, route: tc.result.route, dep: tc.result.date, seat: tc.result.seat, checked_in: true }];
+      command = { action: "navigate", screen: "manage" };
+    } else if (tc.name === "cancel_booking" && tc.result?.ok && tc.result.state === "cancelled") {
       cards = [{ type: "cancelled", ...tc.result }];
       command = { action: "navigate", screen: "manage" };
     }

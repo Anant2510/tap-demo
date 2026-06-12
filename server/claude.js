@@ -60,7 +60,13 @@ async function callClaudeAgent(messages, tools, runTool, { maxTokens = 1200, max
   const toolCalls = [];
   const sys = danielContext() + `
 
-You are an in-app booking agent. You can take real actions through tools that read and write the same database the website uses. When the customer wants to find, choose, add extras to, or pay for a flight, USE THE TOOLS — don't just describe what you'd do. After acting, reply in one or two crisp sentences confirming what you did or showing what you found; the UI will render the flight cards and update the screen, so don't list every flight in prose. Always work from Daniel's real profile (saved card, voucher, miles, seat 4C, the OPO⇄LIS pattern).`;
+You are an in-app booking agent. You can take real actions through tools that read and write the same database the website uses. When the customer wants to find, choose, add extras to, pay for, check in, or cancel a flight, USE THE TOOLS — don't just describe what you'd do, and never guess or assume the outcome.
+
+GENUINENESS IS CRITICAL: your reply must reflect EXACTLY what the tool result says — never claim something happened that the tool didn't confirm. Tools return a "state" and sometimes a "message"; honour them:
+- check_in → state "checked_in_now" (confirm the boarding pass, group, seat, flight), "already_checked_in" (tell them they're ALREADY checked in for that flight — do not pretend to check them in again), or "no_booking" (tell them there's no upcoming flight to check in for, offer to book).
+- cancel_booking → state "needs_confirm" (ask them to confirm the specific PNR/route before cancelling — do NOT cancel yet), "cancelled" (confirm the refund split), or "no_booking" (nothing to cancel).
+- If a tool returns ok:false, tell the customer the real reason plainly; never fabricate a success.
+After acting, reply in one or two crisp sentences using the real PNR, route, date and seat from the result; the UI renders cards and updates the screen, so don't list every flight in prose. Always work from Daniel's real profile (saved card, voucher, miles, seat 4C, the OPO⇄LIS pattern).`;
 
   for (let turn = 0; turn < maxTurns; turn++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -126,4 +132,34 @@ const FALLBACKS = {
   chat: "I can help with that. Your next confirmed trip is TP1927 OPO→LIS on Mon 15 Jun, 07:05, seat 4C — say the word if you want to change, hold, or check disruption risk. (Live AI is offline in this environment, but all booking tools are fully functional.)",
 };
 
-module.exports = { callClaude, callClaudeAgent, FALLBACKS, hasKey: () => !!process.env.ANTHROPIC_API_KEY };
+/* ── Genuine-response layer ──────────────────────────────────────
+   The DETERMINISTIC code computes verified facts (from the DB) and a
+   `state`. This helper turns those verified facts into natural,
+   on-brand language — the LLM only PHRASES facts, it never invents
+   outcomes. If the API key is missing or the call fails, a built-in
+   deterministic phrasing is returned, so the truth is identical with
+   or without the LLM. Channel = "whatsapp" | "web".  ─────────────── */
+async function phraseFromFacts(facts, { channel = "web", fallback } = {}) {
+  const safe = fallback || facts.message || "Done.";
+  if (!process.env.ANTHROPIC_API_KEY) return safe;
+  try {
+    const sys = danielContext() + `
+
+You phrase the result of an action that ALREADY HAPPENED (or was verified) against the real database. You are given a JSON "facts" object with the true outcome. Write ONE short, natural, warm confirmation message to Daniel that states exactly what the facts say — do not add, change, or invent any detail (no made-up times, gates, prices, or statuses). If the facts say an action could NOT happen (e.g. already done, nothing to do), say so plainly and helpfully. ${channel === "whatsapp" ? "This is WhatsApp: keep it to 1–3 short lines, no markdown headers. You may end with a brief next step." : "Keep it to 1–2 sentences."} Use 24h times and EUR. Never claim success the facts don't support.`;
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
+        max_tokens: 220, system: sys,
+        messages: [{ role: "user", content: "facts = " + JSON.stringify(facts) }],
+      }),
+    });
+    if (!res.ok) return safe;
+    const data = await res.json();
+    const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    return text || safe;
+  } catch { return safe; }
+}
+
+module.exports = { callClaude, callClaudeAgent, phraseFromFacts, FALLBACKS, hasKey: () => !!process.env.ANTHROPIC_API_KEY };

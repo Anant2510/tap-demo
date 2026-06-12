@@ -1289,21 +1289,30 @@ const NAV_ACTIVE = {
   manage: "manage", checkin: "checkin", miles: "miles", help: "help", console: null,
 };
 
-function CheckIn({ go, toast }) {
+function CheckIn({ go, toast, profile }) {
   const [booking, setBooking] = useState(undefined);   // undefined=loading, null=none
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
+  const u = profile?.user || {};
+  // Real check-in form fields, pre-filled from the profile (as the live site does)
+  const [docId, setDocId] = useState(u.doc_id || "");
+  const [nationality, setNationality] = useState(u.nationality || "Portugal");
+  const [ackBags, setAckBags] = useState(false);
   useEffect(() => { (async () => {
     const rows = await api.get("/bookings");
-    setBooking((rows || []).find(b => b.status !== "cancelled") || null);
+    const active = (rows || []).find(b => b.status === "confirmed");
+    setBooking(active || null);
+    if (active?.checked_in) setDone({ state: "already_checked_in", pnr: active.pnr, seat: active.seat, group: "A (Gold)" });
   })(); }, []);
 
+  const canSubmit = docId.trim().length >= 5 && ackBags && !busy;
   const doCheckIn = async () => {
+    if (!canSubmit) return;
     setBusy(true);
-    const r = await api.post("/bookings/checkin", {});
+    const r = await api.post("/bookings/checkin", { doc_id: docId, nationality });
     setBusy(false);
-    if (r.ok) { setDone(r); toast("Checked in", `${r.pnr} · boarding group ${r.group} · seat ${r.seat}`); }
-    else toast("Nothing to check in", "Book a flight first");
+    if (r.ok) { setDone(r); toast(r.state === "already_checked_in" ? "Already checked in" : "Checked in", `${r.pnr} · group ${r.group} · seat ${r.seat}`); }
+    else toast("Nothing to check in", r.message || "Book a flight first");
   };
 
   return (
@@ -1315,32 +1324,74 @@ function CheckIn({ go, toast }) {
 
       {booking === null && (
         <Card className="p-6 text-center">
-          <div className="text-sm text-gray-500 mb-3">You have no active booking to check in for.</div>
+          <div className="text-sm text-gray-500 mb-3">You have no upcoming flight to check in for.</div>
           <PrimaryBtn onClick={() => go("home")} className="!py-2.5"><Zap size={15}/> Book a flight</PrimaryBtn>
+        </Card>
+      )}
+
+      {booking && done?.state === "already_checked_in" && (
+        <Card className="p-6 text-center">
+          <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "var(--tap-mist)" }}><BadgeCheck size={22} style={{ color: "var(--tap-green)" }}/></div>
+          <div className="font-display font-extrabold text-xl mb-1" style={{ color: "var(--tap-ink)" }}>You're already checked in</div>
+          <div className="text-sm text-gray-600 mb-4">{booking.pnr} · {booking.flight?.flight_no} {cityName(booking.flight?.origin)}→{cityName(booking.flight?.dest)} · boarding group A (Gold), seat {booking.seat}. Nothing more to do.</div>
+          <PrimaryBtn onClick={() => go("manage")} className="!py-2.5"><QrCode size={15}/> View boarding pass</PrimaryBtn>
         </Card>
       )}
 
       {booking && !done && (
         <Card className="p-5">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Your upcoming flight</div>
               <div className="font-display font-extrabold text-xl" style={{ color: "var(--tap-ink)" }}>{booking.flight?.flight_no} · {cityName(booking.flight?.origin)} → {cityName(booking.flight?.dest)}</div>
-              <div className="text-sm text-gray-500">{booking.flight?.dep}–{booking.flight?.arr} · seat {booking.seat} · {booking.pnr}</div>
+              <div className="text-sm text-gray-500">{booking.flight_date} · {booking.flight?.dep}–{booking.flight?.arr} · seat {booking.seat} · {booking.pnr}</div>
             </div>
-            <Chip tone={booking.checked_in ? "green" : "amber"}>{booking.checked_in ? "Checked in" : "Not checked in"}</Chip>
+            <Chip tone="amber">Not checked in</Chip>
           </div>
-          {booking.checked_in
-            ? <div className="text-sm text-gray-600">You're already checked in. Your boarding pass is in My flights.</div>
-            : <PrimaryBtn onClick={doCheckIn} disabled={busy} className="w-full !py-2.5">{busy ? <Loader2 className="animate-spin" size={16}/> : <BadgeCheck size={16}/>} Check in now</PrimaryBtn>}
+
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Passenger & document</div>
+          <div className="space-y-3">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Passenger</label>
+                <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>{u.full_name || "Daniel Ferreira"}</div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Frequent flyer</label>
+                <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>{u.tier || "Gold"} · {u.member_no || "PT-884512"}</div>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Travel document (passport / ID) *</label>
+                <input value={docId} onChange={(e) => setDocId(e.target.value)} placeholder="e.g. PT-CC-12345678"
+                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)" }}/>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Nationality</label>
+                <input value={nationality} onChange={(e) => setNationality(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)" }}/>
+              </div>
+            </div>
+            <label className="flex items-start gap-2 text-sm text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={ackBags} onChange={(e) => setAckBags(e.target.checked)} className="mt-0.5"/>
+              I confirm my details are correct and I've read the dangerous-goods / baggage rules.
+            </label>
+          </div>
+
+          <div className="h-px my-4" style={{ background: "var(--tap-line)" }}/>
+          <PrimaryBtn onClick={doCheckIn} disabled={!canSubmit} className="w-full !py-2.5">
+            {busy ? <Loader2 className="animate-spin" size={16}/> : <BadgeCheck size={16}/>} Confirm & check in
+          </PrimaryBtn>
+          {!canSubmit && !busy && <div className="text-[11px] text-gray-400 mt-2 text-center">Enter your travel document and tick the confirmation to continue.</div>}
         </Card>
       )}
 
-      {done && (
+      {done && done.state !== "already_checked_in" && (
         <Card className="p-6 text-center" style={{ borderColor: "var(--tap-green)" }}>
           <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "var(--tap-green)" }}><QrCode size={22} className="text-white"/></div>
           <div className="font-display font-extrabold text-xl mb-1" style={{ color: "var(--tap-ink)" }}>You're checked in!</div>
-          <div className="text-sm text-gray-600 mb-4">{done.pnr} · Boarding group {done.group} · seat {done.seat}. Your boarding pass is ready in My flights.</div>
+          <div className="text-sm text-gray-600 mb-4">{done.pnr} · {done.route} · boarding group {done.group}, seat {done.seat}. Your boarding pass is ready in My flights.</div>
           <PrimaryBtn onClick={() => go("manage")} className="!py-2.5"><QrCode size={15}/> View boarding pass</PrimaryBtn>
         </Card>
       )}
@@ -1608,7 +1659,7 @@ function App() {
       {screen === "payment" && flight && <Payment profile={profile} flight={flight} ancillaries={ancillaries} items={items} onPaid={onPaid} toast={toast}/>}
       {screen === "confirmed" && receipt && <Confirmed profile={profile} flight={flight} receipt={receipt} go={go}/>}
       {screen === "manage" && <Manage profile={profile} flight={flight} openAssistant={()=>setAssistantOpen(true)} toast={toast} go={go}/>}
-      {screen === "checkin" && <CheckIn go={go} toast={toast}/>}
+      {screen === "checkin" && <CheckIn go={go} toast={toast} profile={profile}/>}
       {screen === "miles" && <MilesGo profile={profile} go={go}/>}
       {screen === "help" && <Help openAssistant={()=>setAssistantOpen(true)}/>}
       {screen === "console" && <Console toast={toast}/>}
