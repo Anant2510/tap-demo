@@ -63,10 +63,18 @@ const TapLogo = ({ light = false, size = "text-xl" }) => (
     <span className={`ml-2 font-semibold text-xs tracking-widest uppercase ${light ? "text-white/70" : "text-gray-500"}`}>Air Portugal</span>
   </div>
 );
-const GoldBadge = () => (
-  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide"
-    style={{ background: "linear-gradient(120deg,#C9A227,#E8C75A)", color: "#3A2D04" }}><BadgeCheck size={12}/> GOLD</span>
-);
+const TierBadge = ({ tier = "Gold" }) => {
+  const styles = {
+    Platinum: { background: "linear-gradient(120deg,#5A6470,#9AA6B2)", color: "#10161C" },
+    Gold: { background: "linear-gradient(120deg,#C9A227,#E8C75A)", color: "#3A2D04" },
+    Silver: { background: "linear-gradient(120deg,#9AA0A6,#C7CDD2)", color: "#23282C" },
+  };
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide"
+      style={styles[tier] || styles.Gold}><BadgeCheck size={12}/> {(tier || "Gold").toUpperCase()}</span>
+  );
+};
+const GoldBadge = TierBadge;
 const Chip = ({ children, tone = "green", className = "" }) => {
   const tones = { green:{background:"#E2F4EA",color:"#066B3C"}, amber:{background:"#FCF1DD",color:"#8A5A06"},
     red:{background:"#FBE4E7",color:"#A31226"}, ink:{background:"#E9EFEC",color:"#26483A"}, gold:{background:"#F7EFD6",color:"#7A6112"} };
@@ -264,7 +272,7 @@ function LoginUnused({ profile, onLogin }) {
             <button onClick={() => { setBusy(true); setTimeout(onLogin, 700); }} className="w-full flex items-center gap-4 text-left" disabled={!u}>
               <div className="w-12 h-12 rounded-full flex items-center justify-center font-display font-extrabold text-white text-lg shrink-0" style={{ background: "var(--tap-deep)" }}>DF</div>
               <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>{u ? u.full_name : "Loading profile…"} {u && <GoldBadge/>}</div>
+                <div className="font-bold text-sm flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>{u ? u.full_name : "Loading profile…"} {u && <GoldBadge tier={u.tier}/>}</div>
                 <div className="text-xs text-gray-500 mt-0.5">{u?.email}</div>
                 <div className="text-xs text-gray-400 mt-0.5">{u && `Member ${u.member_no} · ${u.miles.toLocaleString()} miles`}</div>
               </div>
@@ -400,7 +408,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           <div className="text-xs font-bold tracking-[0.2em] uppercase mb-1" style={{ color: "var(--tap-green)" }}>Bom dia</div>
           <h1 className="font-display font-black text-4xl" style={{ color: "var(--tap-ink)" }}>{u.first_name}, ready for next week?</h1>
           <div className="flex items-center gap-3 mt-2 text-sm text-gray-500">
-            <GoldBadge/> <span className="font-semibold" style={{ color: "var(--tap-deep)" }}>{u.miles.toLocaleString()} miles</span>
+            <GoldBadge tier={u.tier}/> <span className="font-semibold" style={{ color: "var(--tap-deep)" }}>{u.miles.toLocaleString()} miles</span>
             <span>·</span><span>{profile.vouchers.length} voucher{profile.vouchers.length === 1 ? "" : "s"} {profile.vouchers[0] && `(${EUR(profile.vouchers[0].amount)})`}</span>
           </div>
         </div>
@@ -431,16 +439,16 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
         <Card className="lg:col-span-2 p-6 relative overflow-hidden slide-up">
           <div className="absolute top-0 left-0 right-0 h-1" style={{ background: "var(--tap-green)" }}/>
           <Chip tone="green" className="mb-3"><Repeat size={11}/> Your recurring journey <Why text={`Identified from your travel_history: ${pat.matching} of your last ${pat.last} outbound trips were on this route and flight. That makes it your dominant pattern, so we surface it for one-tap rebooking.`}/></Chip>
-          <RouteRibbon from="OPO" to="LIS" dep="Porto" arr="Lisbon"/>
+          <RouteRibbon from={pat.origin || u.home_airport} to={pat.dest || ""} dep={cityName(pat.origin || u.home_airport)} arr={cityName(pat.dest || "")}/>
           <div className="mt-4 text-sm text-gray-600 leading-relaxed">
-            You flew this route on <b>{pat.matching} of your last {pat.last}</b> outbound trips — {pat.usualOut}, back {pat.usualBack}.
+            You flew this route on <b>{pat.matching} of your last {pat.last}</b> outbound trips — {pat.usualOut}{pat.usualBack ? `, back ${pat.usualBack}` : ""}.
             <span className="text-gray-400"> (computed live from your travel_history table)</span>
           </div>
           <div className="mt-4 p-3 rounded-xl text-sm font-semibold flex items-center justify-between" style={{ background: "var(--tap-mist)", color: "var(--tap-deep)" }}>
-            <span>Mon 15 Jun · TP1927 07:05</span><span>{EUR(86)}</span>
+            <span>{pat.topFlight} {pat.usualDep ? `· ${pat.usualDep}` : ""}</span>{pat.usualPrice != null && <span>{EUR(pat.usualPrice)}</span>}
           </div>
           <PrimaryBtn onClick={bookUsual} className="w-full mt-4"><Zap size={16}/> Book my usual flight</PrimaryBtn>
-          <div className="text-[11px] text-gray-400 mt-2 text-center">Seat {profile.prefs.seat.split(" ")[0]}, {profile.prefs.bag.toLowerCase()} and espresso pre-selected</div>
+          <div className="text-[11px] text-gray-400 mt-2 text-center">Seat {profile.prefs.seat.split(" ")[0]}, {profile.prefs.bag.toLowerCase()} and {profile.prefs.meal.split(" ")[0].toLowerCase()} pre-selected</div>
         </Card>
 
         <Card className="lg:col-span-3 p-6 slide-up">
@@ -450,11 +458,15 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           </div>
           <div className="flex gap-2">
             <input value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runPlanner()}
-              placeholder='Try: "Plan my Lisbon client week"' className="flex-1 px-4 py-3 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)" }}/>
+              placeholder={`Try: "Plan a few days in ${cityName(pat.dest || "Lisbon")}"`} className="flex-1 px-4 py-3 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)" }}/>
             <PrimaryBtn onClick={() => runPlanner()} disabled={planning} className="!px-4">{planning ? <Loader2 className="animate-spin" size={16}/> : <Send size={16}/>}</PrimaryBtn>
           </div>
           <div className="flex flex-wrap gap-2 mt-3">
-            {["Plan my Lisbon client week", "Squeeze in Madrid on Friday", "Best return if my Thursday meeting overruns"].map((s) => (
+            {(() => {
+              const d1 = cityName(pat.dest || "Lisbon");
+              const d2 = cityName((destinations && destinations[1]?.code) || (pat.searchedDests && pat.searchedDests[0]?.code) || "MAD");
+              return [`Plan my ${d1} client week`, `Squeeze in ${d2} this week`, "Best return if my meeting overruns"];
+            })().map((s) => (
               <button key={s} onClick={() => { setPrompt(s); runPlanner(s); }}
                 className="text-xs px-3 py-1.5 rounded-full border hover:bg-gray-50 font-medium text-gray-600" style={{ borderColor: "var(--tap-line)" }}>{s}</button>
             ))}
@@ -1538,8 +1550,9 @@ function ChatCards({ cards, onSelectFlight }) {
   );
 }
 
-function Assistant({ open, onClose, screen, onCommand, onSelectFlight }) {
-  const [msgs, setMsgs] = useState([{ role: "assistant", content: "Olá Daniel 👋 I'm TAP AI. I can do everything right here in the chat — find flights, book them, add extras, check you in, and even cancel with an instant refund. Try \"find me a flight to Madrid next Friday\", \"book my usual Monday flight\", \"check me in\", or \"cancel my booking\". The main screen follows along as we go." }]);
+function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }) {
+  const firstName = profile?.user?.first_name || "there";
+  const [msgs, setMsgs] = useState([{ role: "assistant", content: `Olá ${firstName} 👋 I'm TAP AI. I can do everything right here in the chat — find flights, book them, add extras, change your seat, check you in, and even cancel with an instant refund. Try "find me a flight to Madrid next Friday", "book my usual flight", "change my seat to a window", "check me in", or "cancel my booking". The main screen follows along as we go.` }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
@@ -2228,7 +2241,7 @@ function App() {
       {screen === "help" && <Help openAssistant={()=>setAssistantOpen(true)}/>}
       {screen === "console" && <Console toast={toast}/>}
 
-      <Assistant open={assistantOpen} onClose={()=>setAssistantOpen(false)} screen={screen} onCommand={handleAgentCommand} onSelectFlight={(no)=>handleAgentCommand({action:"select_flight",flight_no:no})}/>
+      <Assistant open={assistantOpen} onClose={()=>setAssistantOpen(false)} screen={screen} profile={profile} onCommand={handleAgentCommand} onSelectFlight={(no)=>handleAgentCommand({action:"select_flight",flight_no:no})}/>
       <Toasts list={toasts} dismiss={(id)=>setToasts(t=>t.filter(x=>x.id!==id))}/>
 
       <footer className="border-t py-4 text-center text-[11px] text-gray-400" style={{borderColor:"var(--tap-line)"}}>

@@ -178,15 +178,23 @@ app.get("/api/profile", (req, res) => {
   const history = db.prepare("SELECT * FROM travel_history WHERE user_id=1 ORDER BY trip_date DESC").all();
   const search = db.prepare("SELECT * FROM synced_searches WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
 
-  // Most-flown outbound route from Porto, computed live (so new bookings shift it)
-  const outboundAll = history.filter(h => h.route && h.route.startsWith("OPO→"));
+  // Most-flown outbound route from the user's HOME airport, computed live
+  // (so it adapts to whichever persona is active, and shifts as they book).
+  const home = user.home_airport || "OPO";
+  const outboundAll = history.filter(h => h.route && h.route.startsWith(home + "→"));
   const routeCounts = {};
   outboundAll.forEach(h => { routeCounts[h.route] = (routeCounts[h.route] || 0) + 1; });
-  const topRoute = Object.entries(routeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "OPO→LIS";
+  // Fallback: if no home-airport outbound exists, use the most-flown route overall.
+  let topRoute = Object.entries(routeCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!topRoute) {
+    const allCounts = {};
+    history.forEach(h => { if (h.route) allCounts[h.route] = (allCounts[h.route] || 0) + 1; });
+    topRoute = Object.entries(allCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || `${home}→LIS`;
+  }
   const onTopRoute = history.filter(h => h.route === topRoute);
   const flightCounts = {};
   onTopRoute.forEach(h => { flightCounts[h.flight_no] = (flightCounts[h.flight_no] || 0) + 1; });
-  const topFlight = Object.entries(flightCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "TP1927";
+  const topFlight = Object.entries(flightCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || onTopRoute[0]?.flight_no || "";
 
   // Per-destination booking tally across all routes — drives card ranking
   const destCounts = {};
@@ -197,13 +205,33 @@ app.get("/api/profile", (req, res) => {
   const searchedDests = searchRows.map(r => ({ code: r.dest, count: r.c }));
   const recentSearches = db.prepare("SELECT origin,dest,travel_date,created_at FROM searches WHERE user_id=1 ORDER BY id DESC LIMIT 5").all();
 
+  // Build a human "usual outbound / usual back" string from real history, and
+  // surface the next bookable instance of the usual flight (number + price).
+  const dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayName = (d) => { try { return dows[new Date(d).getUTCDay()]; } catch { return ""; } };
+  const topOut = onTopRoute.find(h => h.flight_no === topFlight) || onTopRoute[0];
+  const reverseRoute = topRoute.split("→").reverse().join("→");
+  const backRows = history.filter(h => h.route === reverseRoute);
+  const backCounts = {};
+  backRows.forEach(h => { backCounts[h.flight_no] = (backCounts[h.flight_no] || 0) + 1; });
+  const backFlight = Object.entries(backCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const backRow = backRows.find(h => h.flight_no === backFlight) || backRows[0];
+  const usualOut = topOut ? `${dayName(topOut.trip_date)}s · ${topOut.dep_time} (${topOut.flight_no})` : "";
+  const usualBack = backRow ? `${dayName(backRow.trip_date)}s · ${backRow.dep_time} (${backRow.flight_no})` : "";
+  // Price for the usual flight — from a seeded flights row if present.
+  let usualPrice = null;
+  try { usualPrice = db.prepare("SELECT price FROM flights WHERE flight_no=? ORDER BY id DESC LIMIT 1").get(topFlight)?.price ?? null; } catch {}
+  const [usualOrigin, usualDest] = topRoute.split("→");
+
   const pattern = {
     route: topRoute.replace("→", " ⇄ "),
-    topRoute,
-    topFlight,
+    topRoute, topFlight,
+    origin: usualOrigin, dest: usualDest,
     last: onTopRoute.length,
     matching: flightCounts[topFlight] || 0,
-    usualOut: "Mondays · 07:05 (TP1927)", usualBack: "Thursdays · 18:35 (TP1943)",
+    usualOut, usualBack,
+    usualDep: topOut?.dep_time || "",
+    usualPrice,
     destCounts,
     searchedDests,
   };
