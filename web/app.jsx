@@ -1023,6 +1023,131 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
 }
 
 /* ── DEMO CONSOLE — live DB inspector + email center ── */
+function CdpProof() {
+  const [d, setD] = useState(null);
+  const [flash, setFlash] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
+
+  const refresh = async () => {
+    const r = await api.get("/admin/cdp");
+    setD(prev => {
+      if (prev && r.totalRows !== prev.totalRows) { setFlash(true); setTimeout(() => setFlash(false), 900); }
+      return r;
+    });
+  };
+  useEffect(() => { refresh(); const t = setInterval(refresh, 3000); return () => clearInterval(t); }, []);
+
+  const copyPayload = async (e) => {
+    const text = JSON.stringify(e.cdpPayload, null, 2);
+    try { await navigator.clipboard.writeText(text); } catch { /* clipboard may be blocked */ }
+    setCopiedId(e.id); setTimeout(() => setCopiedId(null), 1500);
+  };
+
+  if (!d) return <Card className="p-4 mb-5 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="animate-spin" size={16}/> Reading database…</Card>;
+
+  const eventTone = (t) => t.includes("cancel") ? "red" : t.includes("search") ? "amber" : t.includes("pay") || t.includes("book") || t.includes("checkin") ? "green" : "ink";
+  const prettyEvent = (t) => t.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+  return (
+    <Card className="p-4 mb-5" style={{ borderColor: "var(--tap-green)" }}>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#E2F4EA" }}><Database size={18} style={{ color: "var(--tap-green)" }}/></div>
+          <div>
+            <div className="font-display font-extrabold text-sm" style={{ color: "var(--tap-ink)" }}>Live database &amp; CDP bridge</div>
+            <div className="text-[11px] text-gray-500 font-mono truncate">{d.db.engine} · {d.db.path}</div>
+          </div>
+        </div>
+        <Chip tone="green"><span className={flash ? "pulse-dot" : ""}>●</span> {d.totalRows.toLocaleString()} rows · writing live</Chip>
+      </div>
+
+      {/* live row counts */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 mb-4">
+        {["events","searches","bookings","payments","wa_messages","travel_history"].map(t => (
+          <div key={t} className="rounded-xl p-2 text-center" style={{ background: "var(--tap-mist)" }}>
+            <div className="font-display font-black text-lg" style={{ color: "var(--tap-deep)" }}>{(d.counts[t] ?? 0).toLocaleString()}</div>
+            <div className="text-[9px] uppercase tracking-wide text-gray-400 truncate">{t.replace("_"," ")}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* architecture data-flow diagram */}
+      <div className="rounded-xl border p-3 mb-4 overflow-x-auto" style={{ borderColor: "var(--tap-line)", background: "#FBFDFC" }}>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">Data flow — capture once, activate anywhere</div>
+        <div className="flex items-center gap-1.5 min-w-[640px] text-center">
+          {[
+            { t: "Website", s: "Plan a trip · book · check-in", ic: <Globe size={14}/> },
+            { t: "WhatsApp", s: "Twilio · book · check-in", ic: <MessageCircle size={14}/> },
+            { t: "TAP AI", s: "agent tools", ic: <Sparkles size={14}/> },
+          ].map((n, i) => (
+            <React.Fragment key={n.t}>
+              <div className="flex-1 rounded-lg px-2 py-1.5" style={{ background: "var(--tap-mist)" }}>
+                <div className="flex items-center justify-center gap-1 font-bold text-[11px]" style={{ color: "var(--tap-ink)" }}>{n.ic}{n.t}</div>
+                <div className="text-[8px] text-gray-400">{n.s}</div>
+              </div>
+              {i < 2 && <span className="text-gray-300 text-xs">/</span>}
+            </React.Fragment>
+          ))}
+          <ArrowRight size={16} className="shrink-0" style={{ color: "var(--tap-green)" }}/>
+          <div className="flex-1 rounded-lg px-2 py-1.5 text-white" style={{ background: "var(--tap-deep)" }}>
+            <div className="flex items-center justify-center gap-1 font-bold text-[11px]"><Database size={13}/> Express API</div>
+            <div className="text-[8px] text-white/60">one write path</div>
+          </div>
+          <ArrowRight size={16} className="shrink-0" style={{ color: "var(--tap-green)" }}/>
+          <div className="flex-1 rounded-lg px-2 py-1.5 text-white" style={{ background: "var(--tap-green)" }}>
+            <div className="flex items-center justify-center gap-1 font-bold text-[11px]"><Database size={13}/> Customer DB</div>
+            <div className="text-[8px] text-white/70">SQLite → your warehouse</div>
+          </div>
+          <ArrowRight size={16} className="shrink-0" style={{ color: "var(--tap-green)" }}/>
+          <div className="flex-1 rounded-lg px-2 py-1.5 border-2 border-dashed" style={{ borderColor: "var(--tap-green)" }}>
+            <div className="flex items-center justify-center gap-1 font-bold text-[11px]" style={{ color: "var(--tap-deep)" }}><Zap size={13}/> CDP</div>
+            <div className="text-[8px] text-gray-400">audiences · journeys</div>
+          </div>
+        </div>
+        <div className="text-[9px] text-gray-400 mt-2">Every channel writes through one API to one customer record. The same event schema streams into your CDP — Segment, Adobe, Salesforce — via a connector, no re-instrumentation.</div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {/* event stream */}
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Event stream → CDP ingest <span className="text-gray-300 normal-case font-normal">· tap an event to copy its CDP payload</span></div>
+          <div className="space-y-1 max-h-[260px] overflow-auto pr-1">
+            {d.events.length === 0 && <div className="text-xs text-gray-400">No events yet — click around the site.</div>}
+            {d.events.map(e => (
+              <button key={e.id} onClick={() => copyPayload(e)} className="w-full flex items-start gap-2 py-1 border-b text-left hover:bg-gray-50 rounded transition-colors" style={{ borderColor: "var(--tap-line)" }}>
+                <Chip tone={eventTone(e.type)} className="shrink-0 mt-0.5">{prettyEvent(e.type)}</Chip>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] text-gray-400 font-mono truncate">{JSON.stringify(e.payload)}</div>
+                </div>
+                {copiedId === e.id
+                  ? <span className="text-[9px] font-bold shrink-0 flex items-center gap-0.5" style={{ color: "var(--tap-green)" }}><CheckCircle2 size={11}/> copied</span>
+                  : <span className="text-[9px] text-gray-300 shrink-0 font-mono">{(e.at || "").slice(11, 19)}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* CDP mapping */}
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Maps to your CDP (Segment · Adobe · Salesforce)</div>
+          <div className="space-y-1.5">
+            {d.cdpMapping.map(m => (
+              <div key={m.cdp} className="rounded-xl p-2.5 border" style={{ borderColor: "var(--tap-line)" }}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold text-xs" style={{ color: "var(--tap-ink)" }}>{m.cdp}</div>
+                  <div className="text-[9px] font-mono text-gray-400 truncate">{m.source}</div>
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5">{m.example}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="text-[10px] text-gray-400 mt-3">Every action on the site, WhatsApp and AI chat commits a real row here. The same event schema streams 1:1 into a production CDP for identity resolution, audiences and journeys — no re-instrumentation.</div>
+    </Card>
+  );
+}
+
 function SelfTest() {
   const [result, setResult] = useState(null);
   const [running, setRunning] = useState(false);
@@ -1118,6 +1243,7 @@ function Console({ toast }) {
       <p className="text-[11px] text-gray-400 mb-6 font-mono">{data.dbPath} · CDP-ready: this store maps 1:1 to customer-profile, behaviour and consent objects for later CDP sync.</p>
 
       <SelfTest/>
+      <CdpProof/>
 
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">

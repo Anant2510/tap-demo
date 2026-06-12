@@ -702,6 +702,67 @@ app.get("/api/admin/emails", (req, res) =>
   res.json(db.prepare("SELECT id,to_addr,subject,email_type,status,created_at FROM emails ORDER BY id DESC LIMIT 50").all()));
 app.get("/api/admin/emails/:id", (req, res) =>
   res.json(db.prepare("SELECT * FROM emails WHERE id=?").get(req.params.id) || {}));
+
+/* ── Live DB + CDP proof for the demo ──────────────────────────────
+   Returns (1) the real DB file + engine, (2) live row counts, (3) the
+   recent event stream (the exact behavioural payloads a CDP ingests),
+   and (4) a mapping from our SQLite store to standard CDP objects so a
+   client can see how this plugs into Segment / Adobe / Salesforce CDP. */
+app.get("/api/admin/cdp", (req, res) => {
+  const counts = {};
+  for (const t of SHOW_TABLES) {
+    try { counts[t] = db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c; } catch { counts[t] = 0; }
+  }
+  const events = db.prepare("SELECT id,type,payload_json,created_at FROM events ORDER BY id DESC LIMIT 40")
+    .all().map(e => {
+      const payload = safeJson(e.payload_json);
+      return { id: e.id, type: e.type, at: e.created_at, payload, cdpPayload: toCdpTrack(e.type, payload, e.created_at) };
+    });
+
+  // How each behaviour becomes a standard CDP entity (the integration story)
+  const cdpMapping = [
+    { cdp: "Identity / Profile", standard: "Profile + Identifiers", source: "users, preferences", example: "userId, email, loyaltyTier, seatPref, savedCard" },
+    { cdp: "Traits", standard: "Computed traits / attributes", source: "travel_history, bookings", example: "lifetimeFlights, topRoute=OPO→LIS, homeAirport=OPO" },
+    { cdp: "Track Events", standard: "Behavioural events", source: "events, searches", example: "Flight Searched, Booking Completed, Checked In, Search Abandoned" },
+    { cdp: "Audiences / Segments", standard: "Real-time audiences", source: "derived from events", example: "Abandoned-search, Gold-commuter, Lapsing-flyer" },
+    { cdp: "Journeys", standard: "Orchestration", source: "email outbox + events", example: "Search → follow-up → offer (45s demo / hours in prod)" },
+    { cdp: "Consent", standard: "Consent & governance", source: "users (consent fields)", example: "marketingConsent, dataRetention — gates activation" },
+  ];
+
+  res.json({
+    db: { path: DB_PATH, engine: "SQLite (node:sqlite)", writeMode: "live — every action commits a row" },
+    counts,
+    totalRows: Object.values(counts).reduce((a, b) => a + b, 0),
+    events,
+    cdpMapping,
+    ranAt: new Date().toISOString(),
+  });
+});
+function safeJson(s) { try { return JSON.parse(s || "{}"); } catch { return {}; } }
+
+// Convert an internal event into a standard Segment-style track() call — the
+// exact JSON a production CDP would receive. This is the integration artifact.
+const CDP_EVENT_NAMES = {
+  flight_search: "Flight Searched", agent_search: "Flight Searched",
+  payment_captured: "Booking Completed", agent_checkout: "Booking Completed",
+  booking_cancelled: "Booking Cancelled", agent_cancel: "Booking Cancelled",
+  checkin: "Checked In", agent_checkin: "Checked In", wa_checkin: "Checked In",
+  basket_saved: "Cart Updated", search_followup_sent: "Lifecycle Email Sent",
+  search_offer_sent: "Offer Sent", hold_created: "Booking Held",
+  wa_inbound: "Message Received", routes_suggested: "Recommendations Served",
+};
+function toCdpTrack(type, payload, at) {
+  const u = db.prepare("SELECT email FROM users WHERE id=1").get();
+  return {
+    type: "track",
+    userId: "user_1",
+    event: CDP_EVENT_NAMES[type] || type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+    properties: payload || {},
+    context: { traits: { email: u?.email, loyaltyTier: "Gold" }, channel: (payload && payload.channel) || "web", app: "TAP Pre-Travel" },
+    timestamp: (at || "").replace(" ", "T") + "Z",
+  };
+}
+
 app.get("/api/health", (req, res) =>
   res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", ai: hasKey() ? "live" : "fallback mode", whatsapp: whatsapp.CONFIGURED() ? "configured — messages really send" : "not configured (messages logged to DB)" }));
 
