@@ -20,6 +20,8 @@ const api = {
   get: (p) => fetch(`${API_BASE}/api${p}`).then((r) => r.json()),
   post: (p, body) => fetch(`${API_BASE}/api${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json()),
 };
+// Stable per-tab id so the agent keeps this chat's context (active route, selected flight) separate from other sessions.
+const WEB_SESSION_ID = "web-" + Math.random().toString(36).slice(2, 10);
 const EUR = (n) => `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;
 // Format an ISO date (YYYY-MM-DD) as "Mon 15 Jun 2026"; falls back gracefully.
 const fmtDate = (iso, withYear = true) => {
@@ -1540,7 +1542,7 @@ function Assistant({ open, onClose, screen, onCommand, onSelectFlight }) {
     const next = [...history.slice(1), { role: "user", content: q }];
     setMsgs(m => [...m, { role: "user", content: q }]); setInput(""); setBusy(true);
     try {
-      const r = await api.post("/ai/agent", { messages: next, screen });
+      const r = await api.post("/ai/agent", { messages: next, screen, sessionId: WEB_SESSION_ID });
       setMsgs(m => [...m, { role: "assistant", content: r.reply, cards: r.cards }]);
       if (r.command) onCommand?.(r.command);   // chat drives the main screen
     } catch {

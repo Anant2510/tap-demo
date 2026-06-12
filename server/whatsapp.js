@@ -105,6 +105,12 @@ const pushConvo = (to, role, content) => {
 };
 const clearConvo = (to) => { delete convo[bareNumber(to)]; };
 
+// Per-sender active route/date context so date-only follow-ups ("how about
+// the day after tomorrow", "what about tomorrow") re-run the SAME route.
+const ctx = {};   // { "<bareNumber>": { origin, dest, date } }
+const getCtx = (to) => ctx[bareNumber(to)] || null;
+const setCtx = (to, c) => { ctx[bareNumber(to)] = { ...(ctx[bareNumber(to)] || {}), ...c }; };
+
 /* ── Conversation logic ──────────────────────────────────────── */
 async function sendMainMenu(to) {
   const u = db.prepare("SELECT first_name, miles, tier FROM users WHERE id=1").get();
@@ -430,7 +436,22 @@ async function handleIncoming({ from, text }) {
   if (/\b(extras|add.?ons?|ancillar|upgrade my)\b/.test(t)) return handleAction(from, "EXTRAS");
   if (/\b(miles|voucher|balance|points|wallet)\b/.test(t) && !/book|pay|use|redeem|fly|flight/.test(t)) return handleAction(from, "WALLET");
 
-  // 2a) Fast deterministic search for an explicit route the user typed, e.g.
+  // 2a) Date-only follow-up on an active route — e.g. "how about day after
+  //     tomorrow", "what about tomorrow", "and on Friday?". These re-run the
+  //     SAME route for a new date. Checked BEFORE the question gate because
+  //     they often start with "how/what about".
+  {
+    const parsedDate = parseDate(t);
+    const c = getCtx(from);
+    const looksLikeDateFollowup = parsedDate && (/\b(how about|what about|and|same|that route|those|again|instead|change.*date|different date)\b/.test(t) || t.split(/\s+/).length <= 6);
+    // Make sure it's NOT a fresh route request (no new city named other than the active one)
+    const namesNewCity = /\bto\s+[a-zà-ÿ]/.test(t) && detectDest((t.match(/\bto\s+([a-zà-ÿ]+(?:\s+[a-zà-ÿ]+)?)/)||[])[1] || "");
+    if (c && c.dest && looksLikeDateFollowup && !namesNewCity) {
+      return searchRoute(from, c.origin, c.dest, parsedDate, text);
+    }
+  }
+
+  // 2b) Fast deterministic search for an explicit route the user typed, e.g.
   //     "flights to Madrid", "fly to Paris", "options to London from Lisbon",
   //     "Lisbon to Amsterdam". We parse BOTH a destination ("to X") and an
   //     optional origin ("from Y"), so "to London from Lisbon" → LIS→LHR, not
@@ -451,10 +472,12 @@ async function handleIncoming({ from, text }) {
     if (pairMatch && !originCode) originCode = detectDest(pairMatch[1].trim());
     if (pairMatch && !destCode) destCode = detectDest(pairMatch[2].trim());
 
+    const parsedDate = parseDate(t);
+
     // Only fire the deterministic search when we have a real destination.
     if (destCode && destCode !== originCode) {
       const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
-      return searchRoute(from, originCode || home, destCode);
+      return searchRoute(from, originCode || home, destCode, parsedDate || "2026-06-15", text);
     }
   }
 
@@ -528,11 +551,40 @@ function detectDest(t) {
   return null;
 }
 
+/* Parse a relative date phrase → YYYY-MM-DD. "Today" is 2026-06-12 in the demo.
+   Handles tomorrow / day after tomorrow / weekday names / this weekend, and an
+   explicit YYYY-MM-DD. Returns null if no date phrase is present. */
+function parseDate(t) {
+  const TODAY = new Date("2026-06-12T00:00:00Z");
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const add = (n) => { const d = new Date(TODAY); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+  const explicit = t.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+  if (explicit) return explicit[1];
+  if (/\bday after tomorrow\b/.test(t)) return add(2);
+  if (/\btomorrow\b/.test(t)) return add(1);
+  if (/\btoday\b|\btonight\b/.test(t)) return add(0);
+  if (/\b(this |next )?weekend\b/.test(t)) { // next Saturday
+    let d = new Date(TODAY); const days = (6 - d.getUTCDay() + 7) % 7 || 7; d.setUTCDate(d.getUTCDate() + days); return iso(d);
+  }
+  const wd = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+  for (const [name, idx] of Object.entries(wd)) {
+    if (new RegExp(`\\b${name}\\b`).test(t)) {
+      let d = new Date(TODAY); const days = (idx - d.getUTCDay() + 7) % 7 || 7; d.setUTCDate(d.getUTCDate() + days); return iso(d);
+    }
+  }
+  if (/\bin (\d+) days?\b/.test(t)) { const m = t.match(/\bin (\d+) days?\b/); return add(parseInt(m[1])); }
+  if (/\bnext week\b/.test(t)) return add(7);
+  return null;
+}
+
 /* Free-route search → numbered flight list (mirrors the web AI chat). */
-async function searchRoute(to, origin, dest, date = "2026-06-15") {
+async function searchRoute(to, origin, dest, date = "2026-06-15", userText) {
   const r = await apiCall("GET", `/search?origin=${origin}&dest=${dest}&date=${date}`);
+  if (userText) pushConvo(to, "user", userText);
   if (!r.ok || !r.flights?.length) {
-    await sendText(to, `Hmm, I couldn't find a ${cityName(origin)} → ${cityName(dest)} flight in our network. Try another city, or reply "menu".`);
+    const msg = `Hmm, I couldn't find a ${cityName(origin)} → ${cityName(dest)} flight in our network. Try another city, or reply "menu".`;
+    pushConvo(to, "assistant", msg);
+    await sendText(to, msg);
     return;
   }
   const flights = r.flights.slice(0, 5);
@@ -543,6 +595,10 @@ async function searchRoute(to, origin, dest, date = "2026-06-15") {
     lines.push(`${n}️⃣  ${f.flight_no} · ${f.dep}–${f.arr} · €${f.price}${f.recommended ? " ⭐" : ""}`);
   });
   setMenu(to, map);
+  // Remember the active route + date so a date-only follow-up re-runs the same route.
+  setCtx(to, { origin, dest, date });
+  // Record it in the conversation so the AI agent has context on any follow-up.
+  pushConvo(to, "assistant", `Showed ${cityName(origin)}→${cityName(dest)} on ${date}: ` + flights.map(f => `${f.flight_no} ${f.dep}-${f.arr} €${f.price}`).join("; "));
   await sendText(to,
 `✈️ ${cityName(origin)} → ${cityName(dest)} · ${date}
 Found ${flights.length} flights — reply with a number to pick:

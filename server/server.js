@@ -494,9 +494,14 @@ const AGENT_TOOLS = [
 ];
 
 // tiny per-process agent memory (single demo user)
-const agentState = { lastSearch: null, selected: null };
+// Per-session agent state so concurrent users / channels don't clobber each
+// other's "last search" and "selected flight". Keyed by a sessionId the client
+// passes (web uses a per-tab id, WhatsApp uses the phone number).
+const agentSessions = {};
+const getSession = (id) => (agentSessions[id || "default"] = agentSessions[id || "default"] || { lastSearch: null, selected: null });
 
-function agentRunTool(name, input) {
+function agentRunTool(name, input, session) {
+  session = session || getSession("default");
   if (name === "search_flights") {
     const origin = (input.origin || "OPO").toUpperCase();
     const dest = (input.dest || "").toUpperCase();
@@ -519,7 +524,7 @@ function agentRunTool(name, input) {
       .run(origin, dest, date, 1, "Chat agent", now());
     scheduleSearchFollowup(origin, dest, date, stored);
     log("agent_search", { origin, dest, date, results: stored.length });
-    agentState.lastSearch = { origin, dest, date, flights: stored };
+    session.lastSearch = { origin, dest, date, flights: stored };
     return { ok: true, origin, dest, date, city: cityName(dest),
       flights: stored.map(f => ({ flight_no: f.flight_no, dep: f.dep, arr: f.arr, price: f.price, status: f.status, recommended: !!f.recommended })) };
   }
@@ -550,7 +555,7 @@ function agentRunTool(name, input) {
     const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code);
     db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
     db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)").run(f.flight_no, JSON.stringify(auto), now());
-    agentState.selected = { flight_no: f.flight_no, items: auto };
+    session.selected = { flight_no: f.flight_no, items: auto };
     log("agent_select", { flight_no: f.flight_no });
     return { ok: true, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, arr: f.arr, price: f.price, seat: "4C", auto_extras: auto };
   }
@@ -570,7 +575,7 @@ function agentRunTool(name, input) {
       note: total > 0 ? `Yes — ${total} seats available across Business (${business}), Premium (${premium}) and Economy (${economy}).` : "This flight is full." };
   }
   if (name === "add_extras") {
-    const sel = agentState.selected;
+    const sel = session.selected;
     if (!sel) return { ok: false, message: "No flight selected yet." };
     const codes = (input.codes || []).map(c => c.toLowerCase());
     sel.items = [...new Set([...sel.items, ...codes])];
@@ -580,7 +585,7 @@ function agentRunTool(name, input) {
     return { ok: true, items: named };
   }
   if (name === "checkout") {
-    const sel = agentState.selected;
+    const sel = session.selected;
     if (!sel) return { ok: false, message: "No flight selected to pay for." };
     const f = flightByNo(sel.flight_no);
     const anc = db.prepare("SELECT code,price FROM ancillaries").all();
@@ -603,7 +608,7 @@ function agentRunTool(name, input) {
       .run(f.flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
     log("agent_checkout", { pnr, gross, split: { voucher_amt, miles_used, card_amt } });
     sendEmail("booking_confirmation", { f, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
-    agentState.selected = null;
+    session.selected = null;
     return { ok: true, pnr, total: gross, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
   }
   if (name === "get_wallet") {
@@ -694,13 +699,24 @@ function buildUI(toolCalls) {
 app.post("/api/ai/agent", async (req, res) => {
   const messages = (req.body.messages || []).slice(-12);
   const screen = req.body.screen || "home";
+  const sessionId = req.body.sessionId || "web-default";
+  const session = getSession(sessionId);
   log("ai_agent_message", { screen, last: typeof messages[messages.length - 1]?.content === "string" ? messages[messages.length - 1].content.slice(0, 120) : "" });
-  // Prepend a small situational note so Claude knows where Daniel is
+  // Prepend a small situational note so Claude knows where Daniel is AND what
+  // the active route/flights are (from this session's last search), so follow-ups
+  // like "how about tomorrow" or "does TP1481 have seats" stay on-route.
+  let situ = `(Daniel is on the "${screen}" screen.`;
+  if (session.lastSearch) {
+    const ls = session.lastSearch;
+    situ += ` Active search: ${cityName(ls.origin)}→${cityName(ls.dest)} on ${ls.date}, flights ${ls.flights.map(f => f.flight_no).join(", ")}.`;
+  }
+  if (session.selected) situ += ` Currently selected flight: ${session.selected.flight_no}.`;
+  situ += ")";
   const withContext = messages.length
-    ? [...messages.slice(0, -1), { role: "user", content: `(Daniel is on the "${screen}" screen.) ${typeof messages[messages.length - 1].content === "string" ? messages[messages.length - 1].content : ""}` }]
+    ? [...messages.slice(0, -1), { role: "user", content: `${situ} ${typeof messages[messages.length - 1].content === "string" ? messages[messages.length - 1].content : ""}` }]
     : messages;
   try {
-    const { reply, toolCalls } = await callClaudeAgent(withContext, AGENT_TOOLS, async (n, i) => agentRunTool(n, i));
+    const { reply, toolCalls } = await callClaudeAgent(withContext, AGENT_TOOLS, async (n, i) => agentRunTool(n, i, session));
     const { cards, command } = buildUI(toolCalls);
     res.json({ reply: reply || "Done.", cards, command, ai: "live", tools: toolCalls.map(t => t.name) });
   } catch (e) {
