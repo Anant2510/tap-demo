@@ -315,6 +315,18 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     return;
   }
 
+  if (id === "WALLET") {
+    const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=1").get();
+    const v = db.prepare("SELECT code, amount, status, expiry FROM vouchers WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+    const milesVal = (u.miles * 0.003).toFixed(2);
+    const facts = { action: "wallet", miles: u.miles, miles_value_eur: +milesVal, voucher: v ? { code: v.code, amount: v.amount, available: v.status === "active", expiry: v.expiry } : null, card: `${u.card_brand} ••${u.card_last4}` };
+    const vLine = v && v.status === "active" ? `🎟️ Voucher ${v.code}: €${v.amount} (expires ${v.expiry})` : "🎟️ No active voucher";
+    await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
+      fallback: `💳 Your wallet\n✈️ Miles&Go: ${u.miles.toLocaleString()} miles (≈ €${milesVal})\n${vLine}\n💳 ${u.card_brand} ••${u.card_last4}\n\nYou can pay any trip with a mix of voucher, miles and card. Reply 1 to book your usual flight.` }));
+    setMenu(to, { "1": "BOOK_USUAL", "0": "MENU" });
+    return;
+  }
+
   if (id === "STATUS") {
     const b = latestBooking();
     const f = b ? flightByNo(b.flight_no) : null;
@@ -401,6 +413,7 @@ async function handleIncoming({ from, text }) {
   if (/^cancel\b/.test(t)) return handleAction(from, "CANCEL");
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
+  if (/\b(miles|voucher|balance|points|wallet)\b/.test(t) && !/book|pay|use|redeem|fly|flight/.test(t)) return handleAction(from, "WALLET");
 
   // 2a) Fast deterministic search ONLY for an explicit "to <city>" destination,
   //     e.g. "flights to Madrid", "fly to Paris". We must NOT fire on "from <city>"

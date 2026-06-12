@@ -787,15 +787,17 @@ function Payment({ profile, flight, ancillaries, items, onPaid, toast }) {
         </Card>
       </div>
       <Card className="p-5" style={{background:"var(--tap-deep)", borderColor:"var(--tap-deep)"}}>
-        <div className="flex justify-between text-white/70 text-sm mb-1"><span>Voucher</span><span>−{EUR(voucherVal)}</span></div>
+        <div className="flex justify-between text-white/70 text-sm mb-1"><span>Trip total</span><span>{EUR(total)}</span></div>
+        <div className="flex justify-between text-white/70 text-sm mb-1"><span>Voucher{voucherVal>0?` ${voucher?.code||""}`:""}</span><span>−{EUR(voucherVal)}</span></div>
         <div className="flex justify-between text-white/70 text-sm mb-1"><span>{milesVal>0?`${Math.min(milesUsed,maxMiles).toLocaleString()} miles`:"Miles"}</span><span>−{EUR(milesVal)}</span></div>
+        <div className="h-px my-2 bg-white/15"/>
         <div className="flex justify-between text-white font-display font-extrabold text-xl mt-2 mb-4"><span>Charge to card</span><span>{EUR(cardVal)}</span></div>
         <button onClick={pay} disabled={paying}
           className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-transform active:scale-[.98]"
           style={{background:"var(--tap-green)", color:"#fff"}}>
-          {paying ? <><Loader2 className="animate-spin" size={16}/> Confirming with your bank…</> : <><Zap size={16}/> One-click pay · {EUR(total)}</>}
+          {paying ? <><Loader2 className="animate-spin" size={16}/> Confirming with your bank…</> : <><Zap size={16}/> {cardVal > 0 ? `Pay ${EUR(cardVal)} to card` : "Confirm — fully covered by voucher & miles"}</>}
         </button>
-        <div className="text-[11px] text-white/50 mt-2 text-center">Instant confirmation · itinerary emailed + visible in the Demo Console</div>
+        <div className="text-[11px] text-white/50 mt-2 text-center">Trip total {EUR(total)} · {EUR(voucherVal + milesVal)} covered by voucher &amp; miles · instant confirmation, itinerary emailed</div>
       </Card>
     </div>
   );
@@ -1253,6 +1255,22 @@ function ChatCards({ cards, onSelectFlight }) {
             <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-red-600"><X size={13}/> Cancelled · instant refund</div>
             <div className="font-bold text-sm mt-0.5" style={{color:"var(--tap-ink)"}}>{c.pnr}</div>
             <div className="text-xs text-gray-500 mt-0.5">Refunded: {c.refund.miles?.toLocaleString?.()||c.refund.miles} miles · voucher reactivated · {EUR(c.refund.card||0)} to Visa</div>
+          </div>
+        );
+        if (c.type === "wallet") return (
+          <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{color:"var(--tap-green)"}}><Wallet size={13}/> Your wallet</div>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="rounded-xl p-2" style={{background:"var(--tap-mist)"}}>
+                <div className="text-[10px] text-gray-400">Miles&Go</div>
+                <div className="font-bold text-sm" style={{color:"var(--tap-ink)"}}>{c.miles?.toLocaleString()} <span className="text-[10px] text-gray-400">≈ {EUR(c.miles_value_eur)}</span></div>
+              </div>
+              <div className="rounded-xl p-2" style={{background:"var(--tap-mist)"}}>
+                <div className="text-[10px] text-gray-400">Voucher</div>
+                <div className="font-bold text-sm" style={{color:"var(--tap-ink)"}}>{c.voucher?.available ? `${EUR(c.voucher.amount)} ✓` : (c.voucher ? "used" : "—")}</div>
+              </div>
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1.5">Pay any trip with voucher + miles + {c.card}.</div>
           </div>
         );
         return null;

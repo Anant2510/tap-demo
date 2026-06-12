@@ -426,6 +426,8 @@ const AGENT_TOOLS = [
     input_schema: { type: "object", properties: { use_voucher: { type: "boolean" }, use_miles: { type: "boolean" } } } },
   { name: "get_booking", description: "Get Daniel's current/latest active booking with status. Use for 'my booking', 'am I checked in', 'is my flight on time'.",
     input_schema: { type: "object", properties: {} } },
+  { name: "get_wallet", description: "Get Daniel's LIVE Miles&Go balance and voucher status from the database. Use whenever he asks about his miles, points, voucher, balance, or 'what can I pay with' / 'how much are my miles worth'. Always call this rather than answering from memory — balances change after bookings and cancellations.",
+    input_schema: { type: "object", properties: {} } },
   { name: "check_in", description: "Check Daniel in for his current active booking. Issues the boarding pass. Use when he says 'check me in' or 'check in'.",
     input_schema: { type: "object", properties: {} } },
   { name: "cancel_booking", description: "Cancel Daniel's current active booking with an instant refund (miles restored, voucher reactivated, card amount returned). Only call after the customer clearly confirms they want to cancel.",
@@ -524,6 +526,19 @@ function agentRunTool(name, input) {
     agentState.selected = null;
     return { ok: true, pnr, total: gross, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
   }
+  if (name === "get_wallet") {
+    const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=1").get();
+    const v = db.prepare("SELECT code, amount, status, expiry FROM vouchers WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+    const milesValue = +(u.miles * 0.003).toFixed(2);   // €0.003/mile, same rate as checkout
+    return { ok: true,
+      miles: u.miles,
+      miles_value_eur: milesValue,
+      miles_rate: "1,000 miles ≈ €3",
+      voucher: v ? { code: v.code, amount: v.amount, status: v.status, expiry: v.expiry, available: v.status === "active" } : null,
+      card: `${u.card_brand} ••${u.card_last4}`,
+      note: "Daniel can split any booking across voucher, miles and card on the payment page or right here in chat.",
+    };
+  }
   if (name === "get_booking") {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
     if (!b) return { ok: true, booking: null };
@@ -576,6 +591,9 @@ function buildUI(toolCalls) {
     } else if (tc.name === "checkout" && tc.result?.ok) {
       cards = [{ type: "confirmation", ...tc.result }];
       command = { action: "show_confirmation", pnr: tc.result.pnr };
+    } else if (tc.name === "get_wallet" && tc.result?.ok) {
+      cards = [{ type: "wallet", miles: tc.result.miles, miles_value_eur: tc.result.miles_value_eur, voucher: tc.result.voucher, card: tc.result.card }];
+      command = { action: "navigate", screen: "miles" };
     } else if (tc.name === "get_booking" && tc.result?.ok && tc.result.booking) {
       cards = [{ type: "booking", ...tc.result.booking }];
       command = { action: "navigate", screen: "manage" };
