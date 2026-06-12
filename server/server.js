@@ -842,8 +842,11 @@ app.post("/api/admin/reset", (req, res) => {
 app.get("/{*splat}", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "index.html")));
 
 const PORT = process.env.PORT || 3000;   // set PORT in .env (e.g. 7801 on the Azure VM)
-app.listen(PORT, () => {
-  console.log(`\n✈  TAP demo running  →  http://localhost:${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";   // 0.0.0.0 = reachable from the network, not just localhost
+app.listen(PORT, HOST, () => {
+  console.log(`\n✈  TAP demo running`);
+  console.log(`   Local:   http://localhost:${PORT}`);
+  console.log(`   Network: http://0.0.0.0:${PORT}  (reachable via the VM's public IP if the firewall/NSG allow ${PORT})`);
   console.log(`   DB:      ${DB_PATH}`);
   console.log(`   SMTP:    ${SMTP_READY ? "configured — emails will really send" : "not configured — emails stored in DB outbox"}`);
   console.log(`   AI:      ${hasKey() ? "live (API key found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}\n`);
