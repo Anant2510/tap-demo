@@ -5,7 +5,7 @@ import {
   AlertTriangle, RefreshCw, Luggage, Armchair, Coffee, Wifi, Car, ChevronRight,
   X, Send, Bell, QrCode, CalendarClock, Laptop, Zap, ShieldCheck, ArrowRight,
   Repeat, BadgeCheck, MessageCircle, Loader2, TimerReset, Database, Mail, Eye, RotateCcw,
-  Search, MapPin, Globe, ArrowLeftRight, Calendar, Info
+  Search, MapPin, Globe, ArrowLeftRight, Calendar, Info, Clock
 } from "lucide-react";
 
 /* ── API client — every byte of personalization comes from the backend ── */
