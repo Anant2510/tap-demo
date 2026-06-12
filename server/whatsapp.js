@@ -92,6 +92,19 @@ const draft = {};   // { "<bareNumber>": { flight_no, seat, items:[] } }
 const getDraft = (to) => (draft[bareNumber(to)] = draft[bareNumber(to)] || { flight_no: null, seat: "4C", items: ["seat","bag","meal"] });
 const clearDraft = (to) => { delete draft[bareNumber(to)]; };
 
+// Per-sender conversation history so the AI agent has context across turns
+// (mirrors how the web chat sends its full message list). Without this, each
+// WhatsApp message is answered blind — e.g. "does TP1481 have availability?"
+// can't be resolved because the agent never saw TP1481 being listed.
+const convo = {};   // { "<bareNumber>": [ {role, content}, ... ] }
+const getConvo = (to) => (convo[bareNumber(to)] = convo[bareNumber(to)] || []);
+const pushConvo = (to, role, content) => {
+  const c = getConvo(to);
+  c.push({ role, content });
+  if (c.length > 16) c.splice(0, c.length - 16);   // keep last ~8 exchanges
+};
+const clearConvo = (to) => { delete convo[bareNumber(to)]; };
+
 /* ── Conversation logic ──────────────────────────────────────── */
 async function sendMainMenu(to) {
   const u = db.prepare("SELECT first_name, miles, tier FROM users WHERE id=1").get();
@@ -442,7 +455,10 @@ async function handleIncoming({ from, text }) {
    list so the user can act with a reply. Falls back to the menu on error. */
 async function runAgent(to, text) {
   try {
-    const r = await apiCall("POST", "/ai/agent", { messages: [{ role: "user", content: text }], screen: "whatsapp" });
+    // Send the running conversation so the agent has context across turns.
+    pushConvo(to, "user", text);
+    const messages = getConvo(to);
+    const r = await apiCall("POST", "/ai/agent", { messages, screen: "whatsapp", sessionId: bareNumber(to) });
     if (!r || (!r.reply && !(r.cards && r.cards.length))) return sendMainMenu(to);
 
     // If the agent produced a flight list, present it as a numbered pick menu
@@ -453,15 +469,20 @@ async function runAgent(to, text) {
       flights.forEach((f, i) => { const n = String(i + 1); map[n] = `PICK_${f.flight_no}`; lines.push(`${n}️⃣  ${f.flight_no} · ${f.dep}–${f.arr} · €${f.price}${f.recommended ? " ⭐" : ""}`); });
       setMenu(to, map);
       const head = r.reply ? r.reply + "\n\n" : "";
-      await sendText(to, `${head}✈️ ${cityName(flightsCard.origin)} → ${cityName(flightsCard.dest)} · ${flightsCard.date}\nReply with a number:\n\n${lines.join("\n")}\n\n0 for menu`);
+      const body = `${head}✈️ ${cityName(flightsCard.origin)} → ${cityName(flightsCard.dest)} · ${flightsCard.date}\nReply with a number:\n\n${lines.join("\n")}\n\n0 for menu`;
+      // Record an assistant turn that names the flights, so a follow-up like
+      // "does TP1481 have availability?" can be resolved from context.
+      pushConvo(to, "assistant", `${r.reply ? r.reply + " " : ""}Showed ${cityName(flightsCard.origin)}→${cityName(flightsCard.dest)} on ${flightsCard.date}: ` + flights.map(f => `${f.flight_no} ${f.dep}-${f.arr} €${f.price}`).join("; "));
+      await sendText(to, body);
       return;
     }
 
     // If the agent confirmed a booking/checkout, relay it and return to menu
     const conf = (r.cards || []).find(c => c.type === "confirmation");
-    if (conf) { await sendText(to, r.reply || `✅ Booked! Confirmation ${conf.pnr}.`); return sendMainMenu(to); }
+    if (conf) { pushConvo(to, "assistant", r.reply || `Booked ${conf.pnr}`); await sendText(to, r.reply || `✅ Booked! Confirmation ${conf.pnr}.`); return sendMainMenu(to); }
 
     // Otherwise just relay the agent's text answer (recommendations, Q&A, etc.)
+    pushConvo(to, "assistant", r.reply || "");
     await sendText(to, r.reply);
     // keep the conversation actionable
     setMenu(to, { "1": "BOOK_USUAL", "2": "MY_BOOKING", "3": "EXTRAS", "4": "STATUS", "5": "CHECKIN", "6": "CANCEL" });

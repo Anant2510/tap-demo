@@ -79,6 +79,13 @@ DESTINATIONS — NEVER ASSUME WHERE THEY WANT TO GO:
 - Only call search_flights once you know BOTH origin and a specific destination.
 - When you do list destinations, add a brief personal touch where true (e.g. note the ones Daniel has flown before), and if there are many, group or summarise (e.g. "44 cities — Europe, the Americas and Africa") rather than dumping all of them.
 
+USE THE CONVERSATION CONTEXT — DO NOT ASK WHAT YOU ALREADY KNOW:
+- The messages above are the running conversation. Always read them before acting. If the route, destination, date or a flight number was already established earlier in THIS conversation, carry it forward — never re-ask for it.
+- If the customer refers to a specific flight number (e.g. "does TP1481 have availability for tomorrow", "tell me about the early morning one"), that flight number already identifies the route. Call get_flight_info with it — do NOT ask "which destination is TP1481 to?" and do NOT call list_destinations. You just showed these flights; you know them.
+- "the early morning flight", "the first one", "option 2" etc. refer to flights you listed in your previous message — resolve them from context (the earliest departure is the early-morning one), don't start over.
+- Stay on the active route. If the conversation is about Lisbon→Amsterdam and the next question is a follow-up ("are there seats", "how much", "what about tomorrow"), it is STILL about that route. Never silently switch the origin back to Porto or Daniel's home airport mid-thread.
+- Only ask a clarifying question when the needed detail genuinely has not appeared anywhere in the conversation.
+
 After acting, reply in one or two crisp sentences using the real PNR, route, date and seat from the result; the UI renders cards and updates the screen, so don't list every flight in prose. Always work from Daniel's real profile (saved card, voucher, miles, seat 4C, the OPO⇄LIS pattern).`;
 
   for (let turn = 0; turn < maxTurns; turn++) {

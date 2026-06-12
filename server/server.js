@@ -474,6 +474,11 @@ const AGENT_TOOLS = [
     input_schema: { type: "object", properties: {} } },
   { name: "select_flight", description: "Select a specific flight by its flight number (from a prior search) and put it in the basket. Use when the customer picks one.",
     input_schema: { type: "object", properties: { flight_no: { type: "string" } }, required: ["flight_no"] } },
+  { name: "get_flight_info", description: "Look up details and seat availability for a SPECIFIC flight number the customer mentions (e.g. 'does TP1481 have availability tomorrow', 'tell me about TP501'). Use this instead of asking the customer which destination — the flight number already identifies the route. Returns the flight's route, times, price, cabin classes and seat availability.",
+    input_schema: { type: "object", properties: {
+      flight_no: { type: "string", description: "The flight number, e.g. TP1481." },
+      date: { type: "string", description: "Optional travel date YYYY-MM-DD; 'tomorrow' relative to today (2026-06-12) is 2026-06-13." },
+    }, required: ["flight_no"] } },
   { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer).",
     input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
   { name: "checkout", description: "Pay for the currently selected flight using Daniel's saved profile (voucher €35 + miles + Visa). Creates a real booking and sends a confirmation email. Only call after a flight is selected and the customer confirms they want to pay.",
@@ -548,6 +553,21 @@ function agentRunTool(name, input) {
     agentState.selected = { flight_no: f.flight_no, items: auto };
     log("agent_select", { flight_no: f.flight_no });
     return { ok: true, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, arr: f.arr, price: f.price, seat: "4C", auto_extras: auto };
+  }
+  if (name === "get_flight_info") {
+    const no = (input.flight_no || "").toUpperCase().replace(/\s+/g, "");
+    // Look up the flight in any prior search results (the flights table).
+    let f = db.prepare("SELECT * FROM flights WHERE UPPER(flight_no)=? ORDER BY id DESC LIMIT 1").get(no);
+    if (!f) return { ok: false, flight_no: no, message: `I don't have ${no} in the current results. Tell me the route or search it and I'll pull live availability.` };
+    // Deterministic-but-realistic seat availability per cabin for this flight.
+    const seed = [...no].reduce((s, c) => s + c.charCodeAt(0), 0);
+    const business = 2 + (seed % 6), premium = 5 + (seed % 12), economy = 20 + (seed % 90);
+    const total = business + premium + economy;
+    return { ok: true, flight_no: f.flight_no, origin: f.origin, dest: f.dest,
+      route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: f.flight_date, dep: f.dep, arr: f.arr,
+      price: f.price, aircraft: f.aircraft, status: f.status || "scheduled",
+      availability: { total_seats_left: total, business, premium_economy: premium, economy },
+      note: total > 0 ? `Yes — ${total} seats available across Business (${business}), Premium (${premium}) and Economy (${economy}).` : "This flight is full." };
   }
   if (name === "add_extras") {
     const sel = agentState.selected;
