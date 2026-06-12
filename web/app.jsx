@@ -8,10 +8,17 @@ import {
   Search, MapPin, Globe, ArrowLeftRight, Calendar, Info, Clock
 } from "lucide-react";
 
-/* ── API client — every byte of personalization comes from the backend ── */
+/* ── API client — every byte of personalization comes from the backend ──
+   API_BASE is derived from where the page is served, so the app works at the
+   site root OR under a sub-path like /tapportal/ behind a reverse proxy.   */
+const API_BASE = (() => {
+  // strip a trailing file (e.g. index.html) and trailing slash from the path
+  let base = window.location.pathname.replace(/\/[^/]*$/, "");
+  return base.replace(/\/$/, "");
+})();
 const api = {
-  get: (p) => fetch(`/api${p}`).then((r) => r.json()),
-  post: (p, body) => fetch(`/api${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json()),
+  get: (p) => fetch(`${API_BASE}/api${p}`).then((r) => r.json()),
+  post: (p, body) => fetch(`${API_BASE}/api${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json()),
 };
 const EUR = (n) => `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;
 // Format an ISO date (YYYY-MM-DD) as "Mon 15 Jun 2026"; falls back gracefully.
@@ -148,6 +155,79 @@ function Toasts({ list, dismiss }) {
 
 /* ── LOGIN ── */
 function Login({ profile, onLogin }) {
+  const [busy, setBusy] = useState(false);
+  const [personas, setPersonas] = useState(null);
+  const [active, setActive] = useState(null);
+  const [switching, setSwitching] = useState(null);
+  const u = profile?.user;
+
+  useEffect(() => { (async () => {
+    const r = await api.get("/personas");
+    setPersonas(r.personas); setActive(r.active);
+  })(); }, []);
+
+  const initials = (name) => name.split(" ").map(w => w[0]).slice(0, 2).join("");
+  const tierTone = (t) => t === "Platinum" ? "ink" : t === "Gold" ? "gold" : "green";
+
+  const pick = async (p) => {
+    if (busy || switching) return;
+    if (p.id !== active) {
+      setSwitching(p.id);
+      await api.post("/persona", { persona: p.id });   // re-seed the DB to this persona
+      setActive(p.id); setSwitching(null);
+    }
+    setBusy(true);
+    // small delay, then reload the app so the freshly-seeded profile loads everywhere
+    setTimeout(() => window.location.reload(), 600);
+  };
+
+  return (
+    <div className="min-h-screen flex" style={{ background: "var(--tap-mist)" }}>
+      <div className="hidden lg:flex flex-col justify-between w-[44%] p-12 text-white relative overflow-hidden"
+        style={{ background: "linear-gradient(160deg, var(--tap-deep) 0%, #0A5A3C 70%, var(--tap-green) 130%)" }}>
+        <TapLogo light/>
+        <div>
+          <div className="text-xs font-bold tracking-[0.25em] uppercase text-white/60 mb-4">TAP Miles&Go · Digital channel</div>
+          <h1 className="font-display font-black text-5xl leading-[1.05] mb-5">Your airline already knows the way you fly.</h1>
+          <p className="text-white/75 max-w-md leading-relaxed">One sign-in. Your routes, your seat, your payment, your boarding pass — served live from your customer record. Pick a traveller to see the personalization adapt.</p>
+        </div>
+        <div className="flex items-center gap-6 text-white/60 text-xs font-medium">
+          <span className="flex items-center gap-1.5"><ShieldCheck size={14}/> Secure session</span>
+          <span className="flex items-center gap-1.5"><Database size={14}/> Live customer DB</span>
+        </div>
+        <Plane className="absolute -right-10 -bottom-10 opacity-10" size={280}/>
+      </div>
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="w-full max-w-md slide-up">
+          <div className="lg:hidden mb-8"><TapLogo/></div>
+          <h2 className="font-display font-extrabold text-3xl mb-1" style={{ color: "var(--tap-ink)" }}>Choose a traveller</h2>
+          <p className="text-sm text-gray-500 mb-6">Each is a real customer record — the whole site personalizes to whoever signs in.</p>
+
+          {!personas && <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="animate-spin" size={16}/> Loading profiles…</div>}
+
+          <div className="space-y-3">
+            {personas && personas.map(p => (
+              <Card key={p.id} className="p-4 hover:shadow-md transition-shadow cursor-pointer" style={p.id === active ? { borderColor: "var(--tap-green)" } : {}}>
+                <button onClick={() => pick(p)} className="w-full flex items-center gap-4 text-left" disabled={busy || switching}>
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center font-display font-extrabold text-white text-base shrink-0" style={{ background: "var(--tap-deep)" }}>{initials(p.label)}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>{p.label} <Chip tone={tierTone(p.tier)}>{p.tier}</Chip></div>
+                    <div className="text-xs text-gray-500 mt-0.5">{p.blurb}</div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">Home {p.home} · {p.miles.toLocaleString()} miles{p.id === active ? " · active" : ""}</div>
+                  </div>
+                  {switching === p.id || (busy && (p.id === active)) ? <Loader2 className="animate-spin" size={18} style={{ color: "var(--tap-green)" }}/> : <ChevronRight size={18} className="text-gray-400"/>}
+                </button>
+              </Card>
+            ))}
+          </div>
+
+          <p className="text-[11px] text-gray-400 mt-6 text-center">Switching traveller re-seeds the live customer database · personalization is computed, not hardcoded</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+function LoginUnused({ profile, onLogin }) {
   const [busy, setBusy] = useState(false);
   const u = profile?.user;
   return (
@@ -493,28 +573,48 @@ function Flights({ flights, pattern, selectFlight, toast }) {
 
 /* ── BASKET — persisted server-side on every change ── */
 /* ── SEAT MAP — pick a seat, with a recommendation from booking history ── */
-function SeatMap({ flight, seat, setSeat, go, toast }) {
+function SeatMap({ flight, seat, setSeat, go, toast, profile }) {
   const [rec, setRec] = useState(null);
   const [taken, setTaken] = useState([]);
+  const tier = profile?.user?.tier || "Gold";
+
   useEffect(() => { (async () => {
     const r = await api.get("/seat-recommendation");
     setRec(r);
     if (r?.seat && !seat) setSeat(r.seat);
-    // deterministic "occupied" seats so the map looks alive (seat 4C stays free for Daniel)
-    const occ = ["1A","1B","2C","2D","3F","5A","6B","7C","7D","8F","9A","10C","11F","12B","14A","15D","16C","18B","20A"];
-    setTaken(occ.filter(s => s !== (r?.seat || "4C")));
+    // deterministic "occupied" seats across all cabins so the map looks alive
+    const occ = ["1C","2D","3A","4F","5B","6C","7E","9A","10C","11F","12B","14A","16C","18D","20A","22F","24B","26C","28E"];
+    setTaken(occ.filter(s => s !== (r?.seat || "")));
   })(); }, []);
 
-  const ROWS = 20, COLS = ["A","B","C","D","E","F"];
-  const recSeat = rec?.seat || "4C";
-  const seatPrice = (row) => row <= 5 ? 0 : (row <= 10 ? 6 : 0);   // front rows free for Gold
+  // ── Cabin layout: three real classes ──
+  // Business: rows 1-3, 2-2 (A,C | D,F). Premium: rows 4-7, 2-3-2-ish here 6 wide extra legroom.
+  // Economy: rows 8-30, standard 3-3 (A,B,C | D,E,F).
+  const CABINS = [
+    { id: "business", label: "Business", rows: [1, 2, 3], cols: ["A", "C", "D", "F"], aisleAfter: 1, price: 0, freeFor: ["Platinum"], note: "Lie-flat · lounge included", color: "#063A28" },
+    { id: "premium", label: "Premium Economy", rows: [4, 5, 6, 7], cols: ["A", "B", "C", "D", "E", "F"], aisleAfter: 2, price: 18, freeFor: ["Platinum", "Gold"], note: "Extra legroom · priority boarding", color: "#0A5A3C" },
+    { id: "economy", label: "Economy", rows: Array.from({ length: 23 }, (_, i) => i + 8), cols: ["A", "B", "C", "D", "E", "F"], aisleAfter: 2, price: 0, premiumRows: { min: 8, max: 10, price: 8 }, note: "Standard cabin · front rows are extra-legroom", color: "#00A357" },
+  ];
+  const recSeat = rec?.seat || "";
+
+  const cabinOf = (row) => CABINS.find(c => c.rows.includes(row));
+  const seatPriceFor = (row) => {
+    const c = cabinOf(row); if (!c) return 0;
+    if (c.freeFor && c.freeFor.includes(tier)) return 0;               // class included for this tier
+    if (c.id === "economy" && c.premiumRows && row >= c.premiumRows.min && row <= c.premiumRows.max) return c.premiumRows.price;
+    return c.price || 0;
+  };
+  const classOf = (s) => { const row = parseInt(s); const c = cabinOf(row); return c ? c.label : "Economy"; };
 
   const pick = (s, row) => {
     if (taken.includes(s)) return;
     setSeat(s);
-    const p = seatPrice(row);
-    toast("Seat selected", `${s}${p ? ` · €${p}` : " · free for Gold"}`);
+    const p = seatPriceFor(row);
+    toast("Seat selected", `${s} · ${classOf(s)}${p ? ` · €${p}` : " · included"}`);
   };
+
+  const recClass = recSeat ? classOf(recSeat) : "";
+  const recPrice = recSeat ? seatPriceFor(parseInt(recSeat)) : 0;
 
   return (
     <div className="max-w-4xl mx-auto px-4 pb-24 pt-8">
@@ -522,15 +622,15 @@ function SeatMap({ flight, seat, setSeat, go, toast }) {
         <h1 className="font-display font-black text-3xl" style={{ color: "var(--tap-ink)" }}>Choose your seat</h1>
         <Chip tone="green"><Armchair size={11}/> {flight?.flight_no} · {flight?.origin}→{flight?.dest}</Chip>
       </div>
-      <p className="text-sm text-gray-500 mb-5">Pick any open seat. We've pre-selected your usual.</p>
+      <p className="text-sm text-gray-500 mb-5">Business, Premium Economy and Economy — pick any open seat. We've pre-selected your usual.</p>
 
-      {rec && (
+      {rec && recSeat && (
         <Card className="p-4 mb-5 flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: "var(--tap-green)", background: "#FBFDFC" }}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-display font-extrabold" style={{ background: "var(--tap-green)" }}>{recSeat}</div>
             <div>
-              <div className="font-bold text-sm flex items-center gap-1.5" style={{ color: "var(--tap-ink)" }}>Recommended for you <Why text="Computed live from your past bookings — the seat you choose most often."/></div>
-              <div className="text-xs text-gray-500">{rec.reason} · front aisle, quick exit · free for Gold</div>
+              <div className="font-bold text-sm flex items-center gap-1.5" style={{ color: "var(--tap-ink)" }}>Recommended for you · {recClass} <Why text="Computed live from your past bookings — the seat and cabin you choose most often."/></div>
+              <div className="text-xs text-gray-500">{rec.reason} · {recPrice ? `€${recPrice}` : `included with ${tier}`}</div>
             </div>
           </div>
           <PrimaryBtn onClick={() => { setSeat(recSeat); go("basket"); }} className="!py-2.5">Keep {recSeat} <ArrowRight size={15}/></PrimaryBtn>
@@ -540,32 +640,44 @@ function SeatMap({ flight, seat, setSeat, go, toast }) {
       <div className="grid lg:grid-cols-3 gap-5">
         <Card className="lg:col-span-2 p-5 overflow-x-auto">
           <div className="flex justify-center mb-3"><div className="text-[11px] text-gray-400 px-3 py-1 rounded-full border" style={{ borderColor: "var(--tap-line)" }}>✈ Front of cabin</div></div>
-          <div className="space-y-1.5 min-w-[320px]">
-            {Array.from({ length: ROWS }, (_, i) => i + 1).map(row => (
-              <div key={row} className="flex items-center justify-center gap-1.5">
-                <div className="w-5 text-[10px] text-gray-400 text-right">{row}</div>
-                {COLS.map((col, ci) => {
-                  const s = `${row}${col}`;
-                  const isTaken = taken.includes(s);
-                  const isSel = seat === s;
-                  const isRec = s === recSeat && !isSel;
-                  return (
-                    <React.Fragment key={s}>
-                      <button onClick={() => pick(s, row)} disabled={isTaken}
-                        title={isTaken ? "Occupied" : `Seat ${s}${seatPrice(row) ? ` · €${seatPrice(row)}` : " · free"}`}
-                        className="w-7 h-7 rounded-md text-[9px] font-bold flex items-center justify-center transition-all"
-                        style={{
-                          background: isSel ? "var(--tap-green)" : isTaken ? "#e5e7eb" : isRec ? "#d1fae5" : "#fff",
-                          color: isSel ? "#fff" : isTaken ? "#9ca3af" : "var(--tap-ink)",
-                          border: `1.5px solid ${isSel ? "var(--tap-green)" : isRec ? "var(--tap-green)" : "var(--tap-line)"}`,
-                          cursor: isTaken ? "not-allowed" : "pointer",
-                        }}>
-                        {isSel ? "✓" : col}
-                      </button>
-                      {ci === 2 && <div className="w-4"/>}
-                    </React.Fragment>
-                  );
-                })}
+          <div className="min-w-[320px] space-y-1">
+            {CABINS.map(cabin => (
+              <div key={cabin.id} className="mb-2">
+                <div className="flex items-center gap-2 my-2">
+                  <div className="h-px flex-1" style={{ background: "var(--tap-line)" }}/>
+                  <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full text-white" style={{ background: cabin.color }}>{cabin.label}</span>
+                  <span className="text-[9px] text-gray-400">{cabin.note}</span>
+                  <div className="h-px flex-1" style={{ background: "var(--tap-line)" }}/>
+                </div>
+                {cabin.rows.map(row => (
+                  <div key={row} className="flex items-center justify-center gap-1.5 mb-1">
+                    <div className="w-5 text-[10px] text-gray-400 text-right">{row}</div>
+                    {cabin.cols.map((col, ci) => {
+                      const s = `${row}${col}`;
+                      const isTaken = taken.includes(s);
+                      const isSel = seat === s;
+                      const isRec = s === recSeat && !isSel;
+                      const price = seatPriceFor(row);
+                      const w = cabin.id === "business" ? "w-9" : "w-7";
+                      return (
+                        <React.Fragment key={s}>
+                          <button onClick={() => pick(s, row)} disabled={isTaken}
+                            title={isTaken ? "Occupied" : `Seat ${s} · ${cabin.label}${price ? ` · €${price}` : " · included"}`}
+                            className={`${w} h-7 rounded-md text-[9px] font-bold flex items-center justify-center transition-all`}
+                            style={{
+                              background: isSel ? "var(--tap-green)" : isTaken ? "#e5e7eb" : isRec ? "#d1fae5" : "#fff",
+                              color: isSel ? "#fff" : isTaken ? "#9ca3af" : "var(--tap-ink)",
+                              border: `1.5px solid ${isSel ? "var(--tap-green)" : isRec ? "var(--tap-green)" : cabin.id === "business" ? "#bcd7c9" : "var(--tap-line)"}`,
+                              cursor: isTaken ? "not-allowed" : "pointer",
+                            }}>
+                            {isSel ? "✓" : col}
+                          </button>
+                          {ci === cabin.aisleAfter && <div className="w-4"/>}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -581,11 +693,14 @@ function SeatMap({ flight, seat, setSeat, go, toast }) {
           <Card className="p-5 sticky top-20">
             <div className="font-display font-extrabold mb-3" style={{ color: "var(--tap-ink)" }}>Your seat</div>
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-display font-black text-lg" style={{ background: "var(--tap-deep)" }}>{seat || recSeat}</div>
-              <div className="text-sm text-gray-600">{(seat || recSeat) === recSeat ? "Your usual seat" : "Window/aisle as selected"}<br/><span className="text-xs text-gray-400">{seatPrice(parseInt(seat || recSeat)) ? `€${seatPrice(parseInt(seat || recSeat))}` : "Free for Gold"}</span></div>
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-display font-black text-lg" style={{ background: "var(--tap-deep)" }}>{seat || recSeat || "—"}</div>
+              <div className="text-sm text-gray-600">
+                {seat ? classOf(seat) : (recSeat ? classOf(recSeat) : "Pick a seat")}
+                <br/><span className="text-xs text-gray-400">{(() => { const sc = seat || recSeat; if (!sc) return ""; const p = seatPriceFor(parseInt(sc)); return p ? `€${p}` : `Included with ${tier}`; })()}</span>
+              </div>
             </div>
             <PrimaryBtn onClick={() => go("basket")} className="w-full"><ArrowRight size={15}/> Continue to extras</PrimaryBtn>
-            <div className="text-[11px] text-gray-400 mt-3 flex items-center gap-1.5"><Database size={12}/> Seat choice saved with your basket.</div>
+            <div className="text-[11px] text-gray-400 mt-3 flex items-center gap-1.5"><Database size={12}/> Seat &amp; cabin saved with your basket.</div>
           </Card>
         </div>
       </div>
@@ -2079,7 +2194,7 @@ function App() {
       {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/>}
       {screen === "search" && <SearchScreen origin={searchOrigin} setOrigin={setSearchOrigin} dest={searchDest} setDest={setSearchDest} date={searchDate} setDate={setSearchDate} onSearch={runSearch} results={searchResults} searching={searching} selectFlight={selectFlight} routes={routes} suggested={suggested} prefilledReason={prefilledReason}/>}
       {screen === "flights" && <Flights flights={flights} pattern={profile.pattern} selectFlight={selectFlight} toast={toast}/>}
-      {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast}/>}
+      {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast} profile={profile}/>}
       {screen === "basket" && flight && <Basket flight={flight} ancillaries={ancillaries} items={items} toggleItem={toggleItem} go={go}/>}
       {screen === "checkout" && flight && <Checkout profile={profile} flight={flight} ancillaries={ancillaries} items={items} go={go} hold={hold} setHold={setHold} toast={toast}/>}
       {screen === "payment" && flight && <Payment profile={profile} flight={flight} ancillaries={ancillaries} items={items} onPaid={onPaid} toast={toast}/>}

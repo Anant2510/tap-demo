@@ -6,7 +6,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const { db, now, DB_PATH, seedSearches, seedBookings } = require("./db");
+const { db, now, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA } = require("./db");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -15,6 +15,21 @@ const whatsapp = require("./whatsapp");
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
 const app = express();
+
+// Optional sub-path mounting (e.g. BASE_PATH=/tapportal → app served at /tapportal/).
+// We strip the prefix from incoming requests so all existing routes still match,
+// and serve static assets both at the prefix and at root for safety.
+const BASE_PATH = (process.env.BASE_PATH || "").replace(/\/$/, "");   // "" or "/tapportal"
+if (BASE_PATH) {
+  app.use((req, res, next) => {
+    if (req.url === BASE_PATH) return res.redirect(BASE_PATH + "/");   // /tapportal → /tapportal/
+    if (req.url.startsWith(BASE_PATH + "/") || req.url.startsWith(BASE_PATH + "?")) {
+      req.url = req.url.slice(BASE_PATH.length) || "/";
+    }
+    next();
+  });
+}
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));   // Twilio posts x-www-form-urlencoded
@@ -822,21 +837,41 @@ app.get("/api/admin/selftest", (req, res) => {
 });
 
 /* Reset for repeated demos */
-app.post("/api/admin/reset", (req, res) => {
-  for (const t of ["baskets","fare_locks","holds","bookings","payments","emails","searches","wa_messages"]) db.exec(`DELETE FROM ${t}`);
+// Wipe ALL per-user data (keep shared airports/routes) and re-seed one persona.
+function reseedPersona(personaId) {
+  for (const t of ["baskets","fare_locks","holds","bookings","payments","emails","searches","wa_messages","travel_history","vouchers","preferences","destinations","ancillaries","synced_searches","flights","users"]) {
+    try { db.exec(`DELETE FROM ${t}`); } catch {}
+  }
   db.exec("DELETE FROM events WHERE type != 'db_seeded'");
-  // Remove dynamically-generated flight rows (search created these); leave table empty — search regenerates on demand
-  db.exec("DELETE FROM flights");
-  // Trim travel_history back to the 15 originally-seeded rows (booking-appended rows have higher ids)
-  const SEED_HISTORY_ROWS = 28;   // matches the seed in db.js
-  const seedRows = db.prepare("SELECT id FROM travel_history WHERE user_id=1 ORDER BY id LIMIT ?").all(SEED_HISTORY_ROWS).map(r => r.id);
-  if (seedRows.length) db.prepare(`DELETE FROM travel_history WHERE user_id=1 AND id > ?`).run(seedRows[seedRows.length - 1]);
-  db.prepare("UPDATE users SET miles=48230 WHERE id=1").run();
-  db.prepare("UPDATE vouchers SET status='active' WHERE user_id=1").run();
-  db.prepare("UPDATE flights SET status='scheduled', new_dep=NULL, new_arr=NULL").run();
-  seedSearches();   // restore the pre-demo behavioural signals
-  seedBookings();   // restore the 10-booking history (8 past + 2 active) + their flights
-  res.json({ ok: true });
+  seedPersonaData(personaId);
+}
+
+function currentPersona() {
+  const row = db.prepare("SELECT v FROM app_state WHERE k='persona'").get();
+  return (row && row.v) || DEFAULT_PERSONA;
+}
+
+app.get("/api/personas", (req, res) => {
+  res.json({
+    active: currentPersona(),
+    personas: Object.values(PERSONAS).map(p => ({ id: p.id, label: p.label, blurb: p.blurb, tier: p.user.tier, home: p.user.home_airport, miles: p.user.miles })),
+  });
+});
+
+// Switch the live customer record to a different persona (re-seeds the DB).
+app.post("/api/persona", (req, res) => {
+  const id = (req.body && req.body.persona) || DEFAULT_PERSONA;
+  if (!PERSONAS[id]) return res.status(400).json({ ok: false, error: "unknown persona" });
+  reseedPersona(id);
+  const u = db.prepare("SELECT first_name, full_name, tier, miles FROM users WHERE id=1").get();
+  res.json({ ok: true, persona: id, user: u });
+});
+
+app.post("/api/admin/reset", (req, res) => {
+  // Reset restores the CURRENT persona's pristine data (or one named in the body).
+  const id = (req.body && req.body.persona) || currentPersona();
+  reseedPersona(id);
+  res.json({ ok: true, persona: id });
 });
 
 app.get("/{*splat}", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "index.html")));
@@ -844,9 +879,10 @@ app.get("/{*splat}", (req, res) => res.sendFile(path.join(__dirname, "..", "publ
 const PORT = process.env.PORT || 3000;   // set PORT in .env (e.g. 7801 on the Azure VM)
 const HOST = process.env.HOST || "0.0.0.0";   // 0.0.0.0 = reachable from the network, not just localhost
 app.listen(PORT, HOST, () => {
+  const suffix = BASE_PATH ? BASE_PATH + "/" : "/";
   console.log(`\n✈  TAP demo running`);
-  console.log(`   Local:   http://localhost:${PORT}`);
-  console.log(`   Network: http://0.0.0.0:${PORT}  (reachable via the VM's public IP if the firewall/NSG allow ${PORT})`);
+  console.log(`   Local:   http://localhost:${PORT}${suffix}`);
+  console.log(`   Network: http://0.0.0.0:${PORT}${suffix}  (reachable via the VM's public host if the firewall/NSG allow ${PORT})`);
   console.log(`   DB:      ${DB_PATH}`);
   console.log(`   SMTP:    ${SMTP_READY ? "configured — emails will really send" : "not configured — emails stored in DB outbox"}`);
   console.log(`   AI:      ${hasKey() ? "live (API key found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}\n`);

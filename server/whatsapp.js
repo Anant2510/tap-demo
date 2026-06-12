@@ -413,18 +413,21 @@ async function handleIncoming({ from, text }) {
   if (/^cancel\b/.test(t)) return handleAction(from, "CANCEL");
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
+  if (/\b(my booking|my flight|my trip|booking details|view booking|show booking)\b/.test(t) || /^booking\b/.test(t)) return handleAction(from, "MY_BOOKING");
+  if (/\b(extras|add.?ons?|ancillar|upgrade my)\b/.test(t)) return handleAction(from, "EXTRAS");
   if (/\b(miles|voucher|balance|points|wallet)\b/.test(t) && !/book|pay|use|redeem|fly|flight/.test(t)) return handleAction(from, "WALLET");
 
   // 2a) Fast deterministic search ONLY for an explicit "to <city>" destination,
   //     e.g. "flights to Madrid", "fly to Paris". We must NOT fire on "from <city>"
   //     (that's an origin) or on questions ("do we only fly to porto from lisbon?").
   const isQuestion = /\?|^(do|does|can|is|are|why|what|which|where|how)\b/.test(t);
-  const toMatch = t.match(/\b(?:to|fly to|flights? to|going to|travel to)\s+([a-z]{3,})/);
+  const toMatch = t.match(/\b(?:to|fly to|flights? to|going to|travel to)\s+([a-z][a-z\s]{2,}?)(?:\s+(?:on|next|this|tomorrow|today|for|in)\b|[?.,]|$)/);
   if (!isQuestion && toMatch) {
-    const destCode = detectDest(toMatch[1]);
+    const destCode = detectDest(toMatch[1].trim());
     // make sure it's a real destination word, and the message isn't an origin-only "from X" phrasing
     if (destCode && !/\bfrom\b/.test(t.split(toMatch[0])[0] || "")) {
-      return searchRoute(from, "OPO", destCode);
+      const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
+      return searchRoute(from, home, destCode);
     }
   }
 
@@ -471,7 +474,7 @@ async function runAgent(to, text) {
 /* Resolve a destination from free text → IATA code, using the airports table. */
 function detectDest(t) {
   // direct IATA code mention
-  const codeMatch = t.toUpperCase().match(/\b(LIS|OPO|MAD|CDG|FNC|BCN|LON|LHR|FCO|FRA|BRU|AMS|GVA|ZRH|MUC|MXP|ORY)\b/);
+  const codeMatch = t.toUpperCase().match(/\b(LIS|OPO|MAD|CDG|FNC|BCN|LON|LHR|FCO|FRA|BRU|AMS|GVA|ZRH|MUC|MXP|ORY|JFK|GRU|MIA|FAO|EWR)\b/);
   if (codeMatch && AIRPORTS[codeMatch[1]]) return codeMatch[1];
   // city-name mention — scan known airports
   for (const [code, a] of Object.entries(AIRPORTS)) {
@@ -479,8 +482,8 @@ function detectDest(t) {
     const city = a.city.toLowerCase();
     if (t.includes(city)) return code;
   }
-  // a few common aliases
-  const alias = { lisbon: "LIS", porto: "OPO", madrid: "MAD", paris: "CDG", funchal: "FNC", barcelona: "BCN", london: "LHR", rome: "FCO", frankfurt: "FRA", brussels: "BRU", amsterdam: "AMS", geneva: "GVA", zurich: "ZRH", munich: "MUC", milan: "MXP" };
+  // a few common aliases (incl. multi-word + persona cities)
+  const alias = { lisbon: "LIS", porto: "OPO", madrid: "MAD", paris: "CDG", funchal: "FNC", barcelona: "BCN", london: "LHR", rome: "FCO", frankfurt: "FRA", brussels: "BRU", amsterdam: "AMS", geneva: "GVA", zurich: "ZRH", munich: "MUC", milan: "MXP", "new york": "JFK", "newyork": "JFK", nyc: "JFK", "sao paulo": "GRU", "são paulo": "GRU", saopaulo: "GRU", miami: "MIA", faro: "FAO" };
   for (const [name, code] of Object.entries(alias)) if (t.includes(name) && AIRPORTS[code]) return code;
   return null;
 }
