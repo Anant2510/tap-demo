@@ -481,6 +481,13 @@ const AGENT_TOOLS = [
     }, required: ["flight_no"] } },
   { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer).",
     input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
+  { name: "list_seats", description: "List available seats and cabin classes (Business, Premium Economy, Economy) for the currently selected flight or Daniel's current booking. Use when the customer asks what seating options are available or wants to see the seat map.",
+    input_schema: { type: "object", properties: { cabin: { type: "string", description: "Optional filter: 'business', 'premium', or 'economy'." } } } },
+  { name: "change_seat", description: "Change Daniel's seat on the currently selected flight or his current booking — you CAN do this in chat. Use when he says 'change my seat', 'move me to a window', 'I want 12A', etc. Validates the seat exists and is free, updates it, and reports the new cabin and any fare difference. Only fall back to the website if the seat is taken or invalid after offering alternatives.",
+    input_schema: { type: "object", properties: {
+      seat: { type: "string", description: "Specific seat like '12A'. Omit if the customer only gave a preference." },
+      preference: { type: "string", description: "If no specific seat: 'window', 'aisle', 'business', 'premium', 'extra legroom', 'front'." },
+    } } },
   { name: "checkout", description: "Pay for the currently selected flight using Daniel's saved profile (voucher €35 + miles + Visa). Creates a real booking and sends a confirmation email. Only call after a flight is selected and the customer confirms they want to pay.",
     input_schema: { type: "object", properties: { use_voucher: { type: "boolean" }, use_miles: { type: "boolean" } } } },
   { name: "get_booking", description: "Get Daniel's current/latest active booking with status. Use for 'my booking', 'am I checked in', 'is my flight on time'.",
@@ -499,6 +506,44 @@ const AGENT_TOOLS = [
 // passes (web uses a per-tab id, WhatsApp uses the phone number).
 const agentSessions = {};
 const getSession = (id) => (agentSessions[id || "default"] = agentSessions[id || "default"] || { lastSearch: null, selected: null });
+
+// ── Cabin layout shared by the seat tools (mirrors the web SeatMap) ──
+const SEAT_CABINS = [
+  { id: "business", label: "Business", rows: [1, 2, 3], cols: ["A", "C", "D", "F"], basePrice: 90, freeFor: ["Platinum"] },
+  { id: "premium", label: "Premium Economy", rows: [4, 5, 6, 7], cols: ["A", "B", "C", "D", "E", "F"], basePrice: 18, freeFor: ["Platinum", "Gold"] },
+  { id: "economy", label: "Economy", rows: Array.from({ length: 23 }, (_, i) => i + 8), cols: ["A", "B", "C", "D", "E", "F"], basePrice: 0, frontRows: { min: 8, max: 10, price: 8 } },
+];
+const OCCUPIED = ["1C","2D","3A","4F","5B","6C","7E","9A","10C","11F","12B","14A","16C","18D","20A","22F","24B","26C","28E"];
+function cabinForRow(row) { return SEAT_CABINS.find(c => c.rows.includes(row)); }
+function seatExists(seat) {
+  const m = (seat || "").toUpperCase().match(/^(\d{1,2})([A-F])$/); if (!m) return false;
+  const row = parseInt(m[1]), col = m[2]; const c = cabinForRow(row);
+  return !!(c && c.cols.includes(col));
+}
+function seatPrice(seat, tier) {
+  const row = parseInt(seat); const c = cabinForRow(row); if (!c) return 0;
+  if (c.freeFor && c.freeFor.includes(tier)) return 0;
+  if (c.id === "economy" && c.frontRows && row >= c.frontRows.min && row <= c.frontRows.max) return c.frontRows.price;
+  return c.basePrice || 0;
+}
+function seatCabinLabel(seat) { const c = cabinForRow(parseInt(seat)); return c ? c.label : "Economy"; }
+function prefSeat() { return (db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get() || {}).seat || "4C"; }
+function firstFreeSeat(pref, tier) {
+  // pref: 'window'(A/F), 'aisle'(C/D), 'business', 'premium', 'extra legroom'/'front'
+  let cabins = SEAT_CABINS;
+  if (/business/.test(pref)) cabins = SEAT_CABINS.filter(c => c.id === "business");
+  else if (/premium/.test(pref)) cabins = SEAT_CABINS.filter(c => c.id === "premium");
+  const wantCols = /window/.test(pref) ? ["A", "F"] : /aisle/.test(pref) ? ["C", "D"] : null;
+  const frontFirst = /front|legroom/.test(pref);
+  for (const c of cabins) {
+    const rows = frontFirst ? c.rows : c.rows;
+    for (const row of rows) {
+      const cols = wantCols ? c.cols.filter(x => wantCols.includes(x)) : c.cols;
+      for (const col of cols) { const s = `${row}${col}`; if (!OCCUPIED.includes(s)) return s; }
+    }
+  }
+  return null;
+}
 
 function agentRunTool(name, input, session) {
   session = session || getSession("default");
@@ -555,9 +600,9 @@ function agentRunTool(name, input, session) {
     const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code);
     db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
     db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)").run(f.flight_no, JSON.stringify(auto), now());
-    session.selected = { flight_no: f.flight_no, items: auto };
+    session.selected = { flight_no: f.flight_no, items: auto, seat: prefSeat() };
     log("agent_select", { flight_no: f.flight_no });
-    return { ok: true, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, arr: f.arr, price: f.price, seat: "4C", auto_extras: auto };
+    return { ok: true, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, arr: f.arr, price: f.price, seat: session.selected.seat, auto_extras: auto };
   }
   if (name === "get_flight_info") {
     const no = (input.flight_no || "").toUpperCase().replace(/\s+/g, "");
@@ -583,6 +628,40 @@ function agentRunTool(name, input, session) {
     const named = db.prepare(`SELECT code,name,price FROM ancillaries`).all().filter(a => sel.items.includes(a.code));
     log("agent_extras", { flight_no: sel.flight_no, items: sel.items });
     return { ok: true, items: named };
+  }
+  if (name === "list_seats") {
+    const tier = (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
+    const cur = session.selected?.seat || prefSeat();
+    const want = (input.cabin || "").toLowerCase();
+    const cabins = SEAT_CABINS
+      .filter(c => !want || c.id.startsWith(want) || c.label.toLowerCase().includes(want))
+      .map(c => {
+        const free = c.rows.flatMap(r => c.cols.map(col => `${r}${col}`)).filter(s => !OCCUPIED.includes(s));
+        const price = seatPrice(`${c.rows[0]}${c.cols[0]}`, tier);
+        return { cabin: c.label, price_from: price, included: price === 0, examples: free.slice(0, 6), seats_available: free.length };
+      });
+    return { ok: true, current_seat: cur, current_cabin: seatCabinLabel(cur), tier, cabins,
+      note: `You're in ${cur} (${seatCabinLabel(cur)}). Business and Premium Economy are included with ${tier}; Economy front rows are €8. Tell me a seat (e.g. 12A) or a preference (window, aisle, business) and I'll move you.` };
+  }
+  if (name === "change_seat") {
+    const tier = (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
+    const cur = session.selected?.seat || prefSeat();
+    let target = (input.seat || "").toUpperCase().replace(/\s+/g, "");
+    if (!target && input.preference) target = firstFreeSeat(input.preference.toLowerCase(), tier);
+    if (!target) return { ok: false, message: "Tell me a specific seat (like 12A) or a preference (window, aisle, business) and I'll move you." };
+    if (!seatExists(target)) return { ok: false, message: `${target} isn't a seat on this aircraft. Seats run rows 1–30, columns A–F.` };
+    if (OCCUPIED.includes(target)) {
+      const alt = firstFreeSeat(/[AF]$/.test(target) ? "window" : /[CD]$/.test(target) ? "aisle" : "", tier);
+      return { ok: false, seat: target, taken: true, suggestion: alt, message: `${target} is taken. ${alt ? `${alt} is free and similar — want that instead?` : "Try another seat."}` };
+    }
+    const oldPrice = seatPrice(cur, tier), newPrice = seatPrice(target, tier), diff = +(newPrice - oldPrice).toFixed(2);
+    // Persist: update the basket seat (pre-purchase) and/or the active booking seat.
+    if (session.selected) session.selected.seat = target;
+    db.prepare("UPDATE bookings SET seat=? WHERE user_id=1 AND status='confirmed'").run(target);
+    log("agent_change_seat", { from: cur, to: target, cabin: seatCabinLabel(target), diff });
+    return { ok: true, from: cur, seat: target, cabin: seatCabinLabel(target),
+      price: newPrice, included: newPrice === 0, fare_diff: diff,
+      note: `Moved you to ${target} (${seatCabinLabel(target)})${newPrice === 0 ? ", included with " + tier : ", €" + newPrice}${diff > 0 ? ` (+€${diff})` : diff < 0 ? ` (−€${-diff})` : ""}.` };
   }
   if (name === "checkout") {
     const sel = session.selected;
@@ -676,6 +755,9 @@ function buildUI(toolCalls) {
     } else if (tc.name === "checkout" && tc.result?.ok) {
       cards = [{ type: "confirmation", ...tc.result }];
       command = { action: "show_confirmation", pnr: tc.result.pnr };
+    } else if (tc.name === "change_seat" && tc.result?.ok) {
+      cards = [{ type: "seat", seat: tc.result.seat, cabin: tc.result.cabin, price: tc.result.price, included: tc.result.included, from: tc.result.from }];
+      command = { action: "navigate", screen: "seatmap" };
     } else if (tc.name === "get_wallet" && tc.result?.ok) {
       cards = [{ type: "wallet", miles: tc.result.miles, miles_value_eur: tc.result.miles_value_eur, voucher: tc.result.voucher, card: tc.result.card }];
       command = { action: "navigate", screen: "miles" };

@@ -1487,6 +1487,15 @@ function ChatCards({ cards, onSelectFlight }) {
             <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">{c.destinations.map(d => <span key={d.code} className="text-xs px-2 py-1 rounded-full border" style={{borderColor: d.flown ? "var(--tap-green)" : "var(--tap-line)", color:"var(--tap-ink)"}}>{d.city}{d.flown?` · flown ${d.flown}×`:""}</span>)}</div>
           </div>
         );
+        if (c.type === "seat") return (
+          <div key={i} className="bg-white border rounded-2xl p-3 flex items-center gap-3" style={{borderColor:"var(--tap-green)"}}>
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-display font-black" style={{background:"var(--tap-green)"}}>{c.seat}</div>
+            <div className="min-w-0">
+              <div className="font-bold text-sm" style={{color:"var(--tap-ink)"}}>Seat changed to {c.seat}</div>
+              <div className="text-xs text-gray-500">{c.cabin}{c.included?" · included":` · ${EUR(c.price)}`}{c.from?` · was ${c.from}`:""}</div>
+            </div>
+          </div>
+        );
         if (c.type === "booking") return (
           <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
             <div className="font-bold text-sm" style={{color:"var(--tap-ink)"}}>{c.pnr} · {c.route}</div>

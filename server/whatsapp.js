@@ -334,6 +334,27 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     return;
   }
 
+  if (id === "SEATMAP_INFO") {
+    const u = db.prepare("SELECT tier FROM users WHERE id=1").get();
+    const b = db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY flight_date LIMIT 1").get();
+    const cur = b?.seat || "4C";
+    const tier = u?.tier || "Gold";
+    const biz = tier === "Platinum" ? "included" : "€90";
+    const prem = (tier === "Platinum" || tier === "Gold") ? "included" : "€18";
+    await sendText(to,
+`🪑 Seating on your flight — you're in ${cur}.
+
+✈️ Business (rows 1–3) — ${biz} for ${tier}
+⭐ Premium Economy (rows 4–7) — ${prem} for ${tier}
+💺 Economy (rows 8–30) — free · front rows 8–10 €8
+
+Just tell me a seat (e.g. "change my seat to 12A") or a preference ("window in business") and I'll move you right here.
+
+0 for menu`);
+    setMenu(to, { "0": "MENU" });
+    return;
+  }
+
   if (id === "WALLET") {
     const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=1").get();
     const v = db.prepare("SELECT code, amount, status, expiry FROM vouchers WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
@@ -433,6 +454,8 @@ async function handleIncoming({ from, text }) {
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
   if (/\b(my booking|my flight|my trip|booking details|view booking|show booking)\b/.test(t) || /^booking\b/.test(t)) return handleAction(from, "MY_BOOKING");
+  if (/\b(seat options|seating options|available seats|seat map|what seats|which seats)\b/.test(t)) return handleAction(from, "SEATMAP_INFO");
+  if (/\b(change|move|switch|upgrade).{0,20}\bseat\b|\bseat\b.{0,20}\b(change|window|aisle|business|premium)\b|\bwindow seat\b|\baisle seat\b/.test(t)) return runAgent(from, text);
   if (/\b(extras|add.?ons?|ancillar|upgrade my)\b/.test(t)) return handleAction(from, "EXTRAS");
   if (/\b(miles|voucher|balance|points|wallet)\b/.test(t) && !/book|pay|use|redeem|fly|flight/.test(t)) return handleAction(from, "WALLET");
 
