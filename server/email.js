@@ -126,6 +126,31 @@ const TEMPLATES = {
       cta: { label: offer.cta || "See your offer" },
     }),
   }),
+  search_followup: ({ origin, dest, originCity, destCity, date, low }) => ({
+    subject: `Still thinking about ${destCity}? Your ${originCity} → ${destCity} search is saved`,
+    html: wrap({
+      title: `Pick up where you left off, Daniel.`,
+      preheader: `Your ${originCity} → ${destCity} search is saved — fares from €${low}.`,
+      bodyHtml: `You were looking at <b>${originCity} (${origin}) → ${destCity} (${dest})</b> for ${date}.
+        ${flightRow({ origin, dest, dep: "", arr: "", flight_no: "TAP", aircraft: "" })}
+        We've saved it to your trips so you can finish in one tap — fares currently from <b>€${low}</b>.
+        Your seat 4C, cabin bag and espresso are pre-set, and you can pay with your €35 voucher + miles.`,
+      cta: { label: `Resume ${destCity} search` },
+    }),
+  }),
+  search_offer: ({ origin, dest, originCity, destCity, date, low, discount }) => ({
+    subject: `A little nudge for ${destCity} — €${discount} off if you book today`,
+    accent: GOLD,
+    html: wrap({
+      title: `Your ${destCity} trip, with €${discount} off.`,
+      accent: GOLD,
+      preheader: `Exclusive Gold offer on your saved ${originCity} → ${destCity} search.`,
+      bodyHtml: `Still on the fence about <b>${originCity} → ${destCity}</b>? As a Miles&Go Gold member, here's <b>€${discount} off</b> if you book this route today.
+        ${flightRow({ origin, dest, dep: "", arr: "", flight_no: "TAP", aircraft: "" })}
+        That brings your fare to about <b>€${Math.max(0, low - discount)}</b> before voucher and miles. The offer is held for 48 hours — one tap to book.`,
+      cta: { label: `Book ${destCity} with €${discount} off` },
+    }),
+  }),
 };
 
 async function sendEmail(type, data) {

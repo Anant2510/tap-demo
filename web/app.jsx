@@ -334,7 +334,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             <RouteRibbon small from={ss.origin} to={ss.dest}/>
             <Chip tone="ink">{ss.travel_date} · {ss.pax} adult</Chip>
           </div>
-          <PrimaryBtn onClick={() => go("search")} className="!py-2 !px-4">Resume search <ArrowRight size={15}/></PrimaryBtn>
+          <PrimaryBtn onClick={() => bookDestination({ code: ss.dest, city: cityName(ss.dest), origin: ss.origin, reason: `Resuming your saved ${cityName(ss.origin)} → ${cityName(ss.dest)} search.` })} className="!py-2 !px-4">Resume search <ArrowRight size={15}/></PrimaryBtn>
         </Card>
       )}
 

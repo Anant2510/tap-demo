@@ -114,9 +114,46 @@ app.get("/api/search", (req, res) => {
   // Log the search itself — this is behavioural data the CDP would use
   db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at)
     VALUES (1,?,?,?,?,?,?,?)`).run(origin, dest, date, 1, stored.length, "Web app", now());
+  // Keep the "continue your last search" banner LIVE — reflect this real search,
+  // not a stale seed. (One synced row per user; we overwrite it each search.)
+  const pax = Number(req.query.pax) || 1;
+  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
+  db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at)
+    VALUES (1,?,?,?,?,?,?)`).run(origin, dest, date, pax, "Web app", now());
+  // Search-abandonment journey: queue a follow-up. If no booking on this route
+  // follows shortly, an offer email goes out too. (Demo timings are compressed.)
+  scheduleSearchFollowup(origin, dest, date, stored);
   log("flight_search", { origin, dest, date, results: stored.length });
   res.json({ ok: true, origin, dest, date, route, flights: stored });
 });
+
+/* Search-abandonment automation. In production this would be a CDP journey with
+   real delays; here the follow-up email is created right away (so it's visible in
+   the demo), and an offer email is scheduled a short time later UNLESS a booking
+   for the same destination appears first. */
+const followupTimers = {};
+function scheduleSearchFollowup(origin, dest, date, flights) {
+  const low = flights.length ? Math.min(...flights.map(f => f.price)) : 0;
+  const originCity = cityName(origin), destCity = cityName(dest);
+  // 1) immediate follow-up ("your search is saved")
+  sendEmail("search_followup", { origin, dest, originCity, destCity, date, low }).catch(() => {});
+  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('search_followup_sent',?,?)")
+    .run(JSON.stringify({ origin, dest, date, low }), now());
+  // 2) offer follow-up after a short delay, only if still no booking to this dest
+  const key = `${origin}-${dest}`;
+  if (followupTimers[key]) clearTimeout(followupTimers[key]);
+  followupTimers[key] = setTimeout(async () => {
+    const booked = db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
+      WHERE b.user_id=1 AND b.status='confirmed' AND f.dest=? AND b.created_at > ?`).get(dest, date + " 00:00:00").c;
+    const recentBooked = db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
+      WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(dest).c;
+    if (recentBooked > 0) return;   // they booked — no need to chase
+    const discount = 15;
+    await sendEmail("search_offer", { origin, dest, originCity, destCity, date, low, discount }).catch(() => {});
+    db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('search_offer_sent',?,?)")
+      .run(JSON.stringify({ origin, dest, date, discount }), now());
+  }, 45000);   // 45s in the demo; would be hours/days in production
+}
 
 /* ── Profile / personalization data ─────────────────────────── */
 app.get("/api/profile", (req, res) => {
@@ -275,6 +312,8 @@ app.post("/api/pay", async (req, res) => {
   if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
   if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=1 AND status='active'").run();
   db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
+  // Booking completed → clear the "resume your search" banner for this destination
+  db.prepare("DELETE FROM synced_searches WHERE user_id=1 AND dest=?").run(f.dest);
   // Feed the booking back into travel history → future recommendations learn from it
   db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
     VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
@@ -454,6 +493,11 @@ function agentRunTool(name, input) {
     const stored = db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, date);
     db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at) VALUES (1,?,?,?,?,?,?,?)`)
       .run(origin, dest, date, 1, stored.length, "Chat agent", now());
+    // Live "continue your last search" banner + abandonment follow-up (same as web search)
+    db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
+    db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at) VALUES (1,?,?,?,?,?,?)`)
+      .run(origin, dest, date, 1, "Chat agent", now());
+    scheduleSearchFollowup(origin, dest, date, stored);
     log("agent_search", { origin, dest, date, results: stored.length });
     agentState.lastSearch = { origin, dest, date, flights: stored };
     return { ok: true, origin, dest, date, city: cityName(dest),
@@ -519,6 +563,7 @@ function agentRunTool(name, input) {
     if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
     if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=1 AND status='active'").run();
     db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
+    db.prepare("DELETE FROM synced_searches WHERE user_id=1 AND dest=?").run(f.dest);
     db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,'Business')`)
       .run(f.flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
     log("agent_checkout", { pnr, gross, split: { voucher_amt, miles_used, card_amt } });
