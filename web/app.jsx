@@ -830,7 +830,7 @@ function Checkout({ profile, flight, ancillaries, items, go, hold, setHold, toas
       <Card className="ticket-edge p-5 mb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date, false)} · Seat 4C</div>
+            <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date, false)} · Seat {(profile.prefs?.seat||"").split(" ")[0] || "—"}</div>
             <RouteRibbon small from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
           </div>
           <div className="text-right">
@@ -844,7 +844,7 @@ function Checkout({ profile, flight, ancillaries, items, go, hold, setHold, toas
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{background:"#F7EFD6"}}><TimerReset size={18} style={{color:"var(--tap-gold)"}}/></div>
           <div className="flex-1">
             <div className="font-bold text-sm" style={{color:"var(--tap-ink)"}}>Need time to think?</div>
-            <div className="text-xs text-gray-500 mt-0.5">Hold this booking — price, seat 4C and extras — for <b>48 hours</b>, free for Gold. We email you the hold confirmation.</div>
+            <div className="text-xs text-gray-500 mt-0.5">Hold this booking — price, seat {(profile.prefs?.seat||"").split(" ")[0] || ""} and extras — for <b>48 hours</b>, free for {profile.user?.tier || "Gold"}. We email you the hold confirmation.</div>
             {hold && <div className="text-xs font-bold mt-2" style={{color:"var(--tap-gold)"}}>⏳ Held until {hold} · confirmation email sent · reminder 6h before expiry.</div>}
           </div>
           <GhostBtn onClick={doHold} className="shrink-0">{hold ? "Release hold" : "Hold 48h — free"}</GhostBtn>
@@ -859,7 +859,7 @@ function Checkout({ profile, flight, ancillaries, items, go, hold, setHold, toas
 }
 
 /* ── PAYMENT — card + miles + voucher in one transaction ── */
-function Payment({ profile, flight, ancillaries, items, onPaid, toast }) {
+function Payment({ profile, flight, ancillaries, items, seat, onPaid, toast }) {
   const extras = items.reduce((s, id) => s + (ancillaries.find(a=>a.code===id)?.price || 0), 0);
   const total = flight.price + extras;
   const u = profile.user;
@@ -875,7 +875,7 @@ function Payment({ profile, flight, ancillaries, items, onPaid, toast }) {
 
   const pay = async () => {
     setPaying(true);
-    const r = await api.post("/pay", { flight_no: flight.flight_no, items, total,
+    const r = await api.post("/pay", { flight_no: flight.flight_no, items, total, seat: seat || (profile?.prefs?.seat || "").split(" ")[0] || undefined,
       voucher_amt: voucherVal, miles_used: milesVal > 0 ? Math.min(milesUsed, maxMiles) : 0, miles_amt: milesVal, card_amt: cardVal });
     toast("Confirmation email sent", `${r.email.subject} → ${r.email.to} · ${r.email.status}`);
     onPaid({ pnr: r.pnr, total, voucherVal, milesVal, cardVal });
@@ -946,10 +946,10 @@ function Confirmed({ profile, flight, receipt, go }) {
       <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center slide-up" style={{background:"#E2F4EA"}}>
         <CheckCircle2 size={32} style={{color:"var(--tap-green)"}}/>
       </div>
-      <h1 className="font-display font-black text-3xl mb-2" style={{color:"var(--tap-ink)"}}>You're booked, Daniel.</h1>
+      <h1 className="font-display font-black text-3xl mb-2" style={{color:"var(--tap-ink)"}}>You're booked, {profile.user.first_name}.</h1>
       <p className="text-sm text-gray-500 mb-6">Confirmation <b>{receipt.pnr}</b> · written to the bookings table · email sent to {profile.user.email}.<br/>Auto check-in is ON — your boarding pass appears here 24h before departure.</p>
       <Card className="ticket-edge p-5 text-left mb-5">
-        <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date)} · Seat 4C</div>
+        <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date)} · Seat {(profile.prefs?.seat||"").split(" ")[0] || "—"}</div>
         <RouteRibbon from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
         <div className="h-px my-4" style={{background:"var(--tap-line)"}}/>
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
@@ -1144,7 +1144,7 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
             </div>
             <div className="bg-white rounded-b-2xl p-5 ticket-edge">
               <div className="grid grid-cols-4 gap-2 text-center text-xs mb-4">
-                {[["Flight", passBooking.flight_no],["Seat",passBooking.seat || "4C"],["Group","A · Gold"],["Gate","12"]].map(([k,v])=>(
+                {[["Flight", passBooking.flight_no],["Seat",passBooking.seat || (profile?.prefs?.seat||"").split(" ")[0] || "—"],["Group",`${profile?.user?.tier==="Silver"?"B":"A"} · ${profile?.user?.tier||"Gold"}`],["Gate","12"]].map(([k,v])=>(
                   <div key={k}><div className="text-gray-400">{k}</div><div className="font-bold" style={{color:"var(--tap-ink)"}}>{v}</div></div>
                 ))}
               </div>
@@ -1872,7 +1872,7 @@ function CheckIn({ go, toast, profile }) {
     const rows = await api.get("/bookings");
     const active = (rows || []).find(b => b.status === "confirmed");
     setBooking(active || null);
-    if (active?.checked_in) setDone({ state: "already_checked_in", pnr: active.pnr, seat: active.seat, group: "A (Gold)" });
+    if (active?.checked_in) setDone({ state: "already_checked_in", pnr: active.pnr, seat: active.seat, group: `A (${profile?.user?.tier || "Gold"})` });
   })(); }, []);
 
   const canSubmit = docId.trim().length >= 5 && ackBags && !busy;
@@ -1903,7 +1903,7 @@ function CheckIn({ go, toast, profile }) {
         <Card className="p-6 text-center">
           <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "var(--tap-mist)" }}><BadgeCheck size={22} style={{ color: "var(--tap-green)" }}/></div>
           <div className="font-display font-extrabold text-xl mb-1" style={{ color: "var(--tap-ink)" }}>You're already checked in</div>
-          <div className="text-sm text-gray-600 mb-4">{booking.pnr} · {booking.flight?.flight_no} {cityName(booking.flight?.origin)}→{cityName(booking.flight?.dest)} · boarding group A (Gold), seat {booking.seat}. Nothing more to do.</div>
+          <div className="text-sm text-gray-600 mb-4">{booking.pnr} · {booking.flight?.flight_no} {cityName(booking.flight?.origin)}→{cityName(booking.flight?.dest)} · boarding group A ({profile?.user?.tier || "Gold"}), seat {booking.seat}. Nothing more to do.</div>
           <PrimaryBtn onClick={() => go("manage")} className="!py-2.5"><QrCode size={15}/> View boarding pass</PrimaryBtn>
         </Card>
       )}
@@ -2118,7 +2118,7 @@ function App() {
   const refreshSuggested = async () => setSuggested(await api.get("/routes/suggested"));
   const refreshProfile = async () => setProfile(await api.get("/profile"));
   const go = (s) => { setScreen(s); window.scrollTo(0, 0); if (s === "login" && typeof window !== "undefined") window.location.hash = ""; if (s === "home") refreshProfile(); if (s === "search") refreshSuggested(); };
-  const [seat, setSeat] = useState("4C");
+  const [seat, setSeat] = useState("");
   const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); go("seatmap"); };
 
   // Flight search — logs to DB, feeds personalization.
@@ -2220,7 +2220,7 @@ function App() {
               <div className="text-xs font-bold" style={{color:"var(--tap-ink)"}}>Hi, {profile.user.first_name}</div>
               <div className="text-[10px] text-gray-400">{profile.user.tier} · {profile.user.miles.toLocaleString()} miles</div>
             </div>
-            <div className="w-9 h-9 rounded-full flex items-center justify-center font-display font-extrabold text-white text-sm" style={{background:"var(--tap-deep)"}}>DF</div>
+            <div className="w-9 h-9 rounded-full flex items-center justify-center font-display font-extrabold text-white text-sm" style={{background:"var(--tap-deep)"}}>{profile.user.full_name.split(" ").map(w=>w[0]).slice(0,2).join("")}</div>
             <span className="hidden md:flex items-center gap-1 text-[11px] font-bold text-gray-500 border rounded-full px-2 py-1" style={{borderColor:"var(--tap-line)"}}>🇬🇧 EN</span>
           </div>
         </div>
@@ -2232,7 +2232,7 @@ function App() {
       {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast} profile={profile}/>}
       {screen === "basket" && flight && <Basket flight={flight} ancillaries={ancillaries} items={items} toggleItem={toggleItem} go={go}/>}
       {screen === "checkout" && flight && <Checkout profile={profile} flight={flight} ancillaries={ancillaries} items={items} go={go} hold={hold} setHold={setHold} toast={toast}/>}
-      {screen === "payment" && flight && <Payment profile={profile} flight={flight} ancillaries={ancillaries} items={items} onPaid={onPaid} toast={toast}/>}
+      {screen === "payment" && flight && <Payment profile={profile} flight={flight} ancillaries={ancillaries} items={items} seat={seat} onPaid={onPaid} toast={toast}/>}
       {screen === "confirmed" && receipt && <Confirmed profile={profile} flight={flight} receipt={receipt} go={go}/>}
       {screen === "manage" && <Manage profile={profile} flight={flight} openAssistant={()=>setAssistantOpen(true)} toast={toast} go={go}/>}
       {screen === "checkin" && <CheckIn go={go} toast={toast} profile={profile}/>}
@@ -2245,7 +2245,7 @@ function App() {
       <Toasts list={toasts} dismiss={(id)=>setToasts(t=>t.filter(x=>x.id!==id))}/>
 
       <footer className="border-t py-4 text-center text-[11px] text-gray-400" style={{borderColor:"var(--tap-line)"}}>
-        Demo · Reimagined pre-travel journey for Daniel, the Digital Commuter · Frontend + Express API + SQLite + Email + AI
+        Demo · Reimagined pre-travel journey · personalized live per traveller · Frontend + Express API + SQLite + Email + AI
       </footer>
     </div>
   );
