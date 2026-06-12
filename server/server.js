@@ -406,13 +406,17 @@ app.post("/api/ai/chat", async (req, res) => {
    `cards` render inline in the chat; `command` tells the main screen
    what to do (chat is primary, screen follows). ─────────────────── */
 const AGENT_TOOLS = [
-  { name: "search_flights", description: "Search TAP flights for a route and date. Use when the customer wants to find or compare flights. Dates like 'next Friday' should be resolved to YYYY-MM-DD (today is 2026-06-11).",
+  { name: "search_flights", description: "Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is 2026-06-11).",
     input_schema: { type: "object", properties: {
-      origin: { type: "string", description: "Origin IATA code, e.g. OPO. Default OPO (Daniel's home airport) if unspecified." },
-      dest: { type: "string", description: "Destination IATA code, e.g. LIS, MAD, CDG, FNC." },
-      date: { type: "string", description: "Travel date YYYY-MM-DD. Default 2026-06-15 (next Monday) if unspecified." },
-    }, required: ["dest"] } },
-  { name: "get_suggestions", description: "Get Daniel's personalized suggested destinations, computed from his real flown/booked/searched history. Use when he asks 'where should I go' or for ideas.",
+      origin: { type: "string", description: "Origin IATA code, e.g. OPO. If the customer didn't specify an origin, use OPO (Daniel's home airport)." },
+      dest: { type: "string", description: "Destination IATA code, e.g. LIS, MAD, CDG. REQUIRED — never guess this. If unknown, call list_destinations instead." },
+      date: { type: "string", description: "Travel date YYYY-MM-DD. Use 2026-06-15 (next Monday) only if the customer gave no date." },
+    }, required: ["origin", "dest"] } },
+  { name: "list_destinations", description: "List the real cities TAP flies to FROM a given origin airport. Use this whenever the customer asks where they can fly from a city, asks for 'options from <city>' without naming a destination, or asks a factual question like 'do we only fly to X from Y?'. Returns the actual route network from the database.",
+    input_schema: { type: "object", properties: {
+      origin: { type: "string", description: "Origin IATA code, e.g. LIS, OPO, MAD." },
+    }, required: ["origin"] } },
+  { name: "get_suggestions", description: "Get Daniel's personalized suggested destinations, computed from his real flown/booked/searched history. Use when he asks 'where should I go' or for ideas (NOT for factual 'where do we fly from X' questions — use list_destinations for those).",
     input_schema: { type: "object", properties: {} } },
   { name: "select_flight", description: "Select a specific flight by its flight number (from a prior search) and put it in the basket. Use when the customer picks one.",
     input_schema: { type: "object", properties: { flight_no: { type: "string" } }, required: ["flight_no"] } },
@@ -434,10 +438,15 @@ const agentState = { lastSearch: null, selected: null };
 function agentRunTool(name, input) {
   if (name === "search_flights") {
     const origin = (input.origin || "OPO").toUpperCase();
-    const dest = (input.dest || "LIS").toUpperCase();
+    const dest = (input.dest || "").toUpperCase();
+    // Never guess a destination — tell the agent to ask or list instead.
+    if (!dest) return { ok: false, need: "destination", message: "No destination was given. Ask the customer where they want to go, or call list_destinations to show the options from their origin. Do not assume a destination." };
     const date = input.date || "2026-06-15";
     const route = getRoute(origin, dest);
-    if (!route) return { ok: false, message: `TAP doesn't fly ${origin}→${dest} directly in this network.` };
+    if (!route) {
+      const dests = (db.prepare("SELECT dest FROM routes WHERE origin=?").all(origin) || []).map(r => r.dest);
+      return { ok: false, message: `TAP doesn't fly ${cityName(origin)}→${cityName(dest)} in this network.`, available_destinations: dests.map(c => ({ code: c, city: cityName(c) })) };
+    }
     const flights = generateFlights(origin, dest, date);
     persistFlights(flights);
     const stored = db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, date);
@@ -447,6 +456,19 @@ function agentRunTool(name, input) {
     agentState.lastSearch = { origin, dest, date, flights: stored };
     return { ok: true, origin, dest, date, city: cityName(dest),
       flights: stored.map(f => ({ flight_no: f.flight_no, dep: f.dep, arr: f.arr, price: f.price, status: f.status, recommended: !!f.recommended })) };
+  }
+  if (name === "list_destinations") {
+    const origin = (input.origin || "OPO").toUpperCase();
+    const rows = db.prepare("SELECT dest FROM routes WHERE origin=?").all(origin);
+    if (!rows.length) return { ok: false, message: `No routes found from ${cityName(origin)} (${origin}). Check the airport code.` };
+    const dests = rows.map(r => ({ code: r.dest, city: cityName(r.dest) }))
+      .sort((a, b) => a.city.localeCompare(b.city));
+    // mark which ones Daniel has flown, for a personal touch
+    dests.forEach(d => {
+      d.flown = db.prepare("SELECT COUNT(*) c FROM travel_history WHERE user_id=1 AND route LIKE ?").get(`%→${d.code}`).c;
+    });
+    log("agent_list_destinations", { origin, count: dests.length });
+    return { ok: true, origin, originCity: cityName(origin), count: dests.length, destinations: dests };
   }
   if (name === "get_suggestions") {
     const sug = db.prepare("SELECT * FROM destinations").all().slice(0, 6).map(d => {
@@ -546,6 +568,8 @@ function buildUI(toolCalls) {
     } else if (tc.name === "get_suggestions" && tc.result?.ok) {
       cards = [{ type: "suggestions", suggestions: tc.result.suggestions }];
       command = { action: "navigate", screen: "search" };
+    } else if (tc.name === "list_destinations" && tc.result?.ok) {
+      cards = [{ type: "destinations", origin: tc.result.origin, originCity: tc.result.originCity, count: tc.result.count, destinations: tc.result.destinations }];
     } else if (tc.name === "select_flight" && tc.result?.ok) {
       cards = [{ type: "selected", ...tc.result }];
       command = { action: "select_flight", flight_no: tc.result.flight_no };
@@ -617,6 +641,61 @@ app.get("/api/admin/emails/:id", (req, res) =>
   res.json(db.prepare("SELECT * FROM emails WHERE id=?").get(req.params.id) || {}));
 app.get("/api/health", (req, res) =>
   res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", ai: hasKey() ? "live" : "fallback mode", whatsapp: whatsapp.CONFIGURED() ? "configured — messages really send" : "not configured (messages logged to DB)" }));
+
+/* ── Self-test: live system-health checks for the demo console ──
+   Runs read-only validations against the real DB + search engine so the
+   presenter can show an all-green health panel during the client demo.   */
+app.get("/api/admin/selftest", (req, res) => {
+  const checks = [];
+  const add = (name, group, fn) => {
+    try {
+      const r = fn();
+      checks.push({ name, group, ok: !!(r && r.ok), detail: (r && r.detail) || "" });
+    } catch (e) {
+      checks.push({ name, group, ok: false, detail: "error: " + e.message });
+    }
+  };
+  const one = (sql, ...p) => db.prepare(sql).get(...p);
+  const count = (sql, ...p) => one(sql, ...p).c;
+
+  // — Data integrity —
+  add("Customer profile loaded", "Data", () => { const u = one("SELECT full_name,tier,miles FROM users WHERE id=1"); return { ok: !!u?.full_name, detail: u ? `${u.full_name} · ${u.tier} · ${u.miles.toLocaleString()} miles` : "missing" }; });
+  add("Route network present", "Data", () => { const c = count("SELECT COUNT(*) c FROM routes"); return { ok: c >= 100, detail: `${c} routes` }; });
+  add("Airports loaded", "Data", () => { const c = count("SELECT COUNT(*) c FROM airports"); return { ok: c >= 50, detail: `${c} airports` }; });
+  add("Ancillaries catalog", "Data", () => { const c = count("SELECT COUNT(*) c FROM ancillaries"); return { ok: c === 6, detail: `${c} extras` }; });
+
+  // — Booking history & personalization —
+  add("10 bookings seeded", "Personalization", () => { const c = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1"); return { ok: c === 10, detail: `${c} bookings` }; });
+  add("2 upcoming, 8 past", "Personalization", () => { const up = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='confirmed'"); const pa = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='completed'"); return { ok: up === 2 && pa === 8, detail: `${up} upcoming · ${pa} past` }; });
+  add("Seat recommendation from history", "Personalization", () => { const top = one("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC"); return { ok: top?.seat === "4C", detail: top ? `${top.seat} on ${top.c} trips` : "none" }; });
+  add("Ancillary upsell from history", "Personalization", () => { const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all(); const counts = {}; past.forEach(b => JSON.parse(b.items_json || "[]").forEach(x => counts[x] = (counts[x] || 0) + 1)); return { ok: (counts.wifi || 0) >= 4, detail: `wifi bought on ${counts.wifi || 0}/${past.length} past trips` }; });
+  add("Destination signals (flown/booked)", "Personalization", () => { const lis = count("SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest='LIS'"); return { ok: lis >= 1, detail: `Lisbon booked ${lis}×` }; });
+
+  // — Search engine —
+  add("Search: personalized route (OPO→LIS)", "Search", () => { const f = getRoute("OPO", "LIS") ? generateFlights("OPO", "LIS", "2026-06-15") : []; return { ok: f.length > 0, detail: `${f.length} flights` }; });
+  add("Search: any network route (OPO→AMS)", "Search", () => { const f = getRoute("OPO", "AMS") ? generateFlights("OPO", "AMS", "2026-06-15") : []; return { ok: f.length > 0, detail: `${f.length} flights` }; });
+  add("List destinations from Lisbon", "Search", () => { const c = count("SELECT COUNT(*) c FROM routes WHERE origin='LIS'"); return { ok: c > 10, detail: `${c} cities from LIS` }; });
+
+  // — Integrations —
+  add("AI (TAP AI) connectivity", "Integrations", () => ({ ok: hasKey(), detail: hasKey() ? "live (API key found)" : "fallback mode — set ANTHROPIC_API_KEY" }));
+  add("Email channel", "Integrations", () => ({ ok: true, detail: SMTP_READY ? "SMTP configured — really sends" : "logged to DB outbox" }));
+  add("WhatsApp channel", "Integrations", () => ({ ok: true, detail: whatsapp.CONFIGURED() ? "Twilio configured — really sends" : "logged to DB" }));
+
+  // — Persistence —
+  add("Payments recorded", "Persistence", () => { const c = count("SELECT COUNT(*) c FROM payments"); return { ok: c >= 10, detail: `${c} payment rows` }; });
+  add("Event log writing", "Persistence", () => { const c = count("SELECT COUNT(*) c FROM events"); return { ok: c >= 1, detail: `${c} events` }; });
+
+  const total = checks.length, passed = checks.filter(c => c.ok).length;
+  // Integrations that are "configured-or-logged" are healthy either way; only AI-live is advisory
+  const critical = checks.filter(c => !c.ok && c.name !== "AI (TAP AI) connectivity");
+  res.json({
+    ok: critical.length === 0,
+    passed, total,
+    advisory: checks.filter(c => !c.ok && c.name === "AI (TAP AI) connectivity").length,
+    ranAt: new Date().toISOString(),
+    checks,
+  });
+});
 
 /* Reset for repeated demos */
 app.post("/api/admin/reset", (req, res) => {

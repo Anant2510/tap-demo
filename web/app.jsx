@@ -14,6 +14,14 @@ const api = {
   post: (p, body) => fetch(`/api${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json()),
 };
 const EUR = (n) => `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;
+// Format an ISO date (YYYY-MM-DD) as "Mon 15 Jun 2026"; falls back gracefully.
+const fmtDate = (iso, withYear = true) => {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return iso;
+  const s = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", ...(withYear ? { year: "numeric" } : {}) });
+  return s;
+};
 const MILES_RATE = 0.003;
 const AIRPORT_MAP = {};   // code → {city,country,region}, filled at load from /api/airports
 const cityName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].city) || code;
@@ -187,26 +195,37 @@ function Login({ profile, onLogin }) {
 
 /* ── HOME — Search & Inspiration ── */
 /* TAP-style segmented quick-book widget — fully functional, DB-backed.
-   Destination lists real TAP destinations; Search runs the real flight
-   search and lands on results with the route pre-filled. The other tabs
-   navigate to the real Check-in / My flights / Flight status screens. */
-function QuickBook({ go, destinations, bookDestination }) {
+   Origin + Destination come from the real 100-route network (/api/routes):
+   pick any origin, and the destination list shows every city TAP actually
+   flies to from there. Search runs the real flight search. */
+function QuickBook({ go, bookDestination }) {
   const [tab, setTab] = useState("book");
+  const [routes, setRoutes] = useState([]);
   const [origin, setOrigin] = useState("OPO");
   const [dest, setDest] = useState("");
   const [pax, setPax] = useState(1);
+
+  useEffect(() => { (async () => {
+    const r = await api.get("/routes");
+    setRoutes(r || []);
+  })(); }, []);
+
   const TABS = [
     { id: "book",   label: "Book flight",     icon: <Plane size={15}/> },
     { id: "checkin",label: "Check-in",        icon: <BadgeCheck size={15}/> },
     { id: "manage", label: "Manage booking",  icon: <CalendarClock size={15}/> },
     { id: "status", label: "Flight status",   icon: <Clock size={15}/> },
   ];
-  // Origins Daniel can fly from (his home + common hubs)
-  const ORIGINS = [["OPO","Porto"],["LIS","Lisbon"],["MAD","Madrid"],["CDG","Paris"]];
-  // Destinations come from the live DB list (plus a couple of staples)
-  const DESTS = (destinations && destinations.length)
-    ? destinations.map(d => [d.code, d.city])
-    : [["LIS","Lisbon"],["MAD","Madrid"],["CDG","Paris"],["FNC","Funchal"]];
+
+  // All origins that actually have outbound routes, with Porto first (Daniel's home)
+  const origins = [...new Set(routes.map(r => r.origin))]
+    .map(c => [c, cityName(c)])
+    .sort((a, b) => a[0] === "OPO" ? -1 : b[0] === "OPO" ? 1 : a[1].localeCompare(b[1]));
+  // Destinations reachable from the selected origin (real routes only)
+  const dests = routes
+    .filter(r => r.origin === origin)
+    .map(r => [r.dest, r.destCity || cityName(r.dest)])
+    .sort((a, b) => a[1].localeCompare(b[1]));
 
   const onTab = (id) => {
     setTab(id);
@@ -214,10 +233,10 @@ function QuickBook({ go, destinations, bookDestination }) {
     else if (id === "manage") go("manage");
     else if (id === "status") go("status");
   };
+  const onOrigin = (o) => { setOrigin(o); setDest(""); };   // reset dest when origin changes
   const doSearch = () => {
-    if (!dest) return;                       // require a destination
-    const city = (DESTS.find(([c]) => c === dest) || [])[1] || dest;
-    // Reuse the real booking flow: pre-fills route + navigates + runs the DB search
+    if (!dest) return;
+    const city = (dests.find(([c]) => c === dest) || [])[1] || dest;
     bookDestination({ code: dest, city, origin, reason: `${cityName(origin)} → ${city} — searched from the home widget.` });
   };
 
@@ -235,18 +254,18 @@ function QuickBook({ go, destinations, bookDestination }) {
       </div>
       {tab === "book" && (
         <div className="flex flex-wrap items-end gap-3 p-3 pt-1">
-          <div className="flex-1 min-w-[130px]">
+          <div className="flex-1 min-w-[140px]">
             <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Origin</label>
-            <select value={origin} onChange={e=>setOrigin(e.target.value)} className={selCls} style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>
-              {ORIGINS.map(([c,n]) => <option key={c} value={c}>{n} ({c})</option>)}
+            <select value={origin} onChange={e=>onOrigin(e.target.value)} className={selCls} style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>
+              {origins.map(([c,n]) => <option key={c} value={c}>{n} ({c})</option>)}
             </select>
           </div>
-          <div className="flex-1 min-w-[150px]">
+          <div className="flex-1 min-w-[160px]">
             <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1 block">Destination</label>
             <select value={dest} onChange={e=>setDest(e.target.value)} className={selCls}
               style={{borderColor: dest ? "var(--tap-line)" : "#e8b4b4", color: dest ? "var(--tap-ink)" : "#9ca3af"}}>
-              <option value="">Choose destination</option>
-              {DESTS.filter(([c]) => c !== origin).map(([c,n]) => <option key={c} value={c}>{n} ({c})</option>)}
+              <option value="">Choose destination ({dests.length} cities)</option>
+              {dests.map(([c,n]) => <option key={c} value={c}>{n} ({c})</option>)}
             </select>
           </div>
           <div className="min-w-[110px]">
@@ -375,7 +394,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
       </div>
 
       {/* TAP-style quick-action booking widget (mirrors flytap.com), placed below the personalized hero */}
-      <QuickBook go={go} destinations={destinations} bookDestination={bookDestination} />
+      <QuickBook go={go} bookDestination={bookDestination} />
 
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
@@ -428,7 +447,7 @@ function Flights({ flights, pattern, selectFlight, toast }) {
     <div className="max-w-4xl mx-auto px-4 pb-24 pt-8">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
         <h1 className="font-display font-black text-3xl" style={{color:"var(--tap-ink)"}}>{cityName(origin)} → {cityName(dest)}</h1>
-        <Chip tone="ink">Mon 15 Jun 2026 · 1 adult · Economy</Chip>
+        <Chip tone="ink">{fmtDate(flights?.[0]?.flight_date) || "Selected date"} · 1 adult · Economy</Chip>
       </div>
       <p className="text-sm text-gray-500 mb-6">Sorted for you: your usual departure first, lowest fare flagged. Recommendations computed from your travel history.</p>
       <div className="space-y-3">
@@ -589,7 +608,7 @@ function Basket({ flight, ancillaries, items, toggleItem, go }) {
           <Card className="ticket-edge p-5">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · Mon 15 Jun 2026</div>
+                <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date)}</div>
                 <RouteRibbon small from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
               </div>
               <div className="font-display font-black text-xl" style={{color:"var(--tap-ink)"}}>{EUR(flight.price)}</div>
@@ -675,7 +694,7 @@ function Checkout({ profile, flight, ancillaries, items, go, hold, setHold, toas
       <Card className="ticket-edge p-5 mb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · Mon 15 Jun · Seat 4C</div>
+            <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date, false)} · Seat 4C</div>
             <RouteRibbon small from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
           </div>
           <div className="text-right">
@@ -792,7 +811,7 @@ function Confirmed({ profile, flight, receipt, go }) {
       <h1 className="font-display font-black text-3xl mb-2" style={{color:"var(--tap-ink)"}}>You're booked, Daniel.</h1>
       <p className="text-sm text-gray-500 mb-6">Confirmation <b>{receipt.pnr}</b> · written to the bookings table · email sent to {profile.user.email}.<br/>Auto check-in is ON — your boarding pass appears here 24h before departure.</p>
       <Card className="ticket-edge p-5 text-left mb-5">
-        <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · Mon 15 Jun 2026 · Seat 4C · Gate close 06:45</div>
+        <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date)} · Seat 4C</div>
         <RouteRibbon from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
         <div className="h-px my-4" style={{background:"var(--tap-line)"}}/>
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
@@ -1002,6 +1021,68 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
 }
 
 /* ── DEMO CONSOLE — live DB inspector + email center ── */
+function SelfTest() {
+  const [result, setResult] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [open, setOpen] = useState(true);
+
+  const run = async () => {
+    setRunning(true);
+    const r = await api.get("/admin/selftest");
+    setResult(r); setRunning(false);
+  };
+  useEffect(() => { run(); }, []);
+
+  const groups = result ? [...new Set(result.checks.map(c => c.group))] : [];
+  const allGreen = result && result.ok;
+
+  return (
+    <Card className="p-4 mb-5" style={allGreen ? { borderColor: "var(--tap-green)" } : (result ? { borderColor: "var(--tap-red)" } : {})}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <button onClick={() => setOpen(o => !o)} className="flex items-center gap-2.5 text-left">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: result ? (allGreen ? "#E2F4EA" : "#FBE4E7") : "var(--tap-mist)" }}>
+            {running ? <Loader2 className="animate-spin" size={18} style={{ color: "var(--tap-green)" }}/>
+              : result ? (allGreen ? <CheckCircle2 size={18} style={{ color: "var(--tap-green)" }}/> : <AlertTriangle size={18} style={{ color: "var(--tap-red)" }}/>)
+              : <ShieldCheck size={18} style={{ color: "var(--tap-deep)" }}/>}
+          </div>
+          <div>
+            <div className="font-display font-extrabold text-sm flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>
+              System self-test
+              {result && <Chip tone={allGreen ? "green" : "red"}>{result.passed}/{result.total} passing</Chip>}
+              {result?.advisory > 0 && <Chip tone="amber">{result.advisory} advisory</Chip>}
+            </div>
+            <div className="text-[11px] text-gray-500">{result ? `Live checks across data, search, personalization & integrations · ${open ? "tap to collapse" : "tap to expand"}` : "Running checks…"}</div>
+          </div>
+        </button>
+        <GhostBtn onClick={run} className="shrink-0"><RefreshCw size={14}/> Re-run</GhostBtn>
+      </div>
+
+      {open && result && (
+        <div className="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-1">
+          {groups.map(g => (
+            <div key={g} className="py-1">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1 mt-1">{g}</div>
+              {result.checks.filter(c => c.group === g).map(c => (
+                <div key={c.name} className="flex items-start gap-2 py-0.5">
+                  <span className="mt-0.5 shrink-0">
+                    {c.ok ? <CheckCircle2 size={13} style={{ color: "var(--tap-green)" }}/>
+                          : <AlertTriangle size={13} style={{ color: c.name.includes("AI") ? "var(--tap-amber)" : "var(--tap-red)" }}/>}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold" style={{ color: "var(--tap-ink)" }}>{c.name}</div>
+                    {c.detail && <div className="text-[10px] text-gray-400 font-mono truncate">{c.detail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Console({ toast }) {
   const [data, setData] = useState(null);
   const [emails, setEmails] = useState([]);
@@ -1033,6 +1114,8 @@ function Console({ toast }) {
       </div>
       <p className="text-sm text-gray-500 mb-1">Live view of the SQLite customer database the site runs on — every click on the site writes here. Auto-refreshes every 4s.</p>
       <p className="text-[11px] text-gray-400 mb-6 font-mono">{data.dbPath} · CDP-ready: this store maps 1:1 to customer-profile, behaviour and consent objects for later CDP sync.</p>
+
+      <SelfTest/>
 
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
@@ -1144,6 +1227,12 @@ function ChatCards({ cards, onSelectFlight }) {
           <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
             <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1">Picked from your history</div>
             <div className="flex flex-wrap gap-1.5">{c.suggestions.map(s => <span key={s.code} className="text-xs px-2 py-1 rounded-full border" style={{borderColor:"var(--tap-line)",color:"var(--tap-ink)"}}>{s.city} {s.flown?`· flown ${s.flown}×`:s.searched?`· searched ${s.searched}×`:""}</span>)}</div>
+          </div>
+        );
+        if (c.type === "destinations") return (
+          <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1">From {c.originCity || c.origin} · {c.count} destinations</div>
+            <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">{c.destinations.map(d => <span key={d.code} className="text-xs px-2 py-1 rounded-full border" style={{borderColor: d.flown ? "var(--tap-green)" : "var(--tap-line)", color:"var(--tap-ink)"}}>{d.city}{d.flown?` · flown ${d.flown}×`:""}</span>)}</div>
           </div>
         );
         if (c.type === "booking") return (
@@ -1345,7 +1434,7 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
         <div className="mb-8">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>{cityName(results.origin)} → {cityName(results.dest)}</h2>
-            <Chip tone="ink">{results.flights.length} flights · Mon 15 Jun</Chip>
+            <Chip tone="ink">{results.flights.length} flights · {fmtDate(results.date, false)}</Chip>
           </div>
           <div className="space-y-3">
             {results.flights.map((f) => (
@@ -1767,7 +1856,7 @@ function App() {
     const f = await api.get(`/flights?dest=LIS&origin=OPO`);
     setFlights(f);
     const usual = f.find(x => x.flight_no === (profile?.pattern?.topFlight)) || f.find(x => x.recommended) || f[0];
-    await selectFlight(usual);   // straight to basket with the usual flight, the one-tap path
+    await selectFlight(usual);   // one-tap path: usual flight → seat map → extras → pay
   };
   const toggleItem = async (code) => {
     const next = items.includes(code) ? items.filter(x => x !== code) : [...items, code];

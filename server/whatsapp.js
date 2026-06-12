@@ -402,13 +402,22 @@ async function handleIncoming({ from, text }) {
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
 
-  // 2a) Simple "flights to X" still uses the fast deterministic search
-  const dest = detectDest(t);
-  if (dest && /\b(flight|fly|go|search|travel|trip|to)\b/.test(t)) return searchRoute(from, "OPO", dest);
+  // 2a) Fast deterministic search ONLY for an explicit "to <city>" destination,
+  //     e.g. "flights to Madrid", "fly to Paris". We must NOT fire on "from <city>"
+  //     (that's an origin) or on questions ("do we only fly to porto from lisbon?").
+  const isQuestion = /\?|^(do|does|can|is|are|why|what|which|where|how)\b/.test(t);
+  const toMatch = t.match(/\b(?:to|fly to|flights? to|going to|travel to)\s+([a-z]{3,})/);
+  if (!isQuestion && toMatch) {
+    const destCode = detectDest(toMatch[1]);
+    // make sure it's a real destination word, and the message isn't an origin-only "from X" phrasing
+    if (destCode && !/\bfrom\b/.test(t.split(toMatch[0])[0] || "")) {
+      return searchRoute(from, "OPO", destCode);
+    }
+  }
 
   // 3) EVERYTHING ELSE → the LLM agent (same brain as the web chat).
-  //    This makes WhatsApp intelligent: recommendations, questions, multi-step
-  //    requests, etc. The agent can also call tools (search/book/etc).
+  //    Free-form requests, "options from <city>", factual questions, recommendations,
+  //    multi-step booking — all handled intelligently with tools (search/list/book).
   return runAgent(from, text);
 }
 
