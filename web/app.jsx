@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Plane, Sparkles, Lock, ShoppingBag, CreditCard, Wallet, Ticket, CheckCircle2,
+  Plane, Sparkles, SlidersHorizontal, Lock, ShoppingBag, CreditCard, Wallet, Ticket, Building2, CheckCircle2,
   AlertTriangle, RefreshCw, Luggage, Armchair, Coffee, Wifi, Car, ChevronRight,
-  X, Send, Bell, QrCode, CalendarClock, Laptop, Zap, ShieldCheck, ArrowRight,
+  X, Send, Bell, QrCode, CalendarClock, Laptop, Zap, ShieldCheck, ArrowRight, ArrowUpRight,
   Repeat, BadgeCheck, MessageCircle, Loader2, TimerReset, Database, Mail, Eye, EyeOff, RotateCcw,
   Search, MapPin, Globe, ArrowLeftRight, Calendar, Info, Clock
 } from "lucide-react";
@@ -34,6 +34,7 @@ const fmtDate = (iso, withYear = true) => {
 const MILES_RATE = 0.003;
 const AIRPORT_MAP = {};   // code → {city,country,region}, filled at load from /api/airports
 const cityName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].city) || code;
+const countryName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].country) || "";
 
 /* ── Theme / primitives ── */
 const Fonts = () => (
@@ -79,6 +80,11 @@ const Fonts = () => (
     .dxp-home .dxp-primary-btn{ background:var(--dxp-grad-btn)!important; color:#06210F!important; }
     .dxp-home .dxp-primary-btn svg{ color:#06210F; }
     .dxp-home .dxp-pricechip{ color:var(--dxp-lime)!important; background:#101A12!important; }
+    .dxp-home .dxp-chip-green{ background:rgba(34,178,76,.16)!important; color:#7BE3A0!important; }
+    .dxp-home .dxp-chip-amber{ background:rgba(232,147,12,.16)!important; color:#F0B45C!important; }
+    .dxp-home .dxp-chip-red{ background:rgba(226,53,75,.16)!important; color:#F08699!important; }
+    .dxp-home .dxp-chip-ink{ background:var(--dxp-surface-2)!important; color:#C2CABF!important; }
+    .dxp-home .dxp-chip-gold{ background:rgba(201,162,39,.16)!important; color:#E0C56A!important; }
   `}</style>
 );
 
@@ -107,7 +113,7 @@ const GoldBadge = TierBadge;
 const Chip = ({ children, tone = "green", className = "" }) => {
   const tones = { green:{background:"#E2F4EA",color:"#066B3C"}, amber:{background:"#FCF1DD",color:"#8A5A06"},
     red:{background:"#FBE4E7",color:"#A31226"}, ink:{background:"#E9EFEC",color:"#26483A"}, gold:{background:"#F7EFD6",color:"#7A6112"} };
-  return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${className}`} style={tones[tone]}>{children}</span>;
+  return <span className={`dxp-chip dxp-chip-${tone} inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${className}`} style={tones[tone]}>{children}</span>;
 };
 /* (i) explainer — hover/tap reveals WHY a personalization was shown */
 const Why = ({ text, className = "" }) => {
@@ -194,6 +200,24 @@ function Toasts({ list, dismiss }) {
 
 /* ── LOGIN — FLYTAP DXP dark split-screen ── */
 const PORTO_IMG = "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1200&q=80";
+// Famous-location photos for destination cards (Unsplash, keyed by IATA).
+const CITY_PHOTOS = {
+  LIS: "https://images.unsplash.com/photo-1588535684687-32c0e9d4f3f8?auto=format&fit=crop&w=800&q=80",
+  OPO: "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=800&q=80",
+  MAD: "https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&w=800&q=80",
+  CDG: "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=800&q=80",
+  FNC: "https://images.unsplash.com/photo-1591017403286-fd8493524e1e?auto=format&fit=crop&w=800&q=80",
+  BCN: "https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&w=800&q=80",
+  LHR: "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?auto=format&fit=crop&w=800&q=80",
+  FCO: "https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&w=800&q=80",
+  FRA: "https://images.unsplash.com/photo-1577462281852-279d3e1c66e7?auto=format&fit=crop&w=800&q=80",
+  AMS: "https://images.unsplash.com/photo-1534351590666-13e3e96b5017?auto=format&fit=crop&w=800&q=80",
+  JFK: "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&w=800&q=80",
+  GRU: "https://images.unsplash.com/photo-1543059080-f9b1272213d5?auto=format&fit=crop&w=800&q=80",
+  MIA: "https://images.unsplash.com/photo-1506966953602-c20cc11f75e3?auto=format&fit=crop&w=800&q=80",
+  FAO: "https://images.unsplash.com/photo-1591194854667-3d0b9b0a8b1f?auto=format&fit=crop&w=800&q=80",
+};
+const cityPhoto = (code) => CITY_PHOTOS[code] || `https://source.unsplash.com/800x600/?${encodeURIComponent((code || "travel") + " city skyline")}`;
 function Login({ profile, onLogin }) {
   const [busy, setBusy] = useState(false);
   const [personas, setPersonas] = useState(null);
@@ -338,7 +362,7 @@ function LoginUnused({ profile, onLogin }) {
             <input className="w-full px-4 py-3 rounded-xl border text-sm" style={{ borderColor: "var(--tap-line)" }} placeholder="Email or member number"/>
             <input className="w-full px-4 py-3 rounded-xl border text-sm" style={{ borderColor: "var(--tap-line)" }} placeholder="Password" type="password"/>
           </div>
-          <p className="text-[11px] text-gray-400 mt-6 text-center">Profile loaded live from the customer database · tap to continue as Daniel</p>
+          <p className="text-[11px] text-gray-400 mt-6 text-center">Profile loaded live from the customer database · tap a demo account to continue</p>
         </div>
       </div>
     </div>
@@ -369,7 +393,7 @@ function QuickBook({ go, bookDestination }) {
     { id: "status", label: "Flight status",   icon: <Clock size={15}/> },
   ];
 
-  // All origins that actually have outbound routes, with Porto first (Daniel's home)
+  // All origins that actually have outbound routes, with the persona's home first
   const origins = [...new Set(routes.map(r => r.origin))]
     .map(c => [c, cityName(c)])
     .sort((a, b) => a[0] === "OPO" ? -1 : b[0] === "OPO" ? 1 : a[1].localeCompare(b[1]));
@@ -439,6 +463,9 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const [planning, setPlanning] = useState(false);
   const [aiMode, setAiMode] = useState(null);
   const [sendingOffer, setSendingOffer] = useState(false);
+  const [destCat, setDestCat] = useState("Popular");
+  const [rec, setRec] = useState(null);
+  useEffect(() => { (async () => { try { setRec(await api.get("/recommendation")); } catch {} })(); }, []);
   const u = profile.user, pat = profile.pattern, ss = profile.syncedSearch;
 
   const runPlanner = async (text) => {
@@ -458,10 +485,10 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
 
   return (
     <div className="pb-20">
-      {/* Full-bleed Porto hero — same image as login, with a dark gradient over it */}
+      {/* Full-bleed Porto hero — extends down behind the headline + resume-search panel, fading to dark */}
       <div className="relative overflow-hidden">
         <img src={PORTO_IMG} alt="Porto, Portugal" className="absolute inset-0 w-full h-full object-cover" style={{ objectPosition: "center 38%" }}/>
-        <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.55) 0%, rgba(10,11,10,.72) 55%, var(--dxp-bg) 100%)" }}/>
+        <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.45) 0%, rgba(10,11,10,.6) 45%, rgba(10,11,10,.82) 80%, var(--dxp-bg) 100%)" }}/>
         <div className="relative max-w-6xl mx-auto px-4 pt-12 pb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-xs font-bold tracking-[0.22em] uppercase mb-2" style={{ color: "var(--dxp-lime)" }}>Bom dia</div>
@@ -477,24 +504,28 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             <GhostBtn onClick={() => go("manage")}><CalendarClock size={16}/> My bookings</GhostBtn>
           </div>
         </div>
+
+        {/* Resume-search panel sits over the lower part of the photo */}
+        {ss && (
+          <div className="relative max-w-6xl mx-auto px-4 pb-10">
+          <Card className="p-4 flex flex-wrap items-center gap-4 slide-up" style={{ background: "rgba(20,22,20,.72)", backdropFilter: "blur(8px)", borderColor: "rgba(255,255,255,.12)" }}>
+            <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: "rgba(244,246,244,.8)" }}>
+              <Laptop size={15} style={{ color: "var(--dxp-lime)" }}/>
+              <span>Continue from your {ss.device}</span>
+              <span style={{ color: "rgba(255,255,255,.35)" }}>·</span><span className="font-normal">{ss.created_at}</span>
+              <Why text={`You started this search on your ${ss.device} (synced_searches table). We carry unfinished searches across your devices so you can pick up where you left off.`}/>
+            </div>
+            <div className="flex items-center gap-3 flex-1 min-w-[220px]" style={{ color: "#fff" }}>
+              <RouteRibbon small from={ss.origin} to={ss.dest}/>
+              <Chip tone="ink">{ss.travel_date} · {ss.pax} adult</Chip>
+            </div>
+            <PrimaryBtn onClick={() => bookDestination({ code: ss.dest, city: cityName(ss.dest), origin: ss.origin, reason: `Resuming your saved ${cityName(ss.origin)} → ${cityName(ss.dest)} search.` })} className="!py-2 !px-4">Resume search <ArrowRight size={15}/></PrimaryBtn>
+          </Card>
+          </div>
+        )}
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 -mt-2">
-      {ss && (
-        <Card className="p-4 mb-5 flex flex-wrap items-center gap-4 slide-up" style={{ background: "#FBFDFC" }}>
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
-            <Laptop size={15} style={{ color: "var(--tap-green)" }}/>
-            <span>Continue from your {ss.device}</span>
-            <span className="text-gray-300">·</span><span className="font-normal">{ss.created_at}</span>
-            <Why text={`You started this search on your ${ss.device} (synced_searches table). We carry unfinished searches across your devices so you can pick up where you left off.`}/>
-          </div>
-          <div className="flex items-center gap-3 flex-1 min-w-[220px]">
-            <RouteRibbon small from={ss.origin} to={ss.dest}/>
-            <Chip tone="ink">{ss.travel_date} · {ss.pax} adult</Chip>
-          </div>
-          <PrimaryBtn onClick={() => bookDestination({ code: ss.dest, city: cityName(ss.dest), origin: ss.origin, reason: `Resuming your saved ${cityName(ss.origin)} → ${cityName(ss.dest)} search.` })} className="!py-2 !px-4">Resume search <ArrowRight size={15}/></PrimaryBtn>
-        </Card>
-      )}
+      <div className="max-w-6xl mx-auto px-4 pt-6">
 
       <div className="grid lg:grid-cols-5 gap-5">
         <Card className="lg:col-span-2 p-6 relative overflow-hidden slide-up">
@@ -558,32 +589,129 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
       {/* TAP-style quick-action booking widget (mirrors flytap.com), placed below the personalized hero */}
       <QuickBook go={go} bookDestination={bookDestination} />
 
-      <div className="mt-8">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <h2 className="font-display font-extrabold text-xl" style={{ color: "var(--tap-ink)" }}>Picked for you</h2>
-            <Why text="These destinations are chosen from your real data: routes you've flown, trips you've booked, and places you've searched — pulled live from the customer database."/>
+      {/* Affinity package — derived from the persona's co-branded card spend */}
+      {rec?.package && (
+        <div className="mt-10 slide-up">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles size={16} style={{ color: "var(--dxp-lime)" }}/>
+            <h2 className="font-display font-black text-2xl tracking-tight" style={{ color: "var(--dxp-text)" }}>Made for you, {u.first_name}</h2>
+            <Why text={`Derived from your ${rec.card.product} (${rec.card.brand} ••${rec.card.last4}). ${rec.rationale} The package bundles event ticket + hotel + return flight.`}/>
           </div>
-          <span className="text-xs text-gray-400">From your searches, trips and miles balance</span>
+          <div className="relative rounded-3xl overflow-hidden" style={{ border: "1px solid var(--dxp-line)" }}>
+            <div className="grid md:grid-cols-2">
+              {/* Image side */}
+              <div className="relative min-h-[260px] md:min-h-full">
+                <img src={rec.package.image} alt={rec.package.event} className="absolute inset-0 w-full h-full object-cover"/>
+                <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.1), rgba(10,11,10,.6))" }}/>
+                <span className="absolute top-4 left-4 text-[11px] font-bold px-3 py-1.5 rounded-full" style={{ background: "rgba(163,230,53,.92)", color: "#0A0B0A" }}>{rec.package.badge}</span>
+                <div className="absolute left-5 bottom-5 right-5">
+                  <div className="font-display font-black text-3xl text-white tracking-tight leading-tight">{rec.package.event}</div>
+                  <div className="text-sm text-white/80 mt-1 flex items-center gap-1.5"><MapPin size={14}/> {rec.package.venue}</div>
+                </div>
+              </div>
+              {/* Detail side */}
+              <div className="p-6" style={{ background: "var(--dxp-surface)" }}>
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full mb-3" style={{ background: "var(--dxp-surface-2)", color: "var(--dxp-lime)" }}>
+                  <CreditCard size={12}/> {rec.affinity_label} · from your card spend
+                </div>
+                <p className="text-sm leading-relaxed mb-4" style={{ color: "#C2CABF" }}>{rec.package.blurb}</p>
+                <div className="space-y-2.5 mb-4">
+                  {[
+                    { icon: Ticket, label: rec.package.event, sub: new Date(rec.package.date).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}), price: rec.package.eventPrice },
+                    { icon: Building2, label: rec.package.hotel, sub: `${rec.package.hotelNights} nights`, price: rec.package.hotelPrice },
+                    { icon: Plane, label: rec.package.flightDesc, sub: "Round trip", price: rec.package.flightPrice },
+                  ].map((row, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--dxp-surface-2)" }}><row.icon size={16} style={{ color: "var(--dxp-lime)" }}/></div>
+                      <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate" style={{ color: "var(--dxp-text)" }}>{row.label}</div><div className="text-[11px]" style={{ color: "var(--dxp-muted)" }}>{row.sub}</div></div>
+                      <div className="text-sm font-bold" style={{ color: "var(--dxp-text)" }}>{EUR(row.price)}</div>
+                    </div>
+                  ))}
+                </div>
+                {rec.package.addon && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl mb-4" style={{ background: "#101A12", border: "1px solid rgba(163,230,53,.25)" }}>
+                    <Luggage size={16} className="shrink-0 mt-0.5" style={{ color: "var(--dxp-lime)" }}/>
+                    <div className="flex-1">
+                      <div className="text-xs font-bold" style={{ color: "var(--dxp-text)" }}>{rec.package.addon.label} — <span style={{ color: "var(--dxp-lime)" }}>{EUR(rec.package.addon.price)}</span> <span className="line-through" style={{ color: "var(--dxp-muted)" }}>{EUR(rec.package.addon.normal)}</span></div>
+                      <div className="text-[11px] mt-0.5" style={{ color: "var(--dxp-muted)" }}>{rec.package.addon.note}</div>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-3" style={{ borderTop: "1px solid var(--dxp-line)" }}>
+                  <div><div className="text-[11px]" style={{ color: "var(--dxp-muted)" }}>Package total</div><div className="font-display font-black text-2xl" style={{ color: "var(--dxp-text)" }}>{EUR(rec.package.total)}</div></div>
+                  <PrimaryBtn onClick={() => { toast("Package added", `${rec.package.event} · ${rec.package.city} — ${EUR(rec.package.total)} bundle held`); bookDestination({ code: rec.package.code, city: rec.package.city, reason: `${rec.affinity_label} package: ${rec.package.event}.` }); }}>
+                    Book this package <ArrowRight size={15}/>
+                  </PrimaryBtn>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {destinations.map((d) => {
+      )}
+
+      <div className="mt-12">
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+          <div>
+            <div className="text-xs font-bold tracking-[0.2em] uppercase mb-1.5" style={{ color: "var(--dxp-muted)" }}>Popular from {cityName(pat.origin || u.home_airport)}</div>
+            <h2 className="font-display font-black text-3xl sm:text-4xl tracking-tight leading-[1.05]" style={{ color: "var(--dxp-text)" }}>Where do you<br/>want to go next?</h2>
+            <span className="inline-flex items-center gap-1.5 mt-2 text-xs" style={{ color: "var(--dxp-muted)" }}>Chosen from your searches, trips & miles balance <Why text="These destinations are chosen from your real data: routes you've flown, trips you've booked, and places you've searched — pulled live from the customer database."/></span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {["Popular", "Stopover-friendly", "Beach", "City breaks", "Long weekend"].map(cat => (
+              <button key={cat} onClick={() => setDestCat(cat)}
+                className="px-4 py-2 rounded-full text-sm font-semibold transition-all"
+                style={destCat === cat
+                  ? { background: "#fff", color: "#0A0B0A" }
+                  : { background: "var(--dxp-surface-2)", color: "var(--dxp-muted)", border: "1px solid var(--dxp-line)" }}>{cat}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* First card is the hero tile; rest form a grid — image-forward, lime arrow button */}
+        <div className="grid lg:grid-cols-3 gap-4">
+          {destinations.slice(0, 1).map((d) => {
             const booked = pat.destCounts?.[d.code] || 0;
             return (
-              <Card key={d.code} className="p-4 hover:shadow-md transition-shadow cursor-pointer group relative" onClick={() => bookDestination(d)}>
-                <div className="absolute top-3 right-3" onClick={(e) => e.stopPropagation()}><Why text={d.reason || d.tag}/></div>
-                <div className="text-3xl mb-2">{d.emoji}</div>
-                <div className="font-display font-extrabold flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>
-                  {d.city} <span className="text-gray-400 font-semibold text-sm">{d.code}</span>
+              <button key={d.code} onClick={() => bookDestination(d)}
+                className="lg:row-span-2 relative rounded-3xl overflow-hidden group text-left min-h-[300px] lg:min-h-[420px]">
+                <img src={cityPhoto(d.code)} alt={d.city} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"/>
+                <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.1) 30%, rgba(10,11,10,.85) 100%)" }}/>
+                {booked > 0 && <span className="absolute top-4 right-4 text-[11px] font-bold px-3 py-1.5 rounded-full" style={{ background: "rgba(163,230,53,.9)", color: "#0A0B0A" }}>Booked {booked}×</span>}
+                <div className="absolute left-5 bottom-5 right-5">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-white/70 mb-1">{d.code} · {countryName(d.code)}</div>
+                  <div className="font-display font-black text-4xl text-white tracking-tight">{d.city}</div>
+                  <div className="flex items-end justify-between mt-2">
+                    <div>
+                      <div className="text-[11px] text-white/60">from</div>
+                      <div className="font-display font-black text-2xl text-white">{d.miles_price ? `${d.miles_price.toLocaleString()} mi` : EUR(d.price)}</div>
+                    </div>
+                    <span className="w-12 h-12 rounded-full flex items-center justify-center transition-transform group-hover:scale-110" style={{ background: "var(--dxp-lime)", color: "#0A0B0A" }}><ArrowUpRight size={22}/></span>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5 mb-3">{booked > 0 ? `Booked ${booked}× — a favourite` : d.tag}</div>
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-bold" style={{ color: "var(--tap-green)" }}>{d.miles_price ? `${d.miles_price.toLocaleString()} miles` : `from ${EUR(d.price)}`}</div>
-                  <span className="text-xs font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--tap-green)" }}>Book <ArrowRight size={13}/></span>
-                </div>
-              </Card>
+              </button>
             );
           })}
+          <div className="lg:col-span-2 grid sm:grid-cols-2 gap-4">
+            {destinations.slice(1, 5).map((d) => {
+              const booked = pat.destCounts?.[d.code] || 0;
+              return (
+                <button key={d.code} onClick={() => bookDestination(d)}
+                  className="relative rounded-3xl overflow-hidden group text-left min-h-[200px]">
+                  <img src={cityPhoto(d.code)} alt={d.city} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"/>
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.15) 25%, rgba(10,11,10,.8) 100%)" }}/>
+                  <span className="absolute top-3 right-3 text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(20,22,20,.7)", color: "#fff", backdropFilter: "blur(4px)" }}>{booked > 0 ? `Booked ${booked}×` : (d.tag || "Via Lisbon")}</span>
+                  <div className="absolute left-4 bottom-4 right-4">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-white/70 mb-0.5">{d.code} · {countryName(d.code)}</div>
+                    <div className="font-display font-black text-2xl text-white tracking-tight">{d.city}</div>
+                    <div className="flex items-end justify-between mt-1.5">
+                      <div><div className="text-[10px] text-white/60">from</div><div className="font-display font-black text-lg text-white">{d.miles_price ? `${d.miles_price.toLocaleString()} mi` : EUR(d.price)}</div></div>
+                      <span className="w-9 h-9 rounded-full flex items-center justify-center transition-transform group-hover:scale-110" style={{ background: "var(--dxp-lime)", color: "#0A0B0A" }}><ArrowUpRight size={17}/></span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
       </div>
@@ -1408,6 +1536,56 @@ function SelfTest() {
   );
 }
 
+function AffinityPanel() {
+  const [rec, setRec] = useState(null);
+  useEffect(() => { (async () => { try { setRec(await api.get("/recommendation")); } catch {} })(); const t = setInterval(async () => { try { setRec(await api.get("/recommendation")); } catch {} }, 4000); return () => clearInterval(t); }, []);
+  if (!rec) return null;
+  const maxShare = Math.max(...(rec.categories || []).map(c => c.share), 1);
+  return (
+    <div className="rounded-2xl border p-5 mb-5" style={{ borderColor: "var(--tap-line)", background: "var(--tap-mist)" }}>
+      <div className="flex items-center gap-2 mb-1">
+        <CreditCard size={16} style={{ color: "var(--tap-green)" }}/>
+        <h3 className="font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>Card-spend → affinity → offer</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">How VOYAGER.AI turns co-branded card data into an experiential package. This is the derivation behind the “Made for you” block on the home page.</p>
+      <div className="grid md:grid-cols-3 gap-4 items-stretch">
+        {/* 1 — card + spend categories */}
+        <div className="rounded-xl border p-4" style={{ borderColor: "var(--tap-line)", background: "var(--dxp-surface)" }}>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">1 · Card spend (CDP traits)</div>
+          <div className="text-sm font-bold mb-3" style={{ color: "var(--tap-ink)" }}>{rec.card.product} <span className="text-gray-400 font-semibold">••{rec.card.last4}</span></div>
+          <div className="space-y-2">
+            {(rec.categories || []).map((c, i) => (
+              <div key={i}>
+                <div className="flex justify-between text-[11px] mb-0.5"><span className="font-semibold" style={{ color: "var(--tap-ink)" }}>{c.name}</span><span className="text-gray-400">{c.share}%</span></div>
+                <div className="h-1.5 rounded-full" style={{ background: "var(--dxp-surface-2)" }}><div className="h-full rounded-full" style={{ width: `${(c.share / maxShare) * 100}%`, background: i === 0 ? "var(--dxp-lime)" : "#5E7A68" }}/></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* 2 — derived affinity */}
+        <div className="rounded-xl border p-4 flex flex-col justify-center items-center text-center" style={{ borderColor: "rgba(163,230,53,.35)", background: "#101A12" }}>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">2 · Derived affinity</div>
+          <div className="text-2xl mb-1">{rec.affinity === "football" ? "⚽" : rec.affinity === "golf" ? "⛳" : "🎵"}</div>
+          <div className="font-display font-black text-xl" style={{ color: "var(--dxp-lime)" }}>{rec.affinity_label}</div>
+          <div className="text-[11px] text-gray-500 mt-2 leading-snug">{rec.rationale}</div>
+        </div>
+        {/* 3 — resulting offer */}
+        <div className="rounded-xl border p-4" style={{ borderColor: "var(--tap-line)", background: "var(--dxp-surface)" }}>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">3 · Assembled offer</div>
+          <div className="text-sm font-bold mb-1" style={{ color: "var(--tap-ink)" }}>{rec.package?.event}</div>
+          <div className="text-[11px] text-gray-500 mb-3">{rec.package?.city} · {rec.package?.badge}</div>
+          <div className="space-y-1 text-[11px]" style={{ color: "#C2CABF" }}>
+            <div className="flex justify-between"><span>Event ticket</span><span>{EUR(rec.package?.eventPrice || 0)}</span></div>
+            <div className="flex justify-between"><span>Hotel · {rec.package?.hotelNights}n</span><span>{EUR(rec.package?.hotelPrice || 0)}</span></div>
+            <div className="flex justify-between"><span>Return flight</span><span>{EUR(rec.package?.flightPrice || 0)}</span></div>
+            {rec.package?.addon && <div className="flex justify-between" style={{ color: "var(--dxp-lime)" }}><span>+ {rec.package.addon.label}</span><span>{EUR(rec.package.addon.price)}</span></div>}
+            <div className="flex justify-between font-bold pt-1.5 mt-1.5 border-t" style={{ color: "var(--tap-ink)", borderColor: "var(--tap-line)" }}><span>Bundle total</span><span>{EUR(rec.package?.total || 0)}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function Console({ toast }) {
   const [data, setData] = useState(null);
   const [emails, setEmails] = useState([]);
@@ -1442,6 +1620,7 @@ function Console({ toast }) {
 
       <SelfTest/>
       <CdpProof/>
+      <AffinityPanel/>
 
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
@@ -1559,6 +1738,22 @@ function ChatCards({ cards, onSelectFlight }) {
           <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"var(--tap-line)"}}>
             <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1">From {c.originCity || c.origin} · {c.count} destinations</div>
             <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">{c.destinations.map(d => <span key={d.code} className="text-xs px-2 py-1 rounded-full border" style={{borderColor: d.flown ? "var(--tap-green)" : "var(--tap-line)", color:"var(--tap-ink)"}}>{d.city}{d.flown?` · flown ${d.flown}×`:""}</span>)}</div>
+          </div>
+        );
+        if (c.type === "package") return (
+          <div key={i} className="rounded-2xl border overflow-hidden" style={{borderColor:"var(--dxp-line)", background:"var(--dxp-surface)"}}>
+            <div className="p-3" style={{background:"#101A12"}}>
+              <div className="text-[10px] font-bold uppercase tracking-wide" style={{color:"var(--dxp-lime)"}}>{c.affinity==="football"?"⚽":c.affinity==="golf"?"⛳":"🎵"} {c.affinity_label} · {c.badge}</div>
+              <div className="font-display font-black text-base mt-0.5" style={{color:"var(--dxp-text)"}}>{c.event}</div>
+              <div className="text-[11px]" style={{color:"var(--dxp-muted)"}}>{c.venue}</div>
+            </div>
+            <div className="p-3 space-y-1 text-xs" style={{color:"#C2CABF"}}>
+              <div className="flex justify-between"><span>🎟️ Event ticket</span><span>{EUR(c.eventPrice)}</span></div>
+              <div className="flex justify-between"><span>🏨 {c.hotel} · {c.hotelNights}n</span><span>{EUR(c.hotelPrice)}</span></div>
+              <div className="flex justify-between"><span>✈️ {c.flight}</span><span>{EUR(c.flightPrice)}</span></div>
+              {c.addon && <div className="flex justify-between" style={{color:"var(--dxp-lime)"}}><span>🧳 {c.addon.label}</span><span>{EUR(c.addon.price)}</span></div>}
+              <div className="flex justify-between font-bold pt-1.5 mt-1 border-t" style={{color:"var(--dxp-text)",borderColor:"var(--dxp-line)"}}><span>Bundle total</span><span>{EUR(c.total)}</span></div>
+            </div>
           </div>
         );
         if (c.type === "seat") return (
@@ -1725,6 +1920,19 @@ function AirportInput({ label, value, onChange, icon }) {
 function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearch, results, searching, selectFlight, routes, suggested, prefilledReason }) {
   const swap = () => { const o = origin; setOrigin(dest); setDest(o); };
   const [showAll, setShowAll] = useState(false);
+  const [cabin, setCabin] = useState("Economy");
+  const [maxPrice, setMaxPrice] = useState(null);   // null until results arrive
+  const CABINS = [{ id: "Economy", mult: 1 }, { id: "Premium", mult: 1.6 }, { id: "Business", mult: 2.4 }];
+  const cabinMult = CABINS.find(c => c.id === cabin)?.mult || 1;
+  // Apply the cabin multiplier to base fares so the price bar matches the chosen cabin.
+  const priced = (results?.flights || []).map(f => ({ ...f, cabinPrice: Math.round(f.price * cabinMult) }));
+  const priceFloor = priced.length ? Math.min(...priced.map(f => f.cabinPrice)) : 0;
+  const priceCeil = priced.length ? Math.max(...priced.map(f => f.cabinPrice)) : 0;
+  // Reset the slider to the max whenever a new search returns or the cabin changes.
+  useEffect(() => { if (priced.length) setMaxPrice(priceCeil); }, [results, cabin]);
+  const effMax = maxPrice == null ? priceCeil : maxPrice;
+  const visibleFlights = priced.filter(f => f.cabinPrice <= effMax);
+  const hiddenCount = priced.length - visibleFlights.length;
   const DATES = [
     { v: "2026-06-15", label: "Mon 15 Jun 2026" },
     { v: "2026-06-16", label: "Tue 16 Jun 2026" },
@@ -1768,6 +1976,13 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
               {DATES.map(d => <option key={d.v} value={d.v}>{d.label}</option>)}
             </select>
           </div>
+          <div className="min-w-[140px]">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1"><Armchair size={11}/>Cabin</label>
+            <select value={cabin} onChange={(e) => setCabin(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border text-sm font-semibold bg-white outline-none cursor-pointer" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>
+              {CABINS.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+            </select>
+          </div>
           <PrimaryBtn onClick={onSearch} disabled={searching || !origin || !dest} className="!py-2.5 mb-[1px]">
             {searching ? <Loader2 className="animate-spin" size={16}/> : <Search size={16}/>} Search
           </PrimaryBtn>
@@ -1786,10 +2001,35 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
         <div className="mb-8">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>{cityName(results.origin)} → {cityName(results.dest)}</h2>
-            <Chip tone="ink">{results.flights.length} flights · {fmtDate(results.date, false)}</Chip>
+            <Chip tone="ink">{visibleFlights.length} of {priced.length} · {cabin} · {fmtDate(results.date, false)}</Chip>
           </div>
+
+          {/* Live price filter — starts at the max fare; drag down to trim pricier flights */}
+          {priced.length > 1 && (
+            <Card className="p-4 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--tap-ink)" }}>
+                  <SlidersHorizontal size={15} style={{ color: "var(--tap-green)" }}/> Max price
+                  <Why text="Drag to set your budget. Flights priced above the bar drop out instantly. The range reflects the cabin you picked — Business fares sit higher than Economy."/>
+                </div>
+                <div className="font-display font-black text-xl" style={{ color: "var(--tap-ink)" }}>{EUR(effMax)}</div>
+              </div>
+              <input type="range" min={priceFloor} max={priceCeil} value={effMax} step={1}
+                onChange={(e) => setMaxPrice(+e.target.value)}
+                className="w-full dxp-range" style={{ accentColor: "var(--tap-green)" }}/>
+              <div className="flex justify-between text-[11px] mt-1" style={{ color: "var(--dxp-muted)" }}>
+                <span>{EUR(priceFloor)}</span>
+                <span>{hiddenCount > 0 ? `${hiddenCount} hidden above ${EUR(effMax)}` : "All flights shown"}</span>
+                <span>{EUR(priceCeil)}</span>
+              </div>
+            </Card>
+          )}
+
           <div className="space-y-3">
-            {results.flights.map((f) => (
+            {visibleFlights.length === 0 && (
+              <Card className="p-5 text-sm" style={{ color: "var(--dxp-muted)" }}>No {cabin} flights under {EUR(effMax)}. Raise the bar to see more.</Card>
+            )}
+            {visibleFlights.map((f) => (
               <Card key={f.flight_no} className="ticket-edge p-0 overflow-hidden" style={f.recommended ? { boxShadow: "0 0 0 2px var(--tap-green)" } : {}}>
                 <div className="p-4 flex flex-wrap items-center gap-4">
                   <div className="w-[84px]"><div className="text-xs font-bold text-gray-400">{f.flight_no}</div><div className="text-[11px] text-gray-400">{f.aircraft}</div></div>
@@ -1797,13 +2037,14 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
                     <RouteRibbon small from={`${f.origin} ${f.dep}`} to={`${f.dest} ${f.arr}`}/>
                     <div className="flex gap-2 mt-2 flex-wrap">
                       <Chip tone="ink">{f.duration}</Chip>
+                      <Chip tone="green">{cabin}</Chip>
                       {!!f.recommended && <Chip tone="green"><Sparkles size={11}/> Recommended for you <Why text="This departure is closest to the time you usually fly this route, based on your travel history. If it's a new route, it's the earliest option — best for business arrivals."/></Chip>}
                       {!!f.lowest && <Chip tone="amber">Lowest fare</Chip>}
                       {f.seats_left < 15 && <Chip tone="red">{f.seats_left} seats left</Chip>}
                     </div>
                   </div>
-                  <div className="text-right"><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(f.price)}</div></div>
-                  <PrimaryBtn onClick={() => selectFlight(f)} className="!py-2.5">Select <ChevronRight size={15}/></PrimaryBtn>
+                  <div className="text-right"><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(f.cabinPrice)}</div>{cabinMult !== 1 && <div className="text-[11px]" style={{ color: "var(--dxp-muted)" }}>{cabin}</div>}</div>
+                  <PrimaryBtn onClick={() => selectFlight({ ...f, price: f.cabinPrice, cabin })} className="!py-2.5">Select <ChevronRight size={15}/></PrimaryBtn>
                 </div>
               </Card>
             ))}
@@ -1986,11 +2227,11 @@ function CheckIn({ go, toast, profile }) {
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Passenger</label>
-                <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>{u.full_name || "Daniel Ferreira"}</div>
+                <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>{u.full_name || "—"}</div>
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Frequent flyer</label>
-                <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>{u.tier || "Gold"} · {u.member_no || "PT-884512"}</div>
+                <div className="px-3 py-2.5 rounded-xl border text-sm font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>{u.tier || "Gold"} · {u.member_no || "—"}</div>
               </div>
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
@@ -2048,7 +2289,7 @@ function MilesGo({ profile, go }) {
         <h1 className="font-display font-black text-3xl" style={{ color: "var(--tap-ink)" }}>TAP Miles&Go</h1>
         <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: "linear-gradient(120deg,#C9A227,#E8C75A)", color: "#3A2D04" }}>{u.tier} member</span>
       </div>
-      <p className="text-sm text-gray-500 mb-6">Member {u.member_no || "PT-884512"} · {u.full_name}</p>
+      <p className="text-sm text-gray-500 mb-6">Member {u.member_no || "—"} · {u.full_name}</p>
 
       <Card className="p-6 mb-5">
         <div className="flex items-end justify-between mb-3 flex-wrap gap-2">
@@ -2252,7 +2493,7 @@ function App() {
 
   const activeNav = NAV_ACTIVE[screen] || null;
 
-  const onHome = screen === "home";
+  const onHome = true;  // whole app now uses the DXP dark theme
   return (
     <div className="min-h-screen" style={{background: onHome ? "var(--dxp-bg)" : "var(--tap-mist)"}}>
       <Fonts/>
@@ -2289,7 +2530,9 @@ function App() {
         </div>
       </header>
 
-      {screen === "home" && <div className="dxp-home"><Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/></div>}
+      {/* Whole app uses the DXP dark theme — every screen rendered inside the dark scope */}
+      <div className="dxp-home">
+      {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/>}
       {screen === "search" && <SearchScreen origin={searchOrigin} setOrigin={setSearchOrigin} dest={searchDest} setDest={setSearchDest} date={searchDate} setDate={setSearchDate} onSearch={runSearch} results={searchResults} searching={searching} selectFlight={selectFlight} routes={routes} suggested={suggested} prefilledReason={prefilledReason}/>}
       {screen === "flights" && <Flights flights={flights} pattern={profile.pattern} selectFlight={selectFlight} toast={toast}/>}
       {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast} profile={profile}/>}
@@ -2303,11 +2546,12 @@ function App() {
       {screen === "miles" && <MilesGo profile={profile} go={go}/>}
       {screen === "help" && <Help openAssistant={()=>setAssistantOpen(true)}/>}
       {screen === "console" && <Console toast={toast}/>}
+      </div>
 
       <Assistant open={assistantOpen} onClose={()=>setAssistantOpen(false)} screen={screen} profile={profile} onCommand={handleAgentCommand} onSelectFlight={(no)=>handleAgentCommand({action:"select_flight",flight_no:no})}/>
       <Toasts list={toasts} dismiss={(id)=>setToasts(t=>t.filter(x=>x.id!==id))}/>
 
-      <footer className="border-t py-4 text-center text-[11px] text-gray-400" style={{borderColor:"var(--tap-line)"}}>
+      <footer className="border-t py-4 text-center text-[11px]" style={{borderColor:"var(--dxp-line)", color:"var(--dxp-muted)"}}>
         Demo · Reimagined pre-travel journey · personalized live per traveller · Frontend + Express API + SQLite + Email + AI
       </footer>
     </div>

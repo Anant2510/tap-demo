@@ -64,6 +64,71 @@ async function sendText(to, text) {
   return status;
 }
 
+/* ── Interactive sends — WhatsApp quick-reply BUTTONS (max 3) and LIST menus.
+   Twilio delivers these via the Content API. The sandbox can't create content
+   templates on the fly, so when WA_INTERACTIVE isn't enabled (or a send fails)
+   we fall back to the numbered text menu — which always works. Either way we
+   register the tappable labels in the menu context so a tapped reply (which
+   arrives as the button's text/id) maps to the right action. ─────────────── */
+const INTERACTIVE = () => CONFIGURED() && process.env.WA_INTERACTIVE === "1";
+
+// buttons: [{ id, title }] (title ≤ 20 chars, max 3). Falls back to "1/2/3" text.
+async function sendButtons(to, text, buttons, menuMap) {
+  if (menuMap) setMenu(to, menuMap);
+  // Register button titles AND ids as accepted replies (taps send the title).
+  const ctx = menuContext[bareNumber(to)] || {};
+  buttons.forEach((b, i) => { ctx[String(i + 1)] = b.id; ctx[b.title.toLowerCase()] = b.id; ctx[b.id] = b.id; });
+  menuContext[bareNumber(to)] = ctx;
+
+  if (INTERACTIVE()) {
+    try {
+      const params = new URLSearchParams();
+      params.append("From", FROM());
+      params.append("To", waAddr(to));
+      params.append("ContentSid", process.env.WA_BUTTONS_CONTENT_SID || "");
+      params.append("ContentVariables", JSON.stringify({ body: text, ...Object.fromEntries(buttons.map((b, i) => [String(i + 1), b.title])) }));
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${SID()}/Messages.json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: "Basic " + Buffer.from(`${SID()}:${AUTH()}`).toString("base64") },
+        body: params.toString(),
+      });
+      const data = await res.json();
+      if (res.ok) { logWA("out", to, "interactive", text, { buttons }, "delivered via Twilio (buttons)"); return "delivered"; }
+    } catch {}
+    // fall through to text on any failure
+  }
+  // Text fallback: body + numbered options
+  const lines = buttons.map((b, i) => `${i + 1}️⃣  ${b.title}`).join("\n");
+  return sendText(to, `${text}\n\n${lines}`);
+}
+
+// rows: [{ id, title, description? }] (max 10). Falls back to numbered text list.
+async function sendList(to, header, body, buttonLabel, rows, menuMap) {
+  if (menuMap) setMenu(to, menuMap);
+  const ctx = menuContext[bareNumber(to)] || {};
+  rows.forEach((r, i) => { ctx[String(i + 1)] = r.id; ctx[(r.title || "").toLowerCase()] = r.id; ctx[r.id] = r.id; });
+  menuContext[bareNumber(to)] = ctx;
+
+  if (INTERACTIVE()) {
+    try {
+      const params = new URLSearchParams();
+      params.append("From", FROM());
+      params.append("To", waAddr(to));
+      params.append("ContentSid", process.env.WA_LIST_CONTENT_SID || "");
+      params.append("ContentVariables", JSON.stringify({ header, body, button: buttonLabel, ...Object.fromEntries(rows.map((r, i) => [String(i + 1), r.title])) }));
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${SID()}/Messages.json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: "Basic " + Buffer.from(`${SID()}:${AUTH()}`).toString("base64") },
+        body: params.toString(),
+      });
+      const data = await res.json();
+      if (res.ok) { logWA("out", to, "interactive", body, { header, rows }, "delivered via Twilio (list)"); return "delivered"; }
+    } catch {}
+  }
+  const lines = rows.map((r, i) => `${i + 1}️⃣  ${r.title}${r.description ? ` — ${r.description}` : ""}`).join("\n");
+  return sendText(to, `${header ? "*" + header + "*\n" : ""}${body ? body + "\n\n" : ""}${lines}\n\n0 for menu`);
+}
+
 /* ── Internal API helper — reuses the portal's own endpoints ─── */
 const apiCall = (method, p, body) =>
   fetch(`http://localhost:${PORT()}/api${p}`, {
@@ -113,49 +178,51 @@ const setCtx = (to, c) => { ctx[bareNumber(to)] = { ...(ctx[bareNumber(to)] || {
 
 /* ── Conversation logic ──────────────────────────────────────── */
 async function sendMainMenu(to) {
-  const u = db.prepare("SELECT first_name, miles, tier FROM users WHERE id=1").get();
-  setMenu(to, { "1": "BOOK_USUAL", "2": "MY_BOOKING", "3": "EXTRAS", "4": "STATUS", "5": "CHECKIN", "6": "CANCEL" });
-  await sendText(to,
-`Olá ${u.first_name} 👋 You're chatting with TAP AI on WhatsApp — linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles).
-
-Reply with a number — or just type where you want to go (e.g. "flights to Madrid"):
-1️⃣  Book my usual flight  (TP1927 Porto→Lisbon, Mon 07:05)
-2️⃣  My booking
-3️⃣  Add extras
-4️⃣  Flight status
-5️⃣  Check in
-6️⃣  Cancel booking
-
-Every action updates the same TAP database as the app.`);
+  const u = db.prepare("SELECT first_name, miles, tier, affinity_label FROM users WHERE id=1").get();
+  const pat = db.prepare("SELECT flight_no FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+  await sendList(to,
+    `TAP AI · ${u.first_name}`,
+    `Olá ${u.first_name} 👋 Linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles). Tap an option below, or just type where you want to go (e.g. "flights to Madrid").`,
+    "Main menu",
+    [
+      { id: "BOOK_USUAL", title: "Book my usual flight", description: "Your regular route, one tap" },
+      { id: "MADE_FOR_YOU", title: "Made for you", description: u.affinity_label ? `${u.affinity_label} package` : "A package picked for you" },
+      { id: "MY_BOOKING", title: "My booking", description: "View your current trip" },
+      { id: "EXTRAS", title: "Add extras", description: "Bags, seats, meals, wifi" },
+      { id: "STATUS", title: "Flight status", description: "Is my flight on time?" },
+      { id: "CHECKIN", title: "Check in", description: "Get your boarding pass" },
+      { id: "CANCEL", title: "Cancel booking", description: "Instant refund" },
+    ],
+    { "1": "BOOK_USUAL", "2": "MADE_FOR_YOU", "3": "MY_BOOKING", "4": "EXTRAS", "5": "STATUS", "6": "CHECKIN", "7": "CANCEL", "0": "MENU" });
 }
 
 /* ── Booking-flow step helpers (flight → seat → extras → checkout → pay) ── */
 
-// Price a draft: flight + paid extras, with Gold voucher + miles applied
+// Price a draft: flight + paid extras, with the persona's voucher + miles applied
 function priceDraft(d, f) {
   const anc = db.prepare("SELECT code,price FROM ancillaries").all();
   const extras = (d.items || []).reduce((s, c) => s + (anc.find(a => a.code === c)?.price || 0), 0);
   const gross = +(((f?.price) || 72) + extras).toFixed(2);
-  const voucher = Math.min(35, gross);
+  const v = db.prepare("SELECT amount FROM vouchers WHERE user_id=1 AND status='active' ORDER BY id DESC LIMIT 1").get();
+  const voucher = Math.min(v?.amount || 0, gross);
   const miles_used = 6000, miles_amt = 18;
   const card = Math.max(0, +(gross - voucher - miles_amt).toFixed(2));
   return { gross, extras, voucher, miles_used, miles_amt, card };
 }
 
-// SEAT step — recommend the seat Daniel uses most (from history)
+// SEAT step — recommend the seat the persona uses most (from history)
 async function startSeatStep(to, f) {
   const rec = await apiCall("GET", "/seat-recommendation");
-  const recSeat = rec?.seat || "4C";
-  // a few alternative seats to offer
-  const alts = ["4C", "2A", "1C", "10F"].filter((s, i, arr) => arr.indexOf(s) === i);
-  if (!alts.includes(recSeat)) alts.unshift(recSeat);
+  const recSeat = rec?.seat || (db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get() || {}).seat || "12A";
+  // offer the recommended seat first, then a few sensible alternatives (de-duped)
+  const alts = [recSeat, "2A", "4C", "10F", "14F"].filter((s, i, arr) => arr.indexOf(s) === i);
   const map = { "0": "MENU" }; const lines = [];
   alts.slice(0, 4).forEach((s, i) => { const n = String(i + 1); map[n] = `SEAT_${s}`; lines.push(`${n}️⃣  Seat ${s}${s === recSeat ? "  ⭐ your usual" : ""}`); });
   setMenu(to, map);
   await sendText(to,
 `✈️ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
 
-Choose your seat — ${rec?.reason || "seat 4C is your usual"}:
+Choose your seat — ${rec?.reason || `seat ${recSeat} is your usual`}:
 
 ${lines.join("\n")}
 
@@ -194,25 +261,31 @@ async function startCheckoutReview(to) {
   const priced = priceDraft(d, f);
   const anc = db.prepare("SELECT code,name,price FROM ancillaries").all();
   const extraNames = d.items.filter(c => !["seat","bag","meal"].includes(c)).map(c => anc.find(a => a.code === c)?.name || c);
-  setMenu(to, { "1": "DO_PAY", "2": "DO_HOLD", "0": "MENU" });
-  await sendText(to,
-`🧾 Review your booking
+  const card = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+  await sendButtons(to,
+`🧾 *Review your booking*
 ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
-Seat ${d.seat} · cabin bag + espresso${extraNames.length ? " + " + extraNames.join(", ") : ""}
+Seat ${d.seat} · cabin bag${extraNames.length ? " + " + extraNames.join(", ") : ""}
 
 Total €${priced.gross.toFixed(2)}
  • Voucher −€${priced.voucher}
  • ${priced.miles_used.toLocaleString()} miles −€${priced.miles_amt}
- • Visa ••4417 €${priced.card.toFixed(2)}
-
-Reply:  1 to Pay now   ·   2 to Hold 48h free   ·   0 for menu`);
+ • ${card.card_brand || "Card"} ••${card.card_last4 || "0000"} €${priced.card.toFixed(2)}`,
+    [{ id: "DO_PAY", title: "Pay now" }, { id: "DO_HOLD", title: "Hold 48h free" }, { id: "MENU", title: "Back to menu" }],
+    { "1": "DO_PAY", "2": "DO_HOLD", "3": "MENU", "0": "MENU" });
 }
 
 async function handleAction(to, id) {
   if (id === "BOOK_USUAL") {
-    const flights = await apiCall("GET", "/flights?dest=LIS&origin=OPO");
-    const f = flights.find(x => x.flight_no === "TP1927") || flights[0];
-    const d = getDraft(to); d.flight_no = f.flight_no; d.seat = "4C"; d.items = ["seat","bag","meal"];
+    const prof = await apiCall("GET", "/profile");
+    const pat = prof?.pattern || {};
+    const origin = pat.origin || prof?.user?.home_airport || "OPO";
+    const dest = pat.dest || "LIS";
+    const flights = await apiCall("GET", `/flights?dest=${dest}&origin=${origin}`);
+    const f = flights.find(x => x.flight_no === pat.topFlight) || flights[0];
+    if (!f) { await sendText(to, "Couldn't load your usual flight — try the menu."); return sendMainMenu(to); }
+    const seat = (prof?.prefs?.seat || "").split(" ")[0] || "";
+    const d = getDraft(to); d.flight_no = f.flight_no; d.seat = seat; d.items = ["seat","bag","meal"];
     return startSeatStep(to, f);
   }
 
@@ -221,7 +294,8 @@ async function handleAction(to, id) {
     const fno = id.slice(5);
     const f = flightByNo(fno);
     if (!f) { await sendText(to, "That flight's no longer available — reply \"menu\" to start over."); return; }
-    const d = getDraft(to); d.flight_no = f.flight_no; d.seat = "4C"; d.items = ["seat","bag","meal"];
+    const prefSeat = (db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get() || {}).seat || "";
+    const d = getDraft(to); d.flight_no = f.flight_no; d.seat = prefSeat; d.items = ["seat","bag","meal"];
     return startSeatStep(to, f);
   }
 
@@ -249,9 +323,11 @@ async function handleAction(to, id) {
     if (!f) { await sendText(to, "Your selection expired — reply \"menu\" to start again."); clearDraft(to); return sendMainMenu(to); }
     const priced = priceDraft(d, f);
     const r = await apiCall("POST", "/pay", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross, voucher_amt: priced.voucher, miles_used: priced.miles_used, miles_amt: priced.miles_amt, card_amt: priced.card });
-    const facts = { action: "checkout", state: "booked", pnr: r.pnr, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: f.flight_date, seat: d.seat, extras: d.items.filter(c=>!["seat","bag","meal"].includes(c)), split: { voucher: priced.voucher, miles: priced.miles_used, miles_eur: priced.miles_amt, card: priced.card } };
+    const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+    const cardStr = `${cardRow.card_brand || "Card"} ••${cardRow.card_last4 || "0000"}`;
+    const facts = { action: "checkout", state: "booked", pnr: r.pnr, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: f.flight_date, seat: d.seat, card: cardStr, extras: d.items.filter(c=>!["seat","bag","meal"].includes(c)), split: { voucher: priced.voucher, miles: priced.miles_used, miles_eur: priced.miles_amt, card: priced.card } };
     await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
-      fallback: `✅ Booked! ${r.pnr} — ${f.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${f.flight_date}, seat ${d.seat}.\nPayment: voucher −€${priced.voucher} · ${priced.miles_used.toLocaleString()} miles −€${priced.miles_amt} · Visa ••4417 €${priced.card.toFixed(2)}.\nConfirmation emailed. Auto check-in is ON.` }));
+      fallback: `✅ Booked! ${r.pnr} — ${f.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${f.flight_date}, seat ${d.seat}.\nPayment: voucher −€${priced.voucher} · ${priced.miles_used.toLocaleString()} miles −€${priced.miles_amt} · ${cardStr} €${priced.card.toFixed(2)}.\nConfirmation emailed. Auto check-in is ON.` }));
     clearDraft(to);
     await sendMainMenu(to);
     return;
@@ -325,13 +401,51 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     const code = id.slice(4);
     const r = await apiCall("POST", "/bookings/ancillary", { code });
     if (r.ok) {
-      const facts = { action: "add_extra", state: "added", item: r.name, price: r.price, pnr: r.pnr, card: "Visa ••4417" };
-      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ Added ${r.name} (€${r.price}) to ${r.pnr} — charged to Visa ••4417. Updated itinerary emailed.` }));
+      const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+      const card = `${cardRow.card_brand || "Card"} ••${cardRow.card_last4 || "0000"}`;
+      const facts = { action: "add_extra", state: "added", item: r.name, price: r.price, pnr: r.pnr, card };
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ Added ${r.name} (€${r.price}) to ${r.pnr} — charged to ${card}. Updated itinerary emailed.` }));
     } else {
       const facts = { action: "add_extra", state: "no_booking", message: "There's no active booking to add extras to yet." };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message + " Reply 1 to book your usual flight." }));
     }
     return;
+  }
+
+  if (id === "MADE_FOR_YOU") {
+    const rec = await apiCall("GET", "/recommendation");
+    if (!rec?.package) { await sendText(to, "No package available right now — try the main menu."); return sendMainMenu(to); }
+    const p = rec.package;
+    const emoji = rec.affinity === "football" ? "⚽" : rec.affinity === "golf" ? "⛳" : "🎵";
+    const cat = (rec.categories && rec.categories[0]) ? `${rec.categories[0].share}% ${rec.categories[0].name}` : null;
+    let body =
+`${emoji} *Made for you — ${rec.affinity_label}*
+_${cat ? "From your card: " + cat : "From your card spend"}_
+
+*${p.event}*
+📍 ${p.venue}
+🗓️ ${new Date(p.date).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}
+
+🎟️ Event ticket — €${p.eventPrice}
+🏨 ${p.hotel} · ${p.hotelNights}n — €${p.hotelPrice}
+✈️ ${p.flightDesc} — €${p.flightPrice}`;
+    if (p.addon) body += `\n🧳 ${p.addon.label} — €${p.addon.price} (was €${p.addon.normal})`;
+    body += `\n\n*Bundle total: €${p.total}*`;
+    await sendButtons(to, body,
+      [{ id: "PKG_BOOK", title: "Book package" }, { id: `SEARCHTO_${p.code}`, title: "Just the flight" }, { id: "MENU", title: "Back to menu" }],
+      { "1": "PKG_BOOK", "2": `SEARCHTO_${p.code}`, "3": "MENU", "0": "MENU" });
+    return;
+  }
+  if (id === "PKG_BOOK") {
+    const rec = await apiCall("GET", "/recommendation");
+    const p = rec?.package;
+    if (p) await sendText(to, `🎉 Nice one! Your *${p.event}* package (€${p.total}) is held — event ticket, ${p.hotelNights} nights at ${p.hotel}, and your return flight. Our team will email the confirmation to complete payment.${p.addon ? ` Your ${p.addon.label} is included at €${p.addon.price}.` : ""}`);
+    return sendMainMenu(to);
+  }
+  if (id.startsWith("SEARCHTO_")) {
+    const code = id.slice(9);
+    const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
+    return searchRoute(from, home, code, "2026-06-15", "package flight");
   }
 
   if (id === "SEATMAP_INFO") {
@@ -406,7 +520,8 @@ Reply:  1 to confirm cancel   ·   0 to keep my booking`);
     const r = await apiCall("POST", "/bookings/cancel", {});
     if (r.ok) {
       const facts = { action: "cancel", state: "cancelled", pnr: r.pnr, refund: r.refund || { note: "original payment split" } };
-      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ ${r.pnr} cancelled. Refund issued instantly: miles restored, voucher reactivated, card amount returned to Visa ••4417. Confirmation emailed — no forms, no queue.` }));
+      const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ ${r.pnr} cancelled. Refund issued instantly: miles restored, voucher reactivated, card amount returned to ${cardRow.card_brand || "card"} ••${cardRow.card_last4 || "0000"}. Confirmation emailed — no forms, no queue.` }));
     } else {
       const facts = { action: "cancel", state: "no_booking", message: "No active booking was found to cancel." };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message }));
@@ -420,7 +535,8 @@ Reply:  1 to confirm cancel   ·   0 to keep my booking`);
     const optId = id.slice(7);
     const label = optId === "KEEP" ? "Keep my original flight" : `Move to ${optId}`;
     await apiCall("POST", "/rebook", { option: { id: optId === "KEEP" ? (latestBooking()?.flight_no || "TP1927") : optId, label } });
-    await sendText(to, `✅ Done — ${label.toLowerCase()}. New boarding pass issued, seat 4C kept, confirmation emailed. Nothing else to do.`);
+    const keptSeat = (latestBooking()?.seat) || (db.prepare("SELECT seat FROM preferences WHERE user_id=1").get() || {}).seat?.split(" ")[0] || "your seat";
+    await sendText(to, `✅ Done — ${label.toLowerCase()}. New boarding pass issued, seat ${keptSeat} kept, confirmation emailed. Nothing else to do.`);
     return;
   }
 
@@ -454,6 +570,7 @@ async function handleIncoming({ from, text }) {
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
   if (/\b(my booking|my flight|my trip|booking details|view booking|show booking)\b/.test(t) || /^booking\b/.test(t)) return handleAction(from, "MY_BOOKING");
+  if (/\b(packages?|made for me|made for you|recommend|suggestions?|what should i do|things to do|anything fun|what'?s on|whats on|events?|concerts?|matches?|tournaments?|golf|football|music)\b/.test(t) && !/book|cancel|status|check.?in/.test(t)) return handleAction(from, "MADE_FOR_YOU");
   if (/\b(seat options|seating options|available seats|seat map|what seats|which seats)\b/.test(t)) return handleAction(from, "SEATMAP_INFO");
   if (/\b(change|move|switch|upgrade).{0,20}\bseat\b|\bseat\b.{0,20}\b(change|window|aisle|business|premium)\b|\bwindow seat\b|\baisle seat\b/.test(t)) return runAgent(from, text);
   if (/\b(extras|add.?ons?|ancillar|upgrade my)\b/.test(t)) return handleAction(from, "EXTRAS");

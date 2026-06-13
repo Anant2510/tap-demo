@@ -11,6 +11,7 @@ const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
 const { AIRPORTS } = require("./routes-data");
+const { packageFor } = require("./packages");
 const whatsapp = require("./whatsapp");
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
@@ -239,6 +240,30 @@ app.get("/api/profile", (req, res) => {
   res.json({ user, prefs, vouchers, history, pattern, syncedSearch: search, recentSearches });
 });
 
+/* Affinity-driven package recommendation. We read the persona's co-branded card
+   spend categories from the customer DB, derive the dominant interest, and return
+   a matching event+hotel+flight bundle. This mirrors how a CDP turns card-spend
+   signals into an experiential offer. */
+app.get("/api/recommendation", (req, res) => {
+  const user = db.prepare("SELECT * FROM users WHERE id=1").get();
+  let categories = [];
+  try { categories = JSON.parse(user.card_categories || "[]"); } catch {}
+  const pkg = packageFor(user.affinity, user.home_airport);
+  const topCategory = categories[0]?.name || null;
+  log("api_recommendation_fetch", { affinity: user.affinity, derived_from: topCategory, package: pkg?.id });
+  res.json({
+    affinity: user.affinity,
+    affinity_label: user.affinity_label,
+    card: { product: user.card_product, brand: user.card_brand, last4: user.card_last4 },
+    categories,
+    // a short explanation of the derivation, for the UI + Demo Console
+    rationale: topCategory
+      ? `Your ${user.card_product} shows ${categories[0].share}% of spend in ${topCategory} — so VOYAGER.AI flags you as a ${user.affinity_label}.`
+      : `Derived from your ${user.card_product} spend profile.`,
+    package: pkg,
+  });
+});
+
 app.get("/api/flights", (req, res) => {
   const dest = (req.query.dest || "LIS").toUpperCase();
   const origin = (req.query.origin || "OPO").toUpperCase();
@@ -252,7 +277,7 @@ app.get("/api/flights", (req, res) => {
 });
 app.get("/api/ancillaries", (req, res) => {
   const anc = db.prepare("SELECT * FROM ancillaries").all();
-  // Personalization: how often did Daniel buy each ancillary on PAST (completed) trips?
+  // Personalization: how often did the customer buy each ancillary on PAST (completed) trips?
   const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all();
   const totalTrips = past.length || 1;
   const counts = {};
@@ -266,7 +291,7 @@ app.get("/api/ancillaries", (req, res) => {
   }));
 });
 
-/* Recommended seat from history: Daniel's most-used seat on past bookings. */
+/* Recommended seat from history: the customer's most-used seat on past bookings. */
 app.get("/api/seat-recommendation", (req, res) => {
   const past = db.prepare("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC").all();
   const top = past[0];
@@ -372,18 +397,26 @@ app.get("/api/bookings", (req, res) => {
 
 /* ── Disruption: live ops event → AI recovery → email ────────── */
 app.post("/api/disrupt", async (req, res) => {
-  const flight_no = req.body.flight_no || "TP1927";
+  // Default to the active persona's usual outbound flight, not a hardcoded one.
+  const u = db.prepare("SELECT first_name, tier, home_airport FROM users WHERE id=1").get() || {};
+  const usual = db.prepare("SELECT flight_no, route FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC LIMIT 1").get((u.home_airport || "OPO") + "→%");
+  const flight_no = req.body.flight_no || usual?.flight_no || "TP1927";
   db.prepare("UPDATE flights SET status='delayed', new_dep='08:55', new_arr='09:50' WHERE flight_no=?").run(flight_no);
-  const f = flightByNo(flight_no);
+  let f = flightByNo(flight_no);
+  // If that flight isn't in the flights table yet, synthesize a row from history/route.
+  if (!f) { const r = (usual?.route || `${u.home_airport||"OPO"}→LIS`).split("→"); f = { flight_no, origin: r[0], dest: r[1], dep: "07:05", new_dep: "08:55", new_arr: "09:50" }; }
+  const routeStr = `${cityName(f.origin)}→${cityName(f.dest)}`;
+  // pick an alternative flight on the same route from the flights table
+  const alt = db.prepare("SELECT flight_no, dep, arr FROM flights WHERE origin=? AND dest=? AND flight_no!=? ORDER BY dep LIMIT 1").get(f.origin, f.dest, flight_no) || { flight_no: "TP1931", dep: "09:10", arr: "10:05" };
   log("ops_disruption", { flight_no, cause: "late inbound aircraft", new_dep: f.new_dep });
 
   let recovery, ai = "live";
   try {
     recovery = await callClaude([{ role: "user", content:
-      `LIVE OPS EVENT: ${flight_no} OPO→LIS on Mon 15 Jun (sched ${f.dep}) is delayed ~1h50, late inbound aircraft. New estimate ${f.new_dep}, landing ${f.new_arr}. Daniel has a client meeting in Lisbon at 10:00.
-Write his proactive disruption notification. Return JSON exactly:
-{"headline": string, "message": string (2-3 sentences, personal, transparent about cause and the 10:00 meeting impact, reassuring, no fluff), "options":[{"id":"${flight_no}","label": string,"detail": string},{"id":"TP1931","label": string,"detail": string}], "compensation": string (one line, Gold + EU261 entitlements)}.
-TP1931 departs 09:10 arrives 10:05 — be honest it lands after 10:00; keeping ${flight_no} lands ${f.new_arr}, tight but possible.` }],
+      `LIVE OPS EVENT: ${flight_no} ${f.origin}→${f.dest} (${routeStr}) is delayed ~1h50, late inbound aircraft. New estimate ${f.new_dep}, landing ${f.new_arr}. The traveller is ${u.first_name} (${u.tier}).
+Write their proactive disruption notification. Return JSON exactly:
+{"headline": string, "message": string (2-3 sentences, personal, transparent about the cause, reassuring, no fluff), "options":[{"id":"${flight_no}","label": string,"detail": string},{"id":"${alt.flight_no}","label": string,"detail": string}], "compensation": string (one line, ${u.tier} + EU261 entitlements)}.
+Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${flight_no} lands ${f.new_arr}.` }],
       { json: true });
   } catch { recovery = FALLBACKS.recovery; ai = "cached"; }
 
@@ -465,12 +498,16 @@ app.post("/api/bookings/checkin", (req, res) => {
 /* ── AI endpoints ────────────────────────────────────────────── */
 app.post("/api/ai/plan", async (req, res) => {
   const q = (req.body.prompt || "").slice(0, 500);
-  log("ai_planner_query", { q });
+  const u = db.prepare("SELECT first_name, home_airport, affinity, affinity_label, card_product FROM users WHERE id=1").get() || {};
+  let categories = []; try { categories = JSON.parse((db.prepare("SELECT card_categories FROM users WHERE id=1").get()||{}).card_categories || "[]"); } catch {}
+  const pkg = packageFor(u.affinity, u.home_airport);
+  log("ai_planner_query", { q, affinity: u.affinity });
   try {
     const plan = await callClaude([{ role: "user", content:
-      `Daniel asks the AI itinerary planner: "${q}".
-Build a concrete plan using realistic TAP short-haul flights (OPO⇄LIS shuttle TP19xx hourly 06:35–21:00, ~55min, €60–95; other European routes plausible).
-Return JSON exactly: {"title": string, "summary": string (1 sentence, personal), "legs":[{"day": string, "flight": string, "route": string, "times": string, "why": string (tie to his pattern/meetings)}], "tip": string} with 2-4 legs.` }],
+      `${u.first_name} (home airport ${u.home_airport}) asks the AI itinerary planner: "${q}".
+${u.affinity_label ? `Context: ${u.first_name}'s co-branded TAP card spend marks them a ${u.affinity_label}${categories[0] ? ` (${categories[0].share}% ${categories[0].name})` : ""}. If the request is open-ended ("what should I do", "ideas", "this weekend", "surprise me") or matches that interest, weave in the relevant experience${pkg ? ` — e.g. ${pkg.event} in ${pkg.city} (${pkg.badge})` : ""} and note it pairs ticket + hotel + return flight.` : ""}
+Build a concrete plan using realistic TAP flights from ${u.home_airport} (short-haul shuttles run frequently ~55–90min, €60–120; long-haul where relevant; other routes plausible).
+Return JSON exactly: {"title": string, "summary": string (1 sentence, personal, use their first name), "legs":[{"day": string, "flight": string, "route": string, "times": string, "why": string (tie to their pattern/interest)}], "tip": string} with 2-4 legs.` }],
       { json: true });
     res.json({ plan, ai: "live" });
   } catch { res.json({ plan: FALLBACKS.plan, ai: "cached" }); }
@@ -490,7 +527,7 @@ app.post("/api/ai/chat", async (req, res) => {
 const AGENT_TOOLS = [
   { name: "search_flights", description: "Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is 2026-06-11).",
     input_schema: { type: "object", properties: {
-      origin: { type: "string", description: "Origin IATA code, e.g. OPO. If the customer didn't specify an origin, use OPO (Daniel's home airport)." },
+      origin: { type: "string", description: "Origin IATA code, e.g. OPO. If the customer didn't specify an origin, use the customer's home airport." },
       dest: { type: "string", description: "Destination IATA code, e.g. LIS, MAD, CDG. REQUIRED — never guess this. If unknown, call list_destinations instead." },
       date: { type: "string", description: "Travel date YYYY-MM-DD. Use 2026-06-15 (next Monday) only if the customer gave no date." },
     }, required: ["origin", "dest"] } },
@@ -498,7 +535,7 @@ const AGENT_TOOLS = [
     input_schema: { type: "object", properties: {
       origin: { type: "string", description: "Origin IATA code, e.g. LIS, OPO, MAD." },
     }, required: ["origin"] } },
-  { name: "get_suggestions", description: "Get Daniel's personalized suggested destinations, computed from his real flown/booked/searched history. Use when he asks 'where should I go' or for ideas (NOT for factual 'where do we fly from X' questions — use list_destinations for those).",
+  { name: "get_suggestions", description: "Get the customer's personalized suggested destinations, computed from their real flown/booked/searched history. Use when they ask 'where should I go' or for ideas (NOT for factual 'where do we fly from X' questions — use list_destinations for those).",
     input_schema: { type: "object", properties: {} } },
   { name: "select_flight", description: "Select a specific flight by its flight number (from a prior search) and put it in the basket. Use when the customer picks one.",
     input_schema: { type: "object", properties: { flight_no: { type: "string" } }, required: ["flight_no"] } },
@@ -509,22 +546,24 @@ const AGENT_TOOLS = [
     }, required: ["flight_no"] } },
   { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer).",
     input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
-  { name: "list_seats", description: "List available seats and cabin classes (Business, Premium Economy, Economy) for the currently selected flight or Daniel's current booking. Use when the customer asks what seating options are available or wants to see the seat map.",
+  { name: "list_seats", description: "List available seats and cabin classes (Business, Premium Economy, Economy) for the currently selected flight or the customer's current booking. Use when the customer asks what seating options are available or wants to see the seat map.",
     input_schema: { type: "object", properties: { cabin: { type: "string", description: "Optional filter: 'business', 'premium', or 'economy'." } } } },
-  { name: "change_seat", description: "Change Daniel's seat on the currently selected flight or his current booking — you CAN do this in chat. Use when he says 'change my seat', 'move me to a window', 'I want 12A', etc. Validates the seat exists and is free, updates it, and reports the new cabin and any fare difference. Only fall back to the website if the seat is taken or invalid after offering alternatives.",
+  { name: "change_seat", description: "Change the customer's seat on the currently selected flight or their current booking — you CAN do this in chat. Use when they say 'change my seat', 'move me to a window', 'I want 12A', etc. Validates the seat exists and is free, updates it, and reports the new cabin and any fare difference. Only fall back to the website if the seat is taken or invalid after offering alternatives.",
     input_schema: { type: "object", properties: {
       seat: { type: "string", description: "Specific seat like '12A'. Omit if the customer only gave a preference." },
       preference: { type: "string", description: "If no specific seat: 'window', 'aisle', 'business', 'premium', 'extra legroom', 'front'." },
     } } },
-  { name: "checkout", description: "Pay for the currently selected flight using Daniel's saved profile (voucher €35 + miles + Visa). Creates a real booking and sends a confirmation email. Only call after a flight is selected and the customer confirms they want to pay.",
+  { name: "checkout", description: "Pay for the currently selected flight using the customer's saved profile (voucher + miles + card). Creates a real booking and sends a confirmation email. Only call after a flight is selected and the customer confirms they want to pay.",
     input_schema: { type: "object", properties: { use_voucher: { type: "boolean" }, use_miles: { type: "boolean" } } } },
-  { name: "get_booking", description: "Get Daniel's current/latest active booking with status. Use for 'my booking', 'am I checked in', 'is my flight on time'.",
+  { name: "get_booking", description: "Get the customer's current/latest active booking with status. Use for 'my booking', 'am I checked in', 'is my flight on time'.",
     input_schema: { type: "object", properties: {} } },
-  { name: "get_wallet", description: "Get Daniel's LIVE Miles&Go balance and voucher status from the database. Use whenever he asks about his miles, points, voucher, balance, or 'what can I pay with' / 'how much are my miles worth'. Always call this rather than answering from memory — balances change after bookings and cancellations.",
+  { name: "get_wallet", description: "Get the customer's LIVE Miles&Go balance and voucher status from the database. Use whenever they ask about miles, points, voucher, balance, or 'what can I pay with' / 'how much are my miles worth'. Always call this rather than answering from memory — balances change after bookings and cancellations.",
     input_schema: { type: "object", properties: {} } },
-  { name: "check_in", description: "Check Daniel in for his current active booking. Issues the boarding pass. Use when he says 'check me in' or 'check in'.",
+  { name: "get_recommendation", description: "Get the customer's personalized experiential PACKAGE — derived from their co-branded TAP credit-card spend. Each customer has an affinity (football / golf / music) and a matching bundle of event ticket + hotel + return flight. Use when they ask 'any packages for me', 'what should I do this weekend', 'recommend something', 'anything fun in <city>', or react to their interest. Returns the affinity, the rationale (which card-spend category drove it), and the full package with prices (and any add-on like a golf-bag).",
     input_schema: { type: "object", properties: {} } },
-  { name: "cancel_booking", description: "Cancel Daniel's current active booking with an instant refund (miles restored, voucher reactivated, card amount returned). Only call after the customer clearly confirms they want to cancel.",
+  { name: "check_in", description: "Check the customer in for their current active booking. Issues the boarding pass. Use when they say 'check me in' or 'check in'.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "cancel_booking", description: "Cancel the customer's current active booking with an instant refund (miles restored, voucher reactivated, card amount returned). Only call after the customer clearly confirms they want to cancel.",
     input_schema: { type: "object", properties: { confirm: { type: "boolean", description: "Must be true — the customer has confirmed the cancellation." } }, required: ["confirm"] } },
 ];
 
@@ -607,7 +646,7 @@ function agentRunTool(name, input, session) {
     if (!rows.length) return { ok: false, message: `No routes found from ${cityName(origin)} (${origin}). Check the airport code.` };
     const dests = rows.map(r => ({ code: r.dest, city: cityName(r.dest) }))
       .sort((a, b) => a.city.localeCompare(b.city));
-    // mark which ones Daniel has flown, for a personal touch
+    // mark which ones the customer has flown, for a personal touch
     dests.forEach(d => {
       d.flown = db.prepare("SELECT COUNT(*) c FROM travel_history WHERE user_id=1 AND route LIKE ?").get(`%→${d.code}`).c;
     });
@@ -728,7 +767,25 @@ function agentRunTool(name, input, session) {
       miles_rate: "1,000 miles ≈ €3",
       voucher: v ? { code: v.code, amount: v.amount, status: v.status, expiry: v.expiry, available: v.status === "active" } : null,
       card: `${u.card_brand} ••${u.card_last4}`,
-      note: "Daniel can split any booking across voucher, miles and card on the payment page or right here in chat.",
+      note: "You can split any booking across voucher, miles and card on the payment page or right here in chat.",
+    };
+  }
+  if (name === "get_recommendation") {
+    const u = db.prepare("SELECT card_product, card_categories, card_brand, card_last4, affinity, affinity_label, home_airport, first_name FROM users WHERE id=1").get();
+    let categories = []; try { categories = JSON.parse(u.card_categories || "[]"); } catch {}
+    const pkg = packageFor(u.affinity, u.home_airport);
+    const top = categories[0];
+    return { ok: true,
+      affinity: u.affinity, affinity_label: u.affinity_label,
+      card: `${u.card_product} (${u.card_brand} ••${u.card_last4})`,
+      derived_from: top ? `${top.share}% of card spend in ${top.name}` : null,
+      package: pkg ? {
+        event: pkg.event, venue: pkg.venue, city: pkg.city, date: pkg.date, badge: pkg.badge,
+        event_price: pkg.eventPrice, hotel: pkg.hotel, hotel_nights: pkg.hotelNights, hotel_price: pkg.hotelPrice,
+        flight: pkg.flightDesc, flight_price: pkg.flightPrice, total: pkg.total,
+        addon: pkg.addon ? { label: pkg.addon.label, price: pkg.addon.price, normal: pkg.addon.normal, note: pkg.addon.note } : null,
+      } : null,
+      note: `This is a personalized package for ${u.first_name}, derived from their card spend. Offer it warmly, mention WHY (the card-spend signal), and that it bundles event + hotel + return flight in one tap.`,
     };
   }
   if (name === "get_booking") {
@@ -739,9 +796,9 @@ function agentRunTool(name, input, session) {
   }
   if (name === "check_in") {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
-    if (!b) return { ok: false, state: "no_booking", message: "Daniel has no upcoming flight to check in for." };
+    if (!b) return { ok: false, state: "no_booking", message: "You have no upcoming flight to check in for." };
     const f = flightByNo(b.flight_no) || {};
-    if (b.checked_in) return { ok: true, state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat, group: "A (Gold)", message: "Daniel is already checked in for this flight." };
+    if (b.checked_in) return { ok: true, state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat, group: "A (Gold)", message: "You're already checked in for this flight." };
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
     db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('agent_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
     log("agent_checkin", { pnr: b.pnr });
@@ -749,9 +806,9 @@ function agentRunTool(name, input, session) {
   }
   if (name === "cancel_booking") {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
-    if (!b) return { ok: false, state: "no_booking", message: "Daniel has no active booking to cancel." };
+    if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to cancel." };
     const f = flightByNo(b.flight_no) || {};
-    if (input.confirm !== true) return { ok: false, state: "needs_confirm", pnr: b.pnr, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, message: `Confirm before cancelling ${b.pnr} (${b.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${b.flight_date}). Ask Daniel to confirm.` };
+    if (input.confirm !== true) return { ok: false, state: "needs_confirm", pnr: b.pnr, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, message: `Confirm before cancelling ${b.pnr} (${b.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${b.flight_date}). Ask the customer to confirm.` };
     db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
     const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(b.id);
     if (pay) {
@@ -786,6 +843,12 @@ function buildUI(toolCalls) {
     } else if (tc.name === "change_seat" && tc.result?.ok) {
       cards = [{ type: "seat", seat: tc.result.seat, cabin: tc.result.cabin, price: tc.result.price, included: tc.result.included, from: tc.result.from }];
       command = { action: "navigate", screen: "seatmap" };
+    } else if (tc.name === "get_recommendation" && tc.result?.ok && tc.result.package) {
+      const p = tc.result.package;
+      cards = [{ type: "package", affinity: tc.result.affinity, affinity_label: tc.result.affinity_label, derived_from: tc.result.derived_from,
+        event: p.event, venue: p.venue, city: p.city, date: p.date, badge: p.badge,
+        eventPrice: p.event_price, hotel: p.hotel, hotelNights: p.hotel_nights, hotelPrice: p.hotel_price,
+        flight: p.flight, flightPrice: p.flight_price, total: p.total, addon: p.addon }];
     } else if (tc.name === "get_wallet" && tc.result?.ok) {
       cards = [{ type: "wallet", miles: tc.result.miles, miles_value_eur: tc.result.miles_value_eur, voucher: tc.result.voucher, card: tc.result.card }];
       command = { action: "navigate", screen: "miles" };
@@ -812,10 +875,13 @@ app.post("/api/ai/agent", async (req, res) => {
   const sessionId = req.body.sessionId || "web-default";
   const session = getSession(sessionId);
   log("ai_agent_message", { screen, last: typeof messages[messages.length - 1]?.content === "string" ? messages[messages.length - 1].content.slice(0, 120) : "" });
-  // Prepend a small situational note so Claude knows where Daniel is AND what
+  // Prepend a small situational note so Claude knows where the customer is AND what
   // the active route/flights are (from this session's last search), so follow-ups
   // like "how about tomorrow" or "does TP1481 have seats" stay on-route.
-  let situ = `(Daniel is on the "${screen}" screen.`;
+  const me = db.prepare("SELECT first_name, affinity, affinity_label FROM users WHERE id=1").get() || {};
+  const who = me.first_name || "the customer";
+  let situ = `(${who} is on the "${screen}" screen.`;
+  if (me.affinity_label) situ += ` Card-derived affinity: ${me.affinity_label} (${me.affinity}) — a matching event+hotel+flight package is available via get_recommendation; offer it if they ask what to do, want ideas, or mention their interest.`;
   if (session.lastSearch) {
     const ls = session.lastSearch;
     situ += ` Active search: ${cityName(ls.origin)}→${cityName(ls.dest)} on ${ls.date}, flights ${ls.flights.map(f => f.flight_no).join(", ")}.`;
@@ -838,12 +904,23 @@ app.post("/api/ai/agent", async (req, res) => {
 /* Personalized marketing offer — generated from DB history, then emailed */
 app.post("/api/offers/send", async (req, res) => {
   let offer, ai = "live";
+  const u = db.prepare("SELECT first_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get() || {};
   try {
     offer = await callClaude([{ role: "user", content:
-      `Create ONE personalized commercial offer email for Daniel using his actual travel history in your context (the Monday TP1927 pattern, his miles balance, Gold tier). Make it concrete with numbers.
+      `Create ONE personalized commercial offer email for ${u.first_name} (${u.tier}, ${u.miles} miles, home ${u.home_airport}${u.affinity_label ? ", interests: " + u.affinity_label : ""}) using their actual travel history in your context (their recurring route/flight pattern, miles balance, tier). Make it concrete with numbers and address them by first name.
 Return JSON exactly: {"subject": string (no emoji spam, one allowed), "title": string, "preheader": string, "body_html": string (2-4 sentences, may use <b>), "cta": string}.` }],
       { json: true });
-  } catch { offer = FALLBACKS.offer; ai = "cached"; }
+  } catch {
+    // Generic, persona-correct fallback built from live data (no hardcoded Daniel).
+    offer = {
+      subject: `${u.first_name} — a smarter way to fly your favourite route`,
+      title: "Your travel pattern, rewarded",
+      preheader: `Tailored to your ${u.tier} membership.`,
+      body_html: `Based on your recent trips and your ${u.miles?.toLocaleString()} ${u.tier} miles balance, we've put together offers tuned to how you fly from ${u.home_airport}. Book ahead this month to lock in fares and earn bonus miles.`,
+      cta: "See my offers",
+    };
+    ai = "cached";
+  }
   const email = await sendEmail("personal_offer", { offer });
   res.json({ offer, email, ai });
 });
@@ -957,7 +1034,7 @@ app.get("/api/admin/selftest", (req, res) => {
   add("Destination signals (flown/booked)", "Personalization", () => { const lis = count("SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest='LIS'"); return { ok: lis >= 1, detail: `Lisbon booked ${lis}×` }; });
 
   // — Search engine —
-  add("Search: personalized route (OPO→LIS)", "Search", () => { const f = getRoute("OPO", "LIS") ? generateFlights("OPO", "LIS", "2026-06-15") : []; return { ok: f.length > 0, detail: `${f.length} flights` }; });
+  add("Search: route generation", "Search", () => { const f = getRoute("OPO", "LIS") ? generateFlights("OPO", "LIS", "2026-06-15") : []; return { ok: f.length > 0, detail: `${f.length} flights` }; });
   add("Search: any network route (OPO→AMS)", "Search", () => { const f = getRoute("OPO", "AMS") ? generateFlights("OPO", "AMS", "2026-06-15") : []; return { ok: f.length > 0, detail: `${f.length} flights` }; });
   add("List destinations from Lisbon", "Search", () => { const c = count("SELECT COUNT(*) c FROM routes WHERE origin='LIS'"); return { ok: c > 10, detail: `${c} cities from LIS` }; });
 

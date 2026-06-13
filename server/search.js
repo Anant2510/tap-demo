@@ -25,7 +25,7 @@ function getRoute(origin, dest) {
   return db.prepare("SELECT * FROM routes WHERE origin=? AND dest=?").get(origin, dest);
 }
 
-// Daniel's home shuttle has fixed, real flight numbers so his history lines up
+// The home shuttle has fixed, real flight numbers so the persona's history lines up
 const PINNED = {
   "OPO-LIS": [
     { flight_no: "TP1921", dep: "06:35", arr: "07:30", aircraft: "A320neo", price: 74, seats_left: 31 },
@@ -41,7 +41,7 @@ function generateFlights(origin, dest, date) {
   const route = getRoute(origin, dest);
   if (!route) return [];
 
-  // Pinned routes (Daniel's commute) return stable, named flights
+  // Pinned routes (the persona's commute) return stable, named flights
   const pin = PINNED[`${origin}-${dest}`];
   if (pin) {
     return pin.map(p => ({

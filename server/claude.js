@@ -11,15 +11,22 @@ function danielContext() {
   const hist = db.prepare("SELECT flight_no,route,trip_date,dep_time FROM travel_history WHERE user_id=1 ORDER BY trip_date").all();
   const upcoming = db.prepare("SELECT pnr,flight_no,flight_date,seat FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY flight_date").all();
   const pastCount = db.prepare("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='completed'").get().c;
+  const v = db.prepare("SELECT amount FROM vouchers WHERE user_id=1 AND status='active' ORDER BY id DESC LIMIT 1").get();
+  // Derive the recurring pattern from real history rather than hardcoding it.
+  const routeCounts = {};
+  hist.forEach(h => { routeCounts[h.route] = (routeCounts[h.route] || 0) + 1; });
+  const topRoute = Object.entries(routeCounts).sort((a, b) => b[1] - a[1])[0];
+  const topFlight = (() => { const fc = {}; hist.forEach(h => { fc[h.flight_no] = (fc[h.flight_no] || 0) + 1; }); const t = Object.entries(fc).sort((a, b) => b[1] - a[1])[0]; return t ? t[0] : null; })();
+  const patternLine = topRoute ? `flies ${topRoute[0]} most often${topFlight ? ` (often ${topFlight})` : ""}, based on their travel history` : "no strong route pattern yet";
   return `You are the AI inside TAP Air Portugal's digital channel, serving one logged-in customer.
 CUSTOMER PROFILE (live from the customer database):
-- ${u.full_name}, 41, ${u.nationality}. Senior Digital Strategy Consultant. TAP Miles&Go ${u.tier.toUpperCase()}.
-- Miles: ${u.miles.toLocaleString()}. Voucher: €35. Saved card ${u.card_brand} ••${u.card_last4}.
+- ${u.full_name}, ${u.nationality}. TAP Miles&Go ${u.tier.toUpperCase()}. Home airport ${u.home_airport}.
+- Miles: ${u.miles.toLocaleString()}.${v ? ` Voucher: €${v.amount}.` : ""} Saved card ${u.card_brand} ••${u.card_last4}.${u.affinity_label ? ` Interests (from card spend): ${u.affinity_label}.` : ""}
 - Preferences: seat ${p.seat}; ${p.bag}; meal ${p.meal}; auto check-in ${p.auto_checkin ? "ON" : "OFF"}.
 - Travel history (last ${hist.length} flights): ${hist.map(h => `${h.trip_date} ${h.flight_no} ${h.route} ${h.dep_time}`).join("; ")}.
 - Bookings on file: ${pastCount} completed past trips, and ${upcoming.length} upcoming/active: ${upcoming.map(b => `${b.pnr} ${b.flight_no} on ${b.flight_date} seat ${b.seat}`).join("; ") || "none"}.
-- Pattern: flies OPO⇄LIS for business, outbound Mondays ~07:05 (TP1927), return Thursdays ~18:35 (TP1943). Tight client schedules in Lisbon.
-- Personality: time-pressed, values efficiency and control, hates redirects and extra steps.
+- Pattern: ${patternLine}.
+- Personality: values efficiency and control, prefers quick action over extra steps.
 Tone: crisp, professional, warm but brief. 24h times, EUR. Today is ${new Date().toDateString()}.`;
 }
 
@@ -62,8 +69,10 @@ async function callClaudeAgent(messages, tools, runTool, { maxTokens = 1200, max
 
 You are an in-app booking agent. You can take real actions through tools that read and write the same database the website uses. When the customer wants to find, choose, add extras to, pay for, check in, change a seat for, or cancel a flight, USE THE TOOLS — don't just describe what you'd do, and never guess or assume the outcome.
 
+PERSONALIZED PACKAGES (card-derived): the customer has an affinity inferred from their co-branded TAP card spend (football / golf / music). When they ask what to do, want ideas, ask about packages, weekends, or mention their interest, call get_recommendation and present the bundle (event ticket + hotel + return flight) warmly — say WHY it fits them (the card-spend signal), give the total, and mention any add-on (e.g. a discounted golf-bag). Don't invent events; use exactly what the tool returns.
+
 SEATS — YOU CAN CHANGE THEM IN CHAT (do NOT send the customer to the website):
-- "what seats are available", "show me seating options" → call list_seats and summarise the cabins (Business, Premium Economy, Economy) with what's free for Daniel's tier.
+- "what seats are available", "show me seating options" → call list_seats and summarise the cabins (Business, Premium Economy, Economy) with what's free for the customer's tier.
 - "change my seat", "move me to a window", "I want 12A", "put me in business" → call change_seat with the seat or the preference. Report the new seat, cabin and any fare difference from the result.
 - Only mention the website seat map if change_seat returns ok:false because the seat is taken or invalid — and even then, offer the suggested free alternative it returns first.
 
@@ -75,23 +84,23 @@ GENUINENESS IS CRITICAL: your reply must reflect EXACTLY what the tool result sa
 MILES, VOUCHER & PAYMENT:
 - For ANY question about miles, points, voucher, balance, or how a trip can be paid ("how many miles do I have?", "what's my voucher worth?", "can I pay with miles?"), call get_wallet and answer with the LIVE numbers it returns — never quote a remembered balance, since it changes after bookings and cancellations.
 - Miles convert at roughly 1,000 miles ≈ €3. A booking can be split across the voucher, miles and the saved Visa in one transaction.
-- If Daniel wants to redeem toward a flight, select the flight first, then call checkout (use_voucher / use_miles default to ON; set either false if he says "don't use my miles/voucher"). After checkout, state the real split (voucher −€X, miles −€Y, card €Z) from the result.
+- If the customer wants to redeem toward a flight, select the flight first, then call checkout (use_voucher / use_miles default to ON; set either false if they say "don't use my miles/voucher"). After checkout, state the real split (voucher −€X, miles −€Y, card €Z) from the result.
 
 DESTINATIONS — NEVER ASSUME WHERE THEY WANT TO GO:
-- HARD RULE: if a message names an origin (or implies one) but NO specific destination, your FIRST action must be to call list_destinations for that origin. Do not answer from memory, do not call search_flights, do not assume Porto or any city. Only after list_destinations returns may you reply.
-- If the customer asks for flights but doesn't say a destination (e.g. "options for flights from Lisbon", "flights from Lisbon to any destination"), call list_destinations for that origin and present the real list of cities TAP flies to from there, then ask which one. Daniel's home pattern is OPO⇄LIS, but that is NOT a reason to assume Porto — he may want anywhere. Lisbon alone serves dozens of destinations.
+- HARD RULE: if a message names an origin (or implies one) but NO specific destination, your FIRST action must be to call list_destinations for that origin. Do not answer from memory, do not call search_flights, do not assume any city. Only after list_destinations returns may you reply.
+- If the customer asks for flights but doesn't say a destination (e.g. "options for flights from Lisbon", "flights from Lisbon to any destination"), call list_destinations for that origin and present the real list of cities TAP flies to from there, then ask which one. The customer's home airport is a pattern, NOT a reason to assume any particular destination — they may want anywhere. A hub like Lisbon alone serves dozens of destinations.
 - If the customer asks a FACTUAL question about the network ("do we only fly to Porto from Lisbon?", "where can I fly from Madrid?"), call list_destinations and ANSWER the question in words (e.g. "No — from Lisbon you fly to 44 cities including Madrid, London, Paris, Frankfurt, New York and more"). Do NOT trigger a flight search for a factual question, and do NOT imply the network is smaller than it is.
 - Only call search_flights once you know BOTH origin and a specific destination.
-- When you do list destinations, add a brief personal touch where true (e.g. note the ones Daniel has flown before), and if there are many, group or summarise (e.g. "44 cities — Europe, the Americas and Africa") rather than dumping all of them.
+- When you do list destinations, add a brief personal touch where true (e.g. note the ones the customer has flown before), and if there are many, group or summarise (e.g. "44 cities — Europe, the Americas and Africa") rather than dumping all of them.
 
 USE THE CONVERSATION CONTEXT — DO NOT ASK WHAT YOU ALREADY KNOW:
 - The messages above are the running conversation. Always read them before acting. If the route, destination, date or a flight number was already established earlier in THIS conversation, carry it forward — never re-ask for it.
 - If the customer refers to a specific flight number (e.g. "does TP1481 have availability for tomorrow", "tell me about the early morning one"), that flight number already identifies the route. Call get_flight_info with it — do NOT ask "which destination is TP1481 to?" and do NOT call list_destinations. You just showed these flights; you know them.
 - "the early morning flight", "the first one", "option 2" etc. refer to flights you listed in your previous message — resolve them from context (the earliest departure is the early-morning one), don't start over.
-- Stay on the active route. If the conversation is about Lisbon→Amsterdam and the next question is a follow-up ("are there seats", "how much", "what about tomorrow"), it is STILL about that route. Never silently switch the origin back to Porto or Daniel's home airport mid-thread.
+- Stay on the active route. If the conversation is about Lisbon→Amsterdam and the next question is a follow-up ("are there seats", "how much", "what about tomorrow"), it is STILL about that route. Never silently switch the origin back to the customer's home airport mid-thread.
 - Only ask a clarifying question when the needed detail genuinely has not appeared anywhere in the conversation.
 
-After acting, reply in one or two crisp sentences using the real PNR, route, date and seat from the result; the UI renders cards and updates the screen, so don't list every flight in prose. Always work from Daniel's real profile (saved card, voucher, miles, seat 4C, the OPO⇄LIS pattern).`;
+After acting, reply in one or two crisp sentences using the real PNR, route, date and seat from the result; the UI renders cards and updates the screen, so don't list every flight in prose. Always work from the customer's real profile in your context (their saved card, voucher, miles, preferred seat, and travel pattern).`;
 
   for (let turn = 0; turn < maxTurns; turn++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -130,31 +139,31 @@ After acting, reply in one or two crisp sentences using the real PNR, route, dat
 /* Cached fallbacks so the demo never stalls without a key/network */
 const FALLBACKS = {
   plan: {
-    title: "Lisbon client week",
-    summary: "Built around your usual Monday-out, Thursday-back rhythm, Daniel.",
+    title: "Your trip, planned around how you fly",
+    summary: "Built around your usual travel rhythm.",
     legs: [
-      { day: "Mon 15 Jun", flight: "TP1927", route: "OPO → LIS", times: "07:05 – 08:00", why: "Matches 9 of your last 12 outbound departures — at the client by 09:30." },
-      { day: "Thu 18 Jun", flight: "TP1943", route: "LIS → OPO", times: "18:35 – 19:30", why: "Your usual return; buffer after a 16:00 wrap-up meeting." },
+      { day: "Mon 15 Jun", flight: "TP1927", route: "Outbound", times: "07:05 – 08:00", why: "Matches the time you most often depart on this route." },
+      { day: "Thu 18 Jun", flight: "TP1943", route: "Return", times: "18:35 – 19:30", why: "Your usual return window, with buffer after an afternoon wrap-up." },
     ],
-    tip: "As Gold, you can fare-lock both legs free for 24h while your client confirms.",
+    tip: "With your tier, you can fare-lock both legs free for 24h while plans confirm.",
   },
   recovery: {
-    headline: "TP1927 delayed — new departure 08:55",
-    message: "Daniel, your aircraft is arriving late from Lisbon, so TP1927 now departs 08:55 and lands 09:50. That makes your 10:00 meeting very tight — here are your realistic options, no queue needed.",
+    headline: "Your flight is delayed — new departure 08:55",
+    message: "Your aircraft is arriving late, so the flight now departs 08:55 and lands 09:50. Here are your realistic options — no queue needed.",
     options: [
-      { id: "TP1927", label: "Keep TP1927 · lands 09:50", detail: "Tight but doable — we'll fast-track you on arrival (Gold)." },
-      { id: "TP1931", label: "Move to TP1931 · 09:10 → 10:05", detail: "Guaranteed seat 4C, lands after 10:00 — better if the meeting can shift 30 min." },
+      { id: "KEEP", label: "Keep your flight · lands 09:50", detail: "We'll fast-track you on arrival per your tier." },
+      { id: "ALT", label: "Move to the next departure", detail: "A later option with a guaranteed seat if your schedule can flex." },
     ],
-    compensation: "Gold + EU261: lounge access now, €10 meal voucher added to your wallet automatically.",
+    compensation: "Your tier + EU261: lounge access now, meal voucher added to your wallet automatically.",
   },
   offer: {
-    subject: "Daniel — your Mondays just got an upgrade",
-    title: "A fixed seat on your weekly commute",
-    preheader: "9 of your last 12 Mondays were TP1927. Lock the pattern in.",
-    body_html: "You've flown <b>TP1927 OPO→LIS</b> on 9 of your last 12 Mondays. This month, book your next four Monday flights together and we'll hold <b>seat 4C on every one</b>, fix the fare at <b>€79 per leg</b> (vs €86 average), and credit <b>double miles</b> — about 1,720 extra toward your 48,230 balance.",
-    cta: "Lock in my Mondays",
+    subject: "Your travel pattern, rewarded",
+    title: "A smarter way to fly your favourite route",
+    preheader: "Book your regular route ahead and lock in fares + bonus miles.",
+    body_html: "Based on how you've been flying lately, booking your regular route ahead this month lets us hold your usual seat, fix the fare below the recent average, and credit bonus miles toward your balance.",
+    cta: "See my offer",
   },
-  chat: "I can help with that. Your next confirmed trip is TP1927 OPO→LIS on Mon 15 Jun, 07:05, seat 4C — say the word if you want to change, hold, or check disruption risk. (Live AI is offline in this environment, but all booking tools are fully functional.)",
+  chat: "I can help with that. I can pull up your booking, change your seat, hold a fare, or check disruption risk — just say the word. (Live AI is offline in this environment, but all booking tools are fully functional.)",
 };
 
 /* ── Genuine-response layer ──────────────────────────────────────
@@ -170,7 +179,7 @@ async function phraseFromFacts(facts, { channel = "web", fallback } = {}) {
   try {
     const sys = danielContext() + `
 
-You phrase the result of an action that ALREADY HAPPENED (or was verified) against the real database. You are given a JSON "facts" object with the true outcome. Write ONE short, natural, warm confirmation message to Daniel that states exactly what the facts say — do not add, change, or invent any detail (no made-up times, gates, prices, or statuses). If the facts say an action could NOT happen (e.g. already done, nothing to do), say so plainly and helpfully. ${channel === "whatsapp" ? "This is WhatsApp: keep it to 1–3 short lines, no markdown headers. You may end with a brief next step." : "Keep it to 1–2 sentences."} Use 24h times and EUR. Never claim success the facts don't support.`;
+You phrase the result of an action that ALREADY HAPPENED (or was verified) against the real database. You are given a JSON "facts" object with the true outcome. Write ONE short, natural, warm confirmation message to the customer that states exactly what the facts say — do not add, change, or invent any detail (no made-up times, gates, prices, or statuses). If the facts say an action could NOT happen (e.g. already done, nothing to do), say so plainly and helpfully. ${channel === "whatsapp" ? "This is WhatsApp: keep it to 1–3 short lines, no markdown headers. You may end with a brief next step." : "Keep it to 1–2 sentences."} Use 24h times and EUR. Never claim success the facts don't support.`;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
