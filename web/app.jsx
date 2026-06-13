@@ -457,23 +457,29 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 pb-20">
-      <div className="pt-8 pb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="text-xs font-bold tracking-[0.22em] uppercase mb-2" style={{ color: "var(--dxp-lime)" }}>Bom dia</div>
-          <h1 className="font-display font-black text-4xl sm:text-5xl tracking-tight leading-[1.05]" style={{ color: "var(--dxp-text)" }}>{u.first_name}, <span className="dxp-grad-text">ready for next week?</span></h1>
-          <div className="flex items-center gap-3 mt-3 text-sm" style={{ color: "var(--dxp-muted)" }}>
-            <GoldBadge tier={u.tier}/> <span className="font-semibold" style={{ color: "var(--tap-deep)" }}>{u.miles.toLocaleString()} miles</span>
-            <span>·</span><span>{profile.vouchers.length} voucher{profile.vouchers.length === 1 ? "" : "s"} {profile.vouchers[0] && `(${EUR(profile.vouchers[0].amount)})`}</span>
+    <div className="pb-20">
+      {/* Full-bleed Porto hero — same image as login, with a dark gradient over it */}
+      <div className="relative overflow-hidden">
+        <img src={PORTO_IMG} alt="Porto, Portugal" className="absolute inset-0 w-full h-full object-cover" style={{ objectPosition: "center 38%" }}/>
+        <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.55) 0%, rgba(10,11,10,.72) 55%, var(--dxp-bg) 100%)" }}/>
+        <div className="relative max-w-6xl mx-auto px-4 pt-12 pb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="text-xs font-bold tracking-[0.22em] uppercase mb-2" style={{ color: "var(--dxp-lime)" }}>Bom dia</div>
+            <h1 className="font-display font-black text-4xl sm:text-5xl tracking-tight leading-[1.05]" style={{ color: "#fff" }}>{u.first_name}, <span className="dxp-grad-text">ready for next week?</span></h1>
+            <div className="flex items-center gap-3 mt-3 text-sm" style={{ color: "rgba(244,246,244,.85)" }}>
+              <GoldBadge tier={u.tier}/> <span className="font-semibold" style={{ color: "var(--dxp-lime)" }}>{u.miles.toLocaleString()} miles</span>
+              <span>·</span><span>{profile.vouchers.length} voucher{profile.vouchers.length === 1 ? "" : "s"} {profile.vouchers[0] && `(${EUR(profile.vouchers[0].amount)})`}</span>
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          <PrimaryBtn onClick={() => go("search")} className="!py-2.5"><Search size={15}/> Search flights</PrimaryBtn>
-          <GhostBtn onClick={sendOffer}>{sendingOffer ? <Loader2 className="animate-spin" size={15}/> : <Mail size={15}/>} Email me this week's offer</GhostBtn>
-          <GhostBtn onClick={() => go("manage")}><CalendarClock size={16}/> My bookings</GhostBtn>
+          <div className="flex gap-2">
+            <PrimaryBtn onClick={() => go("search")} className="!py-2.5"><Search size={15}/> Search flights</PrimaryBtn>
+            <GhostBtn onClick={sendOffer}>{sendingOffer ? <Loader2 className="animate-spin" size={15}/> : <Mail size={15}/>} Email me this week's offer</GhostBtn>
+            <GhostBtn onClick={() => go("manage")}><CalendarClock size={16}/> My bookings</GhostBtn>
+          </div>
         </div>
       </div>
 
+      <div className="max-w-6xl mx-auto px-4 -mt-2">
       {ss && (
         <Card className="p-4 mb-5 flex flex-wrap items-center gap-4 slide-up" style={{ background: "#FBFDFC" }}>
           <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
@@ -579,6 +585,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             );
           })}
         </div>
+      </div>
       </div>
 
       <button onClick={openAssistant} className="fixed bottom-6 right-6 z-30 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg text-white text-sm font-semibold" style={{ background: "var(--tap-deep)" }}>
