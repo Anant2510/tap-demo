@@ -4,7 +4,7 @@ import {
   Plane, Sparkles, Lock, ShoppingBag, CreditCard, Wallet, Ticket, CheckCircle2,
   AlertTriangle, RefreshCw, Luggage, Armchair, Coffee, Wifi, Car, ChevronRight,
   X, Send, Bell, QrCode, CalendarClock, Laptop, Zap, ShieldCheck, ArrowRight,
-  Repeat, BadgeCheck, MessageCircle, Loader2, TimerReset, Database, Mail, Eye, RotateCcw,
+  Repeat, BadgeCheck, MessageCircle, Loader2, TimerReset, Database, Mail, Eye, EyeOff, RotateCcw,
   Search, MapPin, Globe, ArrowLeftRight, Calendar, Info, Clock
 } from "lucide-react";
 
@@ -39,9 +39,18 @@ const cityName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].city) || code
 const Fonts = () => (
   <style>{`
     :root{ --tap-green:#00A357; --tap-deep:#063A28; --tap-ink:#0E1F18; --tap-mist:#F2F6F3;
-      --tap-line:#DCE7E0; --tap-red:#E2354B; --tap-gold:#C9A227; --tap-amber:#E8930C; }
+      --tap-line:#DCE7E0; --tap-red:#E2354B; --tap-gold:#C9A227; --tap-amber:#E8930C;
+      /* FLYTAP DXP dark theme */
+      --dxp-bg:#0A0B0A; --dxp-surface:#141614; --dxp-surface-2:#1C1F1C; --dxp-line:#2A2E2A;
+      --dxp-text:#F4F6F4; --dxp-muted:#9AA39C; --dxp-lime:#A3E635; --dxp-lime-bright:#B6F23E;
+      --dxp-green:#16A34A; --dxp-green-deep:#0B5C32;
+      --dxp-grad:linear-gradient(135deg,#0B5C32 0%,#16A34A 45%,#A3E635 130%);
+      --dxp-grad-btn:linear-gradient(120deg,#0E7A40 0%,#22B24C 55%,#9EE82B 120%); }
     .font-display{font-family:'Archivo',sans-serif; font-stretch:85%;}
     body{font-family:'Inter',sans-serif;background:var(--tap-mist);}
+    .dxp-dark{ background:var(--dxp-bg); color:var(--dxp-text); }
+    .dxp-grad-text{ background:var(--dxp-grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
+    .dxp-orb{ position:absolute; border-radius:9999px; filter:blur(90px); opacity:.5; pointer-events:none; }
     .ticket-edge{ mask:radial-gradient(circle 7px at 0 50%, transparent 98%, #000) left/14px 100% no-repeat,
       radial-gradient(circle 7px at 100% 50%, transparent 98%, #000) right/14px 100% no-repeat,
       linear-gradient(#000,#000) center/calc(100% - 26px) 100% no-repeat;
@@ -50,17 +59,37 @@ const Fonts = () => (
       linear-gradient(#000,#000) center/calc(100% - 26px) 100% no-repeat;}
     @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.35}} .pulse-dot{animation:pulseDot 1.6s ease-in-out infinite}
     @keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}} .slide-up{animation:slideUp .35s ease both}
-    @media (prefers-reduced-motion: reduce){ .slide-up,.pulse-dot{animation:none} }
-    ::selection{background:#00A35733}
+    @keyframes floatOrb{0%,100%{transform:translate(0,0)}50%{transform:translate(20px,-24px)}} .float-orb{animation:floatOrb 12s ease-in-out infinite}
+    @media (prefers-reduced-motion: reduce){ .slide-up,.pulse-dot,.float-orb{animation:none} }
+    ::selection{background:#A3E63555}
+    /* Dark Home scope — remap the --tap-* tokens so every inline var() resolves to the DXP dark palette.
+       This recolors the entire Home (and its shared Card/PrimaryBtn primitives) with no per-element edits. */
+    .dxp-home{
+      --tap-mist:#1C1F1C; --tap-ink:#F4F6F4; --tap-deep:#0B5C32; --tap-line:#2A2E2A;
+      --tap-green:#22B24C;
+      background:var(--dxp-bg); color:var(--dxp-text); min-height:100vh;
+    }
+    .dxp-home .bg-white{ background:var(--dxp-surface)!important; }
+    .dxp-home .text-gray-400{ color:var(--dxp-muted)!important; }
+    .dxp-home .text-gray-500{ color:#AEB6AE!important; }
+    .dxp-home .text-gray-600{ color:#C2CABF!important; }
+    .dxp-home .text-gray-700{ color:#D6DCD6!important; }
+    .dxp-home .hover\\:bg-gray-50:hover, .dxp-home .hover\\:bg-gray-100:hover{ background:var(--dxp-surface-2)!important; }
+    .dxp-home .border{ border-color:var(--dxp-line); }
+    .dxp-home .dxp-primary-btn{ background:var(--dxp-grad-btn)!important; color:#06210F!important; }
+    .dxp-home .dxp-primary-btn svg{ color:#06210F; }
+    .dxp-home .dxp-pricechip{ color:var(--dxp-lime)!important; background:#101A12!important; }
   `}</style>
 );
 
 const TapLogo = ({ light = false, size = "text-xl" }) => (
   <div className={`font-display font-black tracking-tight ${size}`}>
-    <span style={{ color: "var(--tap-red)" }}>T</span>
-    <span style={{ color: light ? "#fff" : "var(--tap-deep)" }}>A</span>
-    <span style={{ color: "var(--tap-green)" }}>P</span>
-    <span className={`ml-2 font-semibold text-xs tracking-widest uppercase ${light ? "text-white/70" : "text-gray-500"}`}>Air Portugal</span>
+    {light ? (
+      <span className="dxp-grad-text">TAP</span>
+    ) : (
+      <><span style={{ color: "var(--tap-red)" }}>T</span><span style={{ color: "var(--tap-deep)" }}>A</span><span style={{ color: "var(--tap-green)" }}>P</span></>
+    )}
+    <span className={`ml-2 font-semibold text-xs tracking-widest uppercase ${light ? "text-white" : "text-gray-500"}`}>Air Portugal</span>
   </div>
 );
 const TierBadge = ({ tier = "Gold" }) => {
@@ -107,7 +136,7 @@ const Card = ({ children, className = "", style = {}, ...rest }) => (
 );
 const PrimaryBtn = ({ children, onClick, className = "", disabled }) => (
   <button onClick={onClick} disabled={disabled}
-    className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-white text-sm transition-transform active:scale-[.98] disabled:opacity-50 ${className}`}
+    className={`dxp-primary-btn inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-white text-sm transition-transform active:scale-[.98] disabled:opacity-50 ${className}`}
     style={{ background: "var(--tap-green)" }}>{children}</button>
 );
 const GhostBtn = ({ children, onClick, className = "" }) => (
@@ -163,82 +192,108 @@ function Toasts({ list, dismiss }) {
   );
 }
 
-/* ── LOGIN ── */
+/* ── LOGIN — FLYTAP DXP dark split-screen ── */
+const PORTO_IMG = "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1200&q=80";
 function Login({ profile, onLogin }) {
   const [busy, setBusy] = useState(false);
   const [personas, setPersonas] = useState(null);
   const [active, setActive] = useState(null);
   const [switching, setSwitching] = useState(null);
-  const u = profile?.user;
+  const [email, setEmail] = useState("");
+  const [pwd, setPwd] = useState("demo");
+  const [showPwd, setShowPwd] = useState(false);
 
   useEffect(() => { (async () => {
     const r = await api.get("/personas");
     setPersonas(r.personas); setActive(r.active);
+    if (r.personas?.[0]) setEmail(`${r.personas[0].id}@flytap.demo`);
   })(); }, []);
 
-  const initials = (name) => name.split(" ").map(w => w[0]).slice(0, 2).join("");
-  const tierTone = (t) => t === "Platinum" ? "ink" : t === "Gold" ? "gold" : "green";
-
-  const pick = async (p) => {
+  const enter = async (personaId) => {
     if (busy || switching) return;
     try {
-      if (p.id !== active) {
-        setSwitching(p.id);
-        await api.post("/persona", { persona: p.id });   // re-seed the DB to this persona
-        setActive(p.id); setSwitching(null);
+      if (personaId && personaId !== active) {
+        setSwitching(personaId);
+        await api.post("/persona", { persona: personaId });
+        setActive(personaId); setSwitching(null);
       }
       setBusy(true);
-      // mark that we're entering the app, then reload so the freshly-seeded
-      // profile + persona data load everywhere. The hash makes the app open
-      // on Home instead of bouncing back to this login screen.
       window.location.hash = "app";
       setTimeout(() => window.location.reload(), 500);
-    } catch (e) {
-      setBusy(false); setSwitching(null);
-    }
+    } catch { setBusy(false); setSwitching(null); }
+  };
+  // Sign-in form resolves the email → persona, then enters as that traveller.
+  const signIn = () => {
+    const id = (email.split("@")[0] || "").toLowerCase();
+    const match = personas?.find(p => p.id === id) || personas?.find(p => p.label.toLowerCase().startsWith(id));
+    enter(match ? match.id : active);
   };
 
   return (
-    <div className="min-h-screen flex" style={{ background: "var(--tap-mist)" }}>
-      <div className="hidden lg:flex flex-col justify-between w-[44%] p-12 text-white relative overflow-hidden"
-        style={{ background: "linear-gradient(160deg, var(--tap-deep) 0%, #0A5A3C 70%, var(--tap-green) 130%)" }}>
-        <TapLogo light/>
-        <div>
-          <div className="text-xs font-bold tracking-[0.25em] uppercase text-white/60 mb-4">TAP Miles&Go · Digital channel</div>
-          <h1 className="font-display font-black text-5xl leading-[1.05] mb-5">Your airline already knows the way you fly.</h1>
-          <p className="text-white/75 max-w-md leading-relaxed">One sign-in. Your routes, your seat, your payment, your boarding pass — served live from your customer record. Pick a traveller to see the personalization adapt.</p>
+    <div className="min-h-screen flex dxp-dark">
+      {/* Left — Porto hero */}
+      <div className="hidden lg:block w-[42%] relative overflow-hidden">
+        <img src={PORTO_IMG} alt="Porto, Portugal" className="absolute inset-0 w-full h-full object-cover"/>
+        <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.15) 0%, rgba(10,11,10,.75) 100%)" }}/>
+        <div className="relative h-full flex flex-col justify-between p-12">
+          <span className="self-start text-[11px] font-bold tracking-[0.22em] uppercase px-3 py-1.5 rounded-full" style={{ background: "rgba(255,255,255,.14)", color: "#fff", backdropFilter: "blur(6px)" }}>FlyTAP DXP · Persona prototype</span>
+          <div>
+            <h1 className="font-display font-black text-white text-5xl leading-[1.04] tracking-tight">One platform.<br/>A different journey for<br/>every traveller.</h1>
+            <p className="text-white/70 mt-5 max-w-md leading-relaxed">Sign in as any persona to see how the CDP and VOYAGER.AI reshape the “Offer → Order” experience in real time.</p>
+          </div>
         </div>
-        <div className="flex items-center gap-6 text-white/60 text-xs font-medium">
-          <span className="flex items-center gap-1.5"><ShieldCheck size={14}/> Secure session</span>
-          <span className="flex items-center gap-1.5"><Database size={14}/> Live customer DB</span>
-        </div>
-        <Plane className="absolute -right-10 -bottom-10 opacity-10" size={280}/>
       </div>
-      <div className="flex-1 flex items-center justify-center p-6">
+
+      {/* Right — sign-in */}
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md slide-up">
-          <div className="lg:hidden mb-8"><TapLogo/></div>
-          <h2 className="font-display font-extrabold text-3xl mb-1" style={{ color: "var(--tap-ink)" }}>Choose a traveller</h2>
-          <p className="text-sm text-gray-500 mb-6">Each is a real customer record — the whole site personalizes to whoever signs in.</p>
+          <div className="font-display font-black text-3xl tracking-tight mb-8"><span className="dxp-grad-text">TAP</span></div>
+          <p className="text-sm mb-6" style={{ color: "var(--dxp-muted)" }}>Use a demo account below, or the quick-login shortcuts.</p>
 
-          {!personas && <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="animate-spin" size={16}/> Loading profiles…</div>}
+          <label className="block text-xs font-bold mb-1.5" style={{ color: "var(--dxp-muted)" }}>Email</label>
+          <input value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && signIn()}
+            className="w-full px-4 py-3.5 rounded-xl text-sm outline-none mb-4 transition-colors focus:border-[color:var(--dxp-lime)]"
+            style={{ background: "#101210", border: "1px solid var(--dxp-line)", color: "var(--dxp-text)" }} placeholder="you@flytap.demo"/>
 
-          <div className="space-y-3">
-            {personas && personas.map(p => (
-              <Card key={p.id} className="p-4 hover:shadow-md transition-shadow cursor-pointer" style={p.id === active ? { borderColor: "var(--tap-green)" } : {}}>
-                <button onClick={() => pick(p)} className="w-full flex items-center gap-4 text-left" disabled={busy || switching}>
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center font-display font-extrabold text-white text-base shrink-0" style={{ background: "var(--tap-deep)" }}>{initials(p.label)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-sm flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>{p.label} <Chip tone={tierTone(p.tier)}>{p.tier}</Chip></div>
-                    <div className="text-xs text-gray-500 mt-0.5">{p.blurb}</div>
-                    <div className="text-[11px] text-gray-400 mt-0.5">Home {p.home} · {p.miles.toLocaleString()} miles{p.id === active ? " · active" : ""}</div>
-                  </div>
-                  {switching === p.id || (busy && (p.id === active)) ? <Loader2 className="animate-spin" size={18} style={{ color: "var(--tap-green)" }}/> : <ChevronRight size={18} className="text-gray-400"/>}
-                </button>
-              </Card>
-            ))}
+          <label className="block text-xs font-bold mb-1.5" style={{ color: "var(--dxp-muted)" }}>Password</label>
+          <div className="relative mb-5">
+            <input type={showPwd ? "text" : "password"} value={pwd} onChange={e => setPwd(e.target.value)} onKeyDown={e => e.key === "Enter" && signIn()}
+              className="w-full px-4 py-3.5 rounded-xl text-sm outline-none transition-colors focus:border-[color:var(--dxp-lime)]"
+              style={{ background: "#101210", border: "1px solid var(--dxp-line)", color: "var(--dxp-text)" }}/>
+            <button onClick={() => setShowPwd(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "var(--dxp-muted)" }} aria-label="Toggle password">{showPwd ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
           </div>
 
-          <p className="text-[11px] text-gray-400 mt-6 text-center">Switching traveller re-seeds the live customer database · personalization is computed, not hardcoded</p>
+          <button onClick={signIn} disabled={busy || !personas}
+            className="w-full py-3.5 rounded-xl font-bold text-[15px] flex items-center justify-center gap-2 transition-transform active:scale-[.99] disabled:opacity-60"
+            style={{ background: "var(--dxp-grad-btn)", color: "#06210F" }}>
+            {busy ? <><Loader2 className="animate-spin" size={17}/> Signing in…</> : <>Sign in →</>}
+          </button>
+
+          <div className="mt-5 text-xs" style={{ color: "var(--dxp-muted)" }}>
+            <span>Demo accounts — password </span><code className="px-1.5 py-0.5 rounded" style={{ background: "var(--dxp-surface-2)", color: "var(--dxp-text)" }}>demo</code><span> for all:</span>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {personas?.map(p => (
+                <button key={p.id} onClick={() => setEmail(`${p.id}@flytap.demo`)}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] transition-colors hover:brightness-125"
+                  style={{ background: "var(--dxp-surface-2)", color: email.startsWith(p.id) ? "var(--dxp-lime)" : "var(--dxp-muted)", border: "1px solid var(--dxp-line)" }}>{p.id}@flytap.demo</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="h-px my-6" style={{ background: "var(--dxp-line)" }}/>
+
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: "var(--dxp-lime)" }}>Quick demo login</div>
+          {!personas && <div className="flex items-center gap-2 text-sm" style={{ color: "var(--dxp-muted)" }}><Loader2 className="animate-spin" size={16}/> Loading profiles…</div>}
+          <div className="flex flex-wrap gap-2.5">
+            {personas?.map(p => (
+              <button key={p.id} onClick={() => enter(p.id)} disabled={busy || switching}
+                className="px-4 py-2.5 rounded-full text-sm font-semibold transition-all hover:brightness-125 active:scale-[.98] flex items-center gap-2"
+                style={{ background: "var(--dxp-surface-2)", color: "var(--dxp-text)", border: "1px solid var(--dxp-line)" }}>
+                {(switching === p.id) && <Loader2 className="animate-spin" size={14} style={{ color: "var(--dxp-lime)" }}/>}
+                {p.label.split(" ")[0]} · <span style={{ color: "var(--dxp-muted)" }}>{p.archetype || p.blurb?.split("·").pop()?.trim() || p.tier}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -405,9 +460,9 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
     <div className="max-w-6xl mx-auto px-4 pb-20">
       <div className="pt-8 pb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-xs font-bold tracking-[0.2em] uppercase mb-1" style={{ color: "var(--tap-green)" }}>Bom dia</div>
-          <h1 className="font-display font-black text-4xl" style={{ color: "var(--tap-ink)" }}>{u.first_name}, ready for next week?</h1>
-          <div className="flex items-center gap-3 mt-2 text-sm text-gray-500">
+          <div className="text-xs font-bold tracking-[0.22em] uppercase mb-2" style={{ color: "var(--dxp-lime)" }}>Bom dia</div>
+          <h1 className="font-display font-black text-4xl sm:text-5xl tracking-tight leading-[1.05]" style={{ color: "var(--dxp-text)" }}>{u.first_name}, <span className="dxp-grad-text">ready for next week?</span></h1>
+          <div className="flex items-center gap-3 mt-3 text-sm" style={{ color: "var(--dxp-muted)" }}>
             <GoldBadge tier={u.tier}/> <span className="font-semibold" style={{ color: "var(--tap-deep)" }}>{u.miles.toLocaleString()} miles</span>
             <span>·</span><span>{profile.vouchers.length} voucher{profile.vouchers.length === 1 ? "" : "s"} {profile.vouchers[0] && `(${EUR(profile.vouchers[0].amount)})`}</span>
           </div>
@@ -444,7 +499,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             You flew this route on <b>{pat.matching} of your last {pat.last}</b> outbound trips — {pat.usualOut}{pat.usualBack ? `, back ${pat.usualBack}` : ""}.
             <span className="text-gray-400"> (computed live from your travel_history table)</span>
           </div>
-          <div className="mt-4 p-3 rounded-xl text-sm font-semibold flex items-center justify-between" style={{ background: "var(--tap-mist)", color: "var(--tap-deep)" }}>
+          <div className="dxp-pricechip mt-4 p-3 rounded-xl text-sm font-semibold flex items-center justify-between" style={{ background: "var(--tap-mist)", color: "var(--tap-deep)" }}>
             <span>{pat.topFlight} {pat.usualDep ? `· ${pat.usualDep}` : ""}</span>{pat.usualPrice != null && <span>{EUR(pat.usualPrice)}</span>}
           </div>
           <PrimaryBtn onClick={bookUsual} className="w-full mt-4"><Zap size={16}/> Book my usual flight</PrimaryBtn>
@@ -2190,17 +2245,18 @@ function App() {
 
   const activeNav = NAV_ACTIVE[screen] || null;
 
+  const onHome = screen === "home";
   return (
-    <div className="min-h-screen" style={{background:"var(--tap-mist)"}}>
+    <div className="min-h-screen" style={{background: onHome ? "var(--dxp-bg)" : "var(--tap-mist)"}}>
       <Fonts/>
-      <header className="sticky top-0 z-40 bg-white border-b" style={{borderColor:"var(--tap-line)"}}>
+      <header className="sticky top-0 z-40 border-b" style={{background: onHome ? "var(--dxp-bg)" : "#fff", borderColor: onHome ? "var(--dxp-line)" : "var(--tap-line)"}}>
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-          <button onClick={()=>go("home")}><TapLogo/></button>
+          <button onClick={()=>go("home")}><TapLogo light={onHome}/></button>
           <nav className="hidden md:flex items-center gap-1">
             {NAV.map((s)=>(
               <button key={s.id} onClick={()=>go(s.id)}
-                className={`px-3.5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${s.id===activeNav?"text-white":"text-gray-600 hover:bg-gray-100"}`}
-                style={s.id===activeNav?{background:"var(--tap-green)"}:{}}>
+                className={`px-3.5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${s.id===activeNav?"text-white":(onHome?"hover:bg-white/10":"text-gray-600 hover:bg-gray-100")}`}
+                style={s.id===activeNav?{background:"var(--tap-green)"}:(onHome?{color:"#C2CABF"}:{})}>
                 {s.label}
               </button>
             ))}
@@ -2211,22 +2267,22 @@ function App() {
               className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors"
               style={screen==="console"
                 ? {background:"var(--tap-deep)", color:"white", borderColor:"var(--tap-deep)"}
-                : {color:"var(--tap-deep)", borderColor:"var(--tap-line)"}}
+                : (onHome ? {color:"var(--dxp-lime)", borderColor:"var(--dxp-line)"} : {color:"var(--tap-deep)", borderColor:"var(--tap-line)"})}
               title="Demo-only: live view of the database">
               <Database size={12}/> Demo
             </button>
-            <button className="hidden md:flex w-8 h-8 rounded-full items-center justify-center hover:bg-gray-100" aria-label="Search"><Search size={16} className="text-gray-500"/></button>
+            <button className={`hidden md:flex w-8 h-8 rounded-full items-center justify-center ${onHome?"hover:bg-white/10":"hover:bg-gray-100"}`} aria-label="Search"><Search size={16} style={{color: onHome ? "var(--dxp-muted)" : undefined}} className={onHome?"":"text-gray-500"}/></button>
             <div className="hidden sm:block text-right leading-tight">
-              <div className="text-xs font-bold" style={{color:"var(--tap-ink)"}}>Hi, {profile.user.first_name}</div>
-              <div className="text-[10px] text-gray-400">{profile.user.tier} · {profile.user.miles.toLocaleString()} miles</div>
+              <div className="text-xs font-bold" style={{color: onHome ? "var(--dxp-text)" : "var(--tap-ink)"}}>Hi, {profile.user.first_name}</div>
+              <div className="text-[10px]" style={{color: onHome ? "var(--dxp-muted)" : undefined}}>{!onHome && null}<span className={onHome?"":"text-gray-400"}>{profile.user.tier} · {profile.user.miles.toLocaleString()} miles</span></div>
             </div>
-            <div className="w-9 h-9 rounded-full flex items-center justify-center font-display font-extrabold text-white text-sm" style={{background:"var(--tap-deep)"}}>{profile.user.full_name.split(" ").map(w=>w[0]).slice(0,2).join("")}</div>
-            <span className="hidden md:flex items-center gap-1 text-[11px] font-bold text-gray-500 border rounded-full px-2 py-1" style={{borderColor:"var(--tap-line)"}}>🇬🇧 EN</span>
+            <div className="w-9 h-9 rounded-full flex items-center justify-center font-display font-extrabold text-sm" style={{background: onHome ? "var(--dxp-lime)" : "var(--tap-deep)", color: onHome ? "#06210F" : "#fff"}}>{profile.user.full_name.split(" ").map(w=>w[0]).slice(0,2).join("")}</div>
+            <span className="hidden md:flex items-center gap-1 text-[11px] font-bold border rounded-full px-2 py-1" style={{borderColor: onHome ? "var(--dxp-line)" : "var(--tap-line)", color: onHome ? "var(--dxp-muted)" : "#6b7280"}}>🇬🇧 EN</span>
           </div>
         </div>
       </header>
 
-      {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/>}
+      {screen === "home" && <div className="dxp-home"><Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/></div>}
       {screen === "search" && <SearchScreen origin={searchOrigin} setOrigin={setSearchOrigin} dest={searchDest} setDest={setSearchDest} date={searchDate} setDate={setSearchDate} onSearch={runSearch} results={searchResults} searching={searching} selectFlight={selectFlight} routes={routes} suggested={suggested} prefilledReason={prefilledReason}/>}
       {screen === "flights" && <Flights flights={flights} pattern={profile.pattern} selectFlight={selectFlight} toast={toast}/>}
       {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast} profile={profile}/>}

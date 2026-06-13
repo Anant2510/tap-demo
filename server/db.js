@@ -121,7 +121,7 @@ function seedSearches(persona) {
    engine adapt to genuinely different travellers. */
 const PERSONAS = {
   daniel: {
-    id: "daniel", label: "Daniel Ferreira", blurb: "Gold · Porto business commuter",
+    id: "daniel", label: "Daniel Ferreira", blurb: "Gold · Porto business commuter", archetype: "Digital Commuter",
     user: { member_no: "PT-884512", first_name: "Daniel", full_name: "Daniel Ferreira", email: "daniel.ferreira@consultmail.pt", phone: "+351 91 442 7781", tier: "Gold", miles: 48230, nationality: "Portuguese", doc_id: "PT •••• 3391", home_airport: "OPO", card_brand: "Visa", card_last4: "4417", card_exp: "08/28" },
     prefs: { seat: "4C — front aisle", seat_note: "Chosen on 11 of your last 12 flights", bag: "Cabin bag only", meal: "Espresso + pastel de nata", auto_checkin: 1 },
     voucher: { code: "EMD-2291", amount: 35, reason: "Service recovery", expiry: "30 Sep 2026" },
@@ -176,7 +176,7 @@ const PERSONAS = {
   },
 
   sofia: {
-    id: "sofia", label: "Sofia Marques", blurb: "Silver · Lisbon leisure & family",
+    id: "sofia", label: "Sofia Marques", blurb: "Silver · Lisbon leisure & family", archetype: "Family Explorer",
     user: { member_no: "PT-552037", first_name: "Sofia", full_name: "Sofia Marques", email: "sofia.marques@familymail.pt", phone: "+351 96 220 1184", tier: "Silver", miles: 21450, nationality: "Portuguese", doc_id: "PT •••• 7720", home_airport: "LIS", card_brand: "Mastercard", card_last4: "8852", card_exp: "05/27" },
     prefs: { seat: "14F — window", seat_note: "Window seat on 7 of your last 9 family trips", bag: "2 checked bags", meal: "Kids meal + vegetarian", auto_checkin: 1 },
     voucher: { code: "EMD-7741", amount: 50, reason: "Flight delay goodwill", expiry: "31 Dec 2026" },
@@ -221,7 +221,7 @@ const PERSONAS = {
   },
 
   lars: {
-    id: "lars", label: "Lars Andersen", blurb: "Platinum · Frankfurt long-haul exec",
+    id: "lars", label: "Lars Andersen", blurb: "Platinum · Frankfurt long-haul exec", archetype: "Long-haul Executive",
     user: { member_no: "DE-100294", first_name: "Lars", full_name: "Lars Andersen", email: "lars.andersen@globalconsult.de", phone: "+49 151 2244 7788", tier: "Platinum", miles: 184920, nationality: "German", doc_id: "DE •••• 1180", home_airport: "FRA", card_brand: "Amex", card_last4: "1009", card_exp: "11/29" },
     prefs: { seat: "2A — business window", seat_note: "Business window on 12 of your last 14 long-hauls", bag: "2 bags + priority", meal: "Business — no pork", auto_checkin: 1 },
     voucher: { code: "EMD-9930", amount: 120, reason: "Platinum loyalty bonus", expiry: "30 Jun 2027" },

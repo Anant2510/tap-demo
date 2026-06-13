@@ -1000,7 +1000,7 @@ function currentPersona() {
 app.get("/api/personas", (req, res) => {
   res.json({
     active: currentPersona(),
-    personas: Object.values(PERSONAS).map(p => ({ id: p.id, label: p.label, blurb: p.blurb, tier: p.user.tier, home: p.user.home_airport, miles: p.user.miles })),
+    personas: Object.values(PERSONAS).map(p => ({ id: p.id, label: p.label, blurb: p.blurb, archetype: p.archetype, tier: p.user.tier, home: p.user.home_airport, miles: p.user.miles })),
   });
 });
 
