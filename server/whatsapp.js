@@ -565,7 +565,23 @@ async function handleIncoming({ from, text }) {
 
   // 2) Fast deterministic paths (instant, no LLM needed)
   if (/^(hi|hello|hey|menu|start|olá|ola)\b/.test(t) || t === "") return sendMainMenu(from);
-  if (/^(book|book my usual|usual)\b/.test(t)) return handleAction(from, "BOOK_USUAL");
+  // "book ... to <city>" names a destination → search that route, don't book the usual.
+  // Only a bare "book" / "book my usual" / "usual" (no destination) books the recurring flight.
+  if (/^(book|book my usual|usual)\b/.test(t)) {
+    const toM = t.match(/\bto\s+([a-zà-ÿ]+(?:\s+[a-zà-ÿ]+)?)/);
+    const destFromText = toM ? detectDest(toM[1].trim()) : null;
+    if (destFromText) {
+      const home = (db.prepare("SELECT home_airport FROM users WHERE id=1").get() || {}).home_airport || "OPO";
+      const parsed = parseDate(t);
+      if (destFromText === home) {
+        // "to <home>" — can't fly home→home; just acknowledge and show the menu.
+        await sendText(from, `${cityName(home)} is your home airport — tell me where you'd like to fly to from ${home}.`);
+        return sendMainMenu(from);
+      }
+      return searchRoute(from, home, destFromText, parsed || "2026-06-15", text);
+    }
+    return handleAction(from, "BOOK_USUAL");
+  }
   if (/^cancel\b/.test(t)) return handleAction(from, "CANCEL");
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
