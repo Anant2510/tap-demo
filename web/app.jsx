@@ -486,6 +486,9 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const home = pat.origin || u.home_airport || "OPO";
   const dest = pat.dest || "LIS";
   const tripDest = (ss && ss.dest) || dest;
+  const sOrigin = (ss && ss.origin) || home;          // profiled search origin (upcoming trip → usual route)
+  const sDest = tripDest;                               // profiled search destination
+  const sDate = (ss && ss.travel_date) || null;         // pre-filled timeframe
   const homeCity = cityName(home), destCity = cityName(dest), tripCity = cityName(tripDest);
   const initials = u.full_name.split(" ").map(w => w[0]).slice(0, 2).join("");
   const usualPrice = pat.usualPrice != null ? pat.usualPrice : 201;
@@ -508,7 +511,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
     setSendingOffer(false);
     toast("Personalized offer emailed", `"${r.offer.subject}" → ${r.email.to} · ${r.email.status}`);
   };
-  const doSearch = () => bookDestination({ code: tripDest, origin: home, reason: `Your ${homeCity} ⇄ ${tripCity} route — loaded from your pattern.` });
+  const doSearch = () => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Your ${homeCity} ⇄ ${tripCity} route — dates pre-filled from your trip.` });
 
   const TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
   const onTab = (t) => { if (t === "Flight Status") return go("status"); setTab(t); if (t !== "Flights") toast(t, "This demo wires the Flights flow end-to-end; the other tabs are illustrative."); };
@@ -598,24 +601,31 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                 </div>
               )}
 
-              {/* Hotel upsell card */}
-              <div className="bg-white rounded-2xl overflow-hidden shadow-xl flex">
-                <div className="relative w-28 shrink-0">
-                  <CityImg code={tripDest} alt={tripCity} className="absolute inset-0 w-full h-full object-cover"/>
-                  <span className="absolute top-2 left-2 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1" style={{ background: "var(--tap-amber)", color: "#3A2604" }}><AlertTriangle size={9}/> NO HOTEL YET</span>
-                </div>
-                <div className="flex-1 p-3.5">
-                  <div className="font-display font-extrabold text-[15px] leading-tight" style={{ color: "var(--tap-ink)" }}>Complete your {tripCity} stay</div>
-                  <div className="text-[11px] text-gray-500 mt-0.5">3-night stopover{ss && ss.travel_date ? ` · ${fmtDate(ss.travel_date)}` : ""} · 2 adults</div>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {["City centre", "Breakfast", "Free cancel"].map(t => <span key={t} className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--tap-mist)", color: "var(--tap-deep)" }}>{t.toUpperCase()}</span>)}
+              {/* Resume search card (replaces the static hotel upsell) — pre-fills the
+                  profiled route + dates and re-opens flight options on any channel. */}
+              {ss && ss.dest ? (
+                <div className="bg-white rounded-2xl shadow-xl p-4 border" style={{ borderColor: "var(--tap-line)" }}>
+                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide mb-2" style={{ color: "var(--tap-green)" }}><RotateCcw size={13}/> RESUME YOUR SEARCH</div>
+                  <div className="flex items-center gap-2 font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>
+                    {cityName(sOrigin)} <ArrowRight size={15} style={{ color: "var(--tap-green)" }}/> {tripCity}
                   </div>
-                  <div className="flex items-end justify-between mt-2.5">
-                    <div><div className="text-[9px] text-gray-400 font-bold">FROM</div><div className="font-display font-black text-base" style={{ color: "var(--tap-ink)" }}>€80.00 <span className="text-[10px] font-semibold text-gray-400">/ night</span></div></div>
-                    <button onClick={() => toast("Hotels", `Hotel search for ${tripCity} would open here.`)} className="text-xs font-bold px-3 py-2 rounded-lg text-white inline-flex items-center gap-1" style={{ background: "var(--tap-green)" }}>Find hotels <ArrowRight size={13}/></button>
+                  <div className="text-[12px] text-gray-500 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="inline-flex items-center gap-1"><Calendar size={13} className="text-gray-400"/> {sDate ? fmtDate(sDate) : "your dates"}</span>
+                    {ss.device && <span className="inline-flex items-center gap-1"><Laptop size={13} className="text-gray-400"/> from your {ss.device}</span>}
+                  </div>
+                  <div className="flex items-center gap-2 mt-3">
+                    <button onClick={() => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Resuming your ${cityName(sOrigin)} → ${tripCity} search.` })} className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-white" style={{ background: "var(--tap-green)" }}>Resume search <ArrowRight size={15}/></button>
+                    <button onClick={() => { startFresh(ss); toast("Cleared", "Starting a fresh search."); }} className="px-3.5 py-2.5 rounded-xl text-sm font-semibold border text-gray-600" style={{ borderColor: "var(--tap-line)" }}>Start fresh</button>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="bg-white rounded-2xl shadow-xl p-4 border" style={{ borderColor: "var(--tap-line)" }}>
+                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide mb-2" style={{ color: "var(--tap-green)" }}><Repeat size={13}/> YOUR USUAL ROUTE</div>
+                  <div className="flex items-center gap-2 font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>{cityName(sOrigin)} <ArrowRight size={15} style={{ color: "var(--tap-green)" }}/> {destCity}</div>
+                  <div className="text-[12px] text-gray-500 mt-1">{pat.topFlight}{pat.usualDep ? ` · ${pat.usualDep}` : ""}{pat.usualPrice != null ? ` · ${EUR(pat.usualPrice)}` : ""}</div>
+                  <button onClick={() => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Your usual ${cityName(sOrigin)} → ${destCity} route.` })} className="w-full mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-white" style={{ background: "var(--tap-green)" }}>Search this route <ArrowRight size={15}/></button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1953,7 +1963,7 @@ function AirportInput({ label, value, onChange, icon }) {
   useEffect(() => {
     const id = setTimeout(async () => {
       const rows = await api.get(`/airports?q=${encodeURIComponent(q)}`);
-      setOpts(rows);
+      setOpts(q.trim() ? rows : (rows || []).slice(0, 8));
     }, 120);
     return () => clearTimeout(id);
   }, [q]);
@@ -2501,7 +2511,9 @@ function App() {
         (ap || []).forEach(x => { AIRPORT_MAP[x.code] = x; });   // populate city-name lookup
         setRoutes(rt || []); setSuggested(sug || []);
         setProfile(p); setFlights(f || []); setAncillaries(a || []); setDestinations(d || []);
-        setSearchOrigin(p?.user?.home_airport || "OPO");
+        setSearchOrigin((p?.syncedSearch?.origin) || (p?.pattern?.origin) || p?.user?.home_airport || "OPO");
+        setSearchDest((p?.syncedSearch?.dest) || (p?.pattern?.dest) || "");
+        if (p?.syncedSearch?.travel_date) setSearchDate(p.syncedSearch.travel_date);
         const rec = (f || []).find(x => x.recommended) || (f || [])[0];
         if (b && b.flight_no) { setFlight((f || []).find(x => x.flight_no === b.flight_no) || rec); setItems(b.items || []); }
         else { setFlight(rec); setItems((a || []).filter(x => x.auto).map(x => x.code)); }
@@ -2511,18 +2523,19 @@ function App() {
     })();
   }, []);
 
-  // When the active persona changes in-app (member number differs), realign the
-  // search defaults to the new traveller's home airport so nothing from the previous
-  // persona lingers in the flight-search screen.
+  // When the active persona changes in-app (member number differs), realign the flight
+  // search to the new traveller's profiled trip: origin, destination AND dates pre-filled
+  // from their upcoming/usual route (nothing from the previous persona lingers).
   const lastPersona = useRef(null);
   useEffect(() => {
     const u = profile?.user;
     if (!u?.member_no) return;
     if (lastPersona.current && lastPersona.current !== u.member_no) {
-      const home = u.home_airport || "OPO";
-      setSearchOrigin(home);
-      setSearchDest("");
-      setActiveDest(profile?.pattern?.dest || home);
+      const ss = profile?.syncedSearch, pat = profile?.pattern;
+      setSearchOrigin((ss && ss.origin) || (pat && pat.origin) || u.home_airport || "OPO");
+      setSearchDest((ss && ss.dest) || (pat && pat.dest) || "");
+      if (ss && ss.travel_date) setSearchDate(ss.travel_date);
+      setActiveDest((pat && pat.dest) || u.home_airport || "OPO");
     }
     lastPersona.current = u.member_no;
   }, [profile]);
@@ -2591,12 +2604,13 @@ function App() {
 
   // Flight search — logs to DB, feeds personalization.
   // keepReason=true preserves the "picked for you" banner (set by bookDestination).
-  const runSearch = async (o, d, keepReason = false) => {
+  const runSearch = async (o, d, keepReason = false, dateArg) => {
     const origin = (typeof o === "string" ? o : searchOrigin);
     const dest = (typeof d === "string" ? d : searchDest);
+    const date = dateArg || searchDate;
     setSearching(true); setSearchResults(null);
     if (!keepReason) setPrefilledReason(null);
-    const r = await api.get(`/search?origin=${origin}&dest=${dest}&date=${searchDate}`);
+    const r = await api.get(`/search?origin=${origin}&dest=${dest}&date=${date}`);
     setSearchResults(r); setSearching(false);
     if (r.ok) toast("Search logged to DB", `${cityName(origin)} → ${cityName(dest)} · ${r.flights.length} flights · feeds personalization`);
     refreshSuggested();   // searching this route nudges it up the suggested list
@@ -2607,12 +2621,14 @@ function App() {
   const bookDestination = (d) => {
     const code = d?.code || "LIS";
     const origin = d?.origin || profile?.user?.home_airport || "OPO";
+    const date = d?.date || searchDate;
     setSearchOrigin(origin);
     setSearchDest(code);
+    if (d?.date) setSearchDate(d.date);
     setSearchResults(null);
     setPrefilledReason(d?.reason || d?.reasons?.join("; ") || d?.tag || `Suggested route to ${cityName(code)}.`);
     go("search");
-    runSearch(origin, code, true);   // keepReason=true so the banner survives
+    runSearch(origin, code, true, date);   // keepReason=true; explicit date avoids stale state
   };
   const bookUsual = async () => {
     const o = profile?.pattern?.origin || profile?.user?.home_airport || "OPO";

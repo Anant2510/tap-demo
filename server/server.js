@@ -66,7 +66,7 @@ app.get("/api/airports", (req, res) => {
   let rows = db.prepare("SELECT * FROM airports ORDER BY city").all();
   if (q) rows = rows.filter(a =>
     a.code.toLowerCase().includes(q) || a.city.toLowerCase().includes(q) || a.country.toLowerCase().includes(q));
-  res.json(rows.slice(0, 30));
+  res.json(q ? rows.slice(0, 30) : rows);
 });
 
 app.get("/api/routes", (req, res) => {
