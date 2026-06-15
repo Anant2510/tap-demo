@@ -544,7 +544,9 @@ const AGENT_TOOLS = [
       flight_no: { type: "string", description: "The flight number, e.g. TP1481." },
       date: { type: "string", description: "Optional travel date YYYY-MM-DD; 'tomorrow' relative to today (2026-06-12) is 2026-06-13." },
     }, required: ["flight_no"] } },
-  { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer).",
+  { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer). Returns the updated item list AND the recomputed basket total.",
+    input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
+  { name: "remove_extras", description: "Remove ancillary extras from the current basket by their codes (e.g. meal, wifi, bag). Use whenever the customer says they don't want something, e.g. 'remove the meal', 'I don't want wifi', 'drop the bag'. Returns the updated item list AND the recomputed basket total — ALWAYS quote the new total from this result, never the old one.",
     input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
   { name: "list_seats", description: "List available seats and cabin classes (Business, Premium Economy, Economy) for the currently selected flight or the customer's current booking. Use when the customer asks what seating options are available or wants to see the seat map.",
     input_schema: { type: "object", properties: { cabin: { type: "string", description: "Optional filter: 'business', 'premium', or 'economy'." } } } },
@@ -595,6 +597,15 @@ function seatPrice(seat, tier) {
 }
 function seatCabinLabel(seat) { const c = cabinForRow(parseInt(seat)); return c ? c.label : "Economy"; }
 function prefSeat() { return (db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get() || {}).seat || "4C"; }
+// Compute a basket's live total: flight fare + sum of paid ancillaries currently in the basket.
+function basketTotal(sel) {
+  const f = flightByNo(sel.flight_no) || {};
+  const fare = f.price || 0;
+  const anc = db.prepare("SELECT code,name,price FROM ancillaries").all();
+  const named = anc.filter(a => (sel.items || []).includes(a.code));
+  const extras = named.reduce((s, a) => s + (a.price || 0), 0);
+  return { fare, extras: +extras.toFixed(2), total: +(fare + extras).toFixed(2), named };
+}
 function firstFreeSeat(pref, tier) {
   // pref: 'window'(A/F), 'aisle'(C/D), 'business', 'premium', 'extra legroom'/'front'
   let cabins = SEAT_CABINS;
@@ -692,9 +703,27 @@ function agentRunTool(name, input, session) {
     const codes = (input.codes || []).map(c => c.toLowerCase());
     sel.items = [...new Set([...sel.items, ...codes])];
     db.prepare("UPDATE baskets SET items_json=? WHERE user_id=1 AND status='open'").run(JSON.stringify(sel.items));
-    const named = db.prepare(`SELECT code,name,price FROM ancillaries`).all().filter(a => sel.items.includes(a.code));
-    log("agent_extras", { flight_no: sel.flight_no, items: sel.items });
-    return { ok: true, items: named };
+    const basket = basketTotal(sel);
+    log("agent_extras", { flight_no: sel.flight_no, items: sel.items, total: basket.total });
+    return { ok: true, items: basket.named, fare: basket.fare, extras_total: basket.extras, total: basket.total,
+      note: `Basket total is now €${basket.total.toFixed(2)} (fare €${basket.fare} + extras €${basket.extras.toFixed(2)}). Quote this total.` };
+  }
+  if (name === "remove_extras") {
+    const sel = session.selected;
+    if (!sel) return { ok: false, message: "No flight selected yet." };
+    const codes = (input.codes || []).map(c => c.toLowerCase());
+    // Don't allow removing the seat itself via this tool; seat is managed separately.
+    const removable = codes.filter(c => c !== "seat");
+    const before = sel.items.slice();
+    sel.items = sel.items.filter(c => !removable.includes(c));
+    const removed = before.filter(c => !sel.items.includes(c));
+    db.prepare("UPDATE baskets SET items_json=? WHERE user_id=1 AND status='open'").run(JSON.stringify(sel.items));
+    const basket = basketTotal(sel);
+    log("agent_extras_removed", { flight_no: sel.flight_no, removed, items: sel.items, total: basket.total });
+    return { ok: true, removed, items: basket.named, fare: basket.fare, extras_total: basket.extras, total: basket.total,
+      note: removed.length
+        ? `Removed ${removed.join(", ")}. New basket total is €${basket.total.toFixed(2)} (fare €${basket.fare} + extras €${basket.extras.toFixed(2)}). ALWAYS quote this new total.`
+        : `Nothing matched to remove; basket total stays €${basket.total.toFixed(2)}.` };
   }
   if (name === "list_seats") {
     const tier = (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
@@ -734,16 +763,17 @@ function agentRunTool(name, input, session) {
     const sel = session.selected;
     if (!sel) return { ok: false, message: "No flight selected to pay for." };
     const f = flightByNo(sel.flight_no);
-    const anc = db.prepare("SELECT code,price FROM ancillaries").all();
-    const extras = sel.items.reduce((s, c) => s + (anc.find(a => a.code === c)?.price || 0), 0);
-    const gross = f.price + extras;
-    const voucher_amt = input.use_voucher === false ? 0 : 35;
+    const basket = basketTotal(sel);
+    const gross = basket.total;
+    const seat = sel.seat || prefSeat();
+    const activeVoucher = db.prepare("SELECT amount FROM vouchers WHERE user_id=1 AND status='active' ORDER BY id DESC LIMIT 1").get();
+    const voucher_amt = input.use_voucher === false ? 0 : Math.min(activeVoucher?.amount || 0, gross);
     const miles_used = input.use_miles === false ? 0 : 6000;
     const miles_amt = miles_used / 1000 * 3;  // 6000 miles ≈ €18
     const card_amt = Math.max(0, +(gross - voucher_amt - miles_amt).toFixed(2));
     const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
-    const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at) VALUES (?,1,?,?,'4C',?,?)`)
-      .run(pnr, f.flight_no, f.flight_date, JSON.stringify(sel.items), now());
+    const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at) VALUES (?,1,?,?,?,?,?)`)
+      .run(pnr, f.flight_no, f.flight_date, seat, JSON.stringify(sel.items), now());
     db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)`)
       .run(Number(b.lastInsertRowid), gross, voucher_amt, miles_used, miles_amt, card_amt, now());
     if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
