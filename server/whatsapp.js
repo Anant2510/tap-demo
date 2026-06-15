@@ -140,6 +140,9 @@ const apiCall = (method, p, body) =>
 const latestBooking = () =>
   db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
+// Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
+const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
+const boardingGroup = (tier) => `${(tier || "Gold") === "Silver" ? "B" : "A"} (${tier || "Gold"})`;
 
 // ── Cross-channel journey: persist the WhatsApp step + selections to the shared
 //    journey so web / AI / WhatsApp can all resume at the exact stage. ────────
@@ -391,7 +394,7 @@ async function handleAction(to, id) {
     const priced = priceDraft(d, f);
     const r = await apiCall("POST", "/hold", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross });
     setMenu(to, { "1": "DO_PAY", "0": "MENU" });
-    await sendText(to, `⏳ Held until ${r.expires} — price, seat ${d.seat} and extras frozen, free as a Gold benefit. Hold confirmation emailed.\n\nReply 1 to complete payment · 0 for menu`);
+    await sendText(to, `⏳ Held until ${r.expires} — price, seat ${d.seat} and extras frozen, free as a ${userTier()} benefit. Hold confirmation emailed.\n\nReply 1 to complete payment · 0 for menu`);
     return;
   }
 
@@ -423,9 +426,9 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     const f = flightByNo(b.flight_no) || {};
     const route = `${cityName(f.origin)}→${cityName(f.dest)}`;
     if (b.checked_in) {
-      const facts = { action: "check_in", state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, seat: b.seat, group: "A (Gold)" };
+      const facts = { action: "check_in", state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, seat: b.seat, group: boardingGroup(userTier()) };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
-        fallback: `You're already checked in for ${b.pnr} (${b.flight_no} ${route}, ${b.flight_date}), seat ${b.seat}, boarding group A. Nothing more to do — your boarding pass is in the app.` }));
+        fallback: `You're already checked in for ${b.pnr} (${b.flight_no} ${route}, ${b.flight_date}), seat ${b.seat}, boarding group ${userTier() === "Silver" ? "B" : "A"}. Nothing more to do — your boarding pass is in the app.` }));
       return;
     }
     if (f.status === "cancelled") {
@@ -436,9 +439,9 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     // Action actually happens here
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
     db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
-    const facts = { action: "check_in", state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, dep: f.dep, seat: b.seat, group: "A (Gold)" };
+    const facts = { action: "check_in", state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, dep: f.dep, seat: b.seat, group: boardingGroup(userTier()) };
     await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
-      fallback: `🎫 Checked in for ${b.pnr} — ${b.flight_no} ${route}, ${b.flight_date}${f.dep ? " · departs " + f.dep : ""}. Boarding group A (Gold), seat ${b.seat}. Boarding pass issued; it updates live if anything changes.` }));
+      fallback: `🎫 Checked in for ${b.pnr} — ${b.flight_no} ${route}, ${b.flight_date}${f.dep ? " · departs " + f.dep : ""}. Boarding group ${boardingGroup(userTier())}, seat ${b.seat}. Boarding pass issued; it updates live if anything changes.` }));
     return;
   }
 

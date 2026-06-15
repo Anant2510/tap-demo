@@ -345,6 +345,23 @@ function seedPersonaData(personaId) {
       s.cabin || "Economy",
       now());
 
+  // Make sure the in-progress journey's flight exists in the flights table so
+  // "Resume where you left off" can hydrate it on every channel. A persona's
+  // synced flight may not be pinned or previously booked (e.g. Sofia's TP1042),
+  // in which case it wouldn't otherwise be in `flights` and resume couldn't load it.
+  if (s.flight_no && !db.prepare("SELECT id FROM flights WHERE flight_no=?").get(s.flight_no)) {
+    const r = db.prepare("SELECT duration_min, base_fare FROM routes WHERE origin=? AND dest=?").get(s.origin, s.dest);
+    const durMin = (r && r.duration_min) || 120;
+    const p2 = (n) => String(n).padStart(2, "0");
+    const depMin = 11 * 60 + 15;                 // a plausible mid-morning departure
+    const arrMin = depMin + durMin;
+    const hhmm = (m) => `${p2(Math.floor(m / 60) % 24)}:${p2(m % 60)}`;
+    const durLbl = durMin >= 60 ? `${Math.floor(durMin / 60)}h${durMin % 60 ? p2(durMin % 60) : ""}` : `${durMin}m`;
+    db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,0,0,'scheduled')`)
+      .run(s.flight_no, s.origin, s.dest, hhmm(depMin), hhmm(arrMin), durLbl, "A320neo", (r && r.base_fare) || 100, 22, s.date);
+  }
+
   // Ancillary catalog (personalized per persona)
   const an = db.prepare("INSERT INTO ancillaries (code,name,descr,price,was,auto,icon) VALUES (?,?,?,?,?,?,?)");
   P.ancillaries.forEach(a => an.run(...a));

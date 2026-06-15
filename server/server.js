@@ -39,6 +39,9 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 const log = (type, payload) =>
   db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES (?,?,?)").run(type, JSON.stringify(payload || {}), now());
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
+// Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
+const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
+const boardingGroup = (tier) => `${(tier || "Gold") === "Silver" ? "B" : "A"} (${tier || "Gold"})`;
 
 // Persist generated flights so basket / pay / disrupt all keep working on real rows
 function persistFlights(list) {
@@ -545,11 +548,11 @@ app.post("/api/bookings/checkin", (req, res) => {
   const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
   if (!b) return res.json({ ok: false, state: "no_booking", message: "No upcoming flight to check in for." });
   const f = flightByNo(b.flight_no) || {};
-  if (b.checked_in) return res.json({ ok: true, state: "already_checked_in", pnr: b.pnr, seat: b.seat, group: "A (Gold)", route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
+  if (b.checked_in) return res.json({ ok: true, state: "already_checked_in", pnr: b.pnr, seat: b.seat, group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
   db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
   db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('checkin',?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web", doc: req.body?.doc_id || null }), now());
   log("booking_checkin", { pnr: b.pnr });
-  res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: "A (Gold)", route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
+  res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
 });
 
 /* ── AI endpoints ────────────────────────────────────────────── */
@@ -914,11 +917,11 @@ function agentRunTool(name, input, session) {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
     if (!b) return { ok: false, state: "no_booking", message: "You have no upcoming flight to check in for." };
     const f = flightByNo(b.flight_no) || {};
-    if (b.checked_in) return { ok: true, state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat, group: "A (Gold)", message: "You're already checked in for this flight." };
+    if (b.checked_in) return { ok: true, state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat, group: boardingGroup(userTier()), message: "You're already checked in for this flight." };
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
     db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('agent_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
     log("agent_checkin", { pnr: b.pnr });
-    return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "4C", group: "A (Gold)" };
+    return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "4C", group: boardingGroup(userTier()) };
   }
   if (name === "cancel_booking") {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
@@ -1106,13 +1109,13 @@ const CDP_EVENT_NAMES = {
   wa_inbound: "Message Received", routes_suggested: "Recommendations Served",
 };
 function toCdpTrack(type, payload, at) {
-  const u = db.prepare("SELECT email FROM users WHERE id=1").get();
+  const u = db.prepare("SELECT email, tier FROM users WHERE id=1").get();
   return {
     type: "track",
     userId: "user_1",
     event: CDP_EVENT_NAMES[type] || type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
     properties: payload || {},
-    context: { traits: { email: u?.email, loyaltyTier: "Gold" }, channel: (payload && payload.channel) || "web", app: "TAP Pre-Travel" },
+    context: { traits: { email: u?.email, loyaltyTier: u?.tier || "Gold" }, channel: (payload && payload.channel) || "web", app: "TAP Pre-Travel" },
     timestamp: (at || "").replace(" ", "T") + "Z",
   };
 }
@@ -1143,11 +1146,11 @@ app.get("/api/admin/selftest", (req, res) => {
   add("Ancillaries catalog", "Data", () => { const c = count("SELECT COUNT(*) c FROM ancillaries"); return { ok: c === 6, detail: `${c} extras` }; });
 
   // — Booking history & personalization —
-  add("10 bookings seeded", "Personalization", () => { const c = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1"); return { ok: c === 10, detail: `${c} bookings` }; });
-  add("2 upcoming, 8 past", "Personalization", () => { const up = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='confirmed'"); const pa = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='completed'"); return { ok: up === 2 && pa === 8, detail: `${up} upcoming · ${pa} past` }; });
-  add("Seat recommendation from history", "Personalization", () => { const top = one("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC"); return { ok: top?.seat === "4C", detail: top ? `${top.seat} on ${top.c} trips` : "none" }; });
-  add("Ancillary upsell from history", "Personalization", () => { const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all(); const counts = {}; past.forEach(b => JSON.parse(b.items_json || "[]").forEach(x => counts[x] = (counts[x] || 0) + 1)); return { ok: (counts.wifi || 0) >= 4, detail: `wifi bought on ${counts.wifi || 0}/${past.length} past trips` }; });
-  add("Destination signals (flown/booked)", "Personalization", () => { const lis = count("SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest='LIS'"); return { ok: lis >= 1, detail: `Lisbon booked ${lis}×` }; });
+  add("Bookings seeded", "Personalization", () => { const seedN = (PERSONAS[currentPersona()]?.bookings || []).length; const c = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1"); return { ok: seedN > 0 && c >= seedN, detail: `${c} bookings (seed ${seedN})` }; });
+  add("Upcoming + past split", "Personalization", () => { const up = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='confirmed'"); const pa = count("SELECT COUNT(*) c FROM bookings WHERE user_id=1 AND status='completed'"); return { ok: up >= 1 && pa >= 1, detail: `${up} upcoming · ${pa} past` }; });
+  add("Seat preference from history", "Personalization", () => { const pref = ((one("SELECT seat FROM preferences WHERE user_id=1") || {}).seat || "").split(" ")[0]; const top = one("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC"); return { ok: !!(top && top.seat) && (!pref || top.seat === pref), detail: top ? `${top.seat} on ${top.c} trips${pref ? ` (pref ${pref})` : ""}` : "none" }; });
+  add("Ancillary upsell from history", "Personalization", () => { const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all(); const trips = past.length || 1; const counts = {}; past.forEach(b => JSON.parse(b.items_json || "[]").forEach(x => counts[x] = (counts[x] || 0) + 1)); const recN = Object.values(counts).filter(n => n >= Math.ceil(trips * 0.6)).length; const topAnc = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]; return { ok: recN >= 1, detail: topAnc ? `${recN} repeat extras · top ${topAnc[0]} ${topAnc[1]}/${past.length}` : "none" }; });
+  add("Top destination signal", "Personalization", () => { const rows = db.prepare("SELECT f.dest d, COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' GROUP BY f.dest ORDER BY c DESC").all(); const top = rows[0]; return { ok: !!top && top.c >= 2, detail: top ? `${cityName(top.d)} booked ${top.c}×` : "none" }; });
 
   // — Search engine —
   add("Search: route generation", "Search", () => { const f = getRoute("OPO", "LIS") ? generateFlights("OPO", "LIS", "2026-06-15") : []; return { ok: f.length > 0, detail: `${f.length} flights` }; });
