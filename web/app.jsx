@@ -79,6 +79,9 @@ const Fonts = () => (
     .dxp-home .border{ border-color:var(--dxp-line); }
     .dxp-home .dxp-primary-btn{ background:var(--dxp-grad-btn)!important; color:#06210F!important; }
     .dxp-home .dxp-primary-btn svg{ color:#06210F; }
+    .dxp-home .dxp-ghost-btn{ background:var(--dxp-surface)!important; color:var(--dxp-text)!important; border-color:var(--dxp-line)!important; }
+    .dxp-home .dxp-ghost-btn svg{ color:var(--dxp-lime); }
+    .dxp-home .dxp-ghost-btn:hover{ border-color:var(--dxp-lime)!important; background:var(--dxp-surface-2)!important; }
     .dxp-home .dxp-pricechip{ color:var(--dxp-lime)!important; background:#101A12!important; }
     .dxp-home .dxp-chip-green{ background:rgba(34,178,76,.16)!important; color:#7BE3A0!important; }
     .dxp-home .dxp-chip-amber{ background:rgba(232,147,12,.16)!important; color:#F0B45C!important; }
@@ -147,8 +150,8 @@ const PrimaryBtn = ({ children, onClick, className = "", disabled }) => (
 );
 const GhostBtn = ({ children, onClick, className = "" }) => (
   <button onClick={onClick}
-    className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm border transition-colors hover:bg-gray-50 ${className}`}
-    style={{ borderColor: "var(--tap-line)", color: "var(--tap-deep)" }}>{children}</button>
+    className={`dxp-ghost-btn inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm border transition-colors ${className}`}
+    style={{ borderColor: "var(--dxp-line)", color: "var(--dxp-text)", background: "var(--dxp-surface)" }}>{children}</button>
 );
 const RouteRibbon = ({ from = "OPO", to = "LIS", dep, arr, small = false }) => (
   <div className={`flex items-center ${small ? "gap-2" : "gap-3"}`}>
@@ -202,7 +205,7 @@ function Toasts({ list, dismiss }) {
 const PORTO_IMG = "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1200&q=80";
 // Famous-location photos for destination cards (Unsplash, keyed by IATA).
 const CITY_PHOTOS = {
-  LIS: "https://images.unsplash.com/photo-1588535684687-32c0e9d4f3f8?auto=format&fit=crop&w=800&q=80",
+  LIS: "https://images.unsplash.com/photo-1753236431862-cd7cbf87d1f4?auto=format&fit=crop&w=800&q=80",
   OPO: "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=800&q=80",
   MAD: "https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&w=800&q=80",
   CDG: "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=800&q=80",
@@ -217,7 +220,20 @@ const CITY_PHOTOS = {
   MIA: "https://images.unsplash.com/photo-1506966953602-c20cc11f75e3?auto=format&fit=crop&w=800&q=80",
   FAO: "https://images.unsplash.com/photo-1591194854667-3d0b9b0a8b1f?auto=format&fit=crop&w=800&q=80",
 };
-const cityPhoto = (code) => CITY_PHOTOS[code] || `https://source.unsplash.com/800x600/?${encodeURIComponent((code || "travel") + " city skyline")}`;
+const FALLBACK_PHOTO = "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=800&q=80"; // aircraft wing/sky — generic travel
+const cityPhoto = (code) => CITY_PHOTOS[code] || FALLBACK_PHOTO;
+// Image that degrades gracefully: on load error, fall back once to a generic travel photo,
+// and sit on a dark surface so a fully-failed image still looks intentional (never a broken glyph).
+const CityImg = ({ code, alt, className }) => (
+  <img
+    src={cityPhoto(code)}
+    alt={alt || code}
+    loading="lazy"
+    className={className}
+    style={{ background: "var(--dxp-surface-2)" }}
+    onError={(e) => { if (e.currentTarget.src !== FALLBACK_PHOTO) e.currentTarget.src = FALLBACK_PHOTO; else e.currentTarget.style.visibility = "hidden"; }}
+  />
+);
 function Login({ profile, onLogin }) {
   const [busy, setBusy] = useState(false);
   const [personas, setPersonas] = useState(null);
@@ -457,7 +473,7 @@ function QuickBook({ go, bookDestination }) {
   );
 }
 
-function Home({ profile, destinations, go, openAssistant, toast, bookDestination, bookUsual }) {
+function Home({ profile, destinations, go, openAssistant, toast, bookDestination, bookUsual, resumeJourney, startFresh }) {
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState(null);
   const [planning, setPlanning] = useState(false);
@@ -467,6 +483,12 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const [rec, setRec] = useState(null);
   useEffect(() => { (async () => { try { setRec(await api.get("/recommendation")); } catch {} })(); }, []);
   const u = profile.user, pat = profile.pattern, ss = profile.syncedSearch;
+  // Cross-channel journey: where the customer left off (stage + selections).
+  const STAGE_LABEL = { results: "Choosing a flight", seat: "Selecting a seat", extras: "Adding extras", review: "Reviewing & payment" };
+  const STAGE_STEP = { results: 1, seat: 2, extras: 3, review: 4 };
+  const jStage = ss?.stage || "results";
+  const jItems = (() => { try { return ss?.items_json ? JSON.parse(ss.items_json) : []; } catch { return []; } })();
+  const jParts = []; if (ss?.flight_no) jParts.push(ss.flight_no); if (ss?.seat) jParts.push(`seat ${ss.seat}`); if (jItems.length) jParts.push(jItems.join(" + "));
 
   const runPlanner = async (text) => {
     const q = (text || prompt || "").trim();
@@ -505,21 +527,33 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           </div>
         </div>
 
-        {/* Resume-search panel sits over the lower part of the photo */}
-        {ss && (
+        {/* Resume-journey panel — drops you back at the exact step you left, on any channel */}
+        {ss && ss.dest && (
           <div className="relative max-w-6xl mx-auto px-4 pb-10">
-          <Card className="p-4 flex flex-wrap items-center gap-4 slide-up" style={{ background: "rgba(20,22,20,.72)", backdropFilter: "blur(8px)", borderColor: "rgba(255,255,255,.12)" }}>
-            <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: "rgba(244,246,244,.8)" }}>
+          <Card className="p-4 slide-up" style={{ background: "rgba(20,22,20,.74)", backdropFilter: "blur(8px)", borderColor: "rgba(255,255,255,.12)" }}>
+            <div className="flex items-center gap-2 text-xs font-semibold mb-3" style={{ color: "rgba(244,246,244,.8)" }}>
               <Laptop size={15} style={{ color: "var(--dxp-lime)" }}/>
               <span>Continue from your {ss.device}</span>
-              <span style={{ color: "rgba(255,255,255,.35)" }}>·</span><span className="font-normal">{ss.created_at}</span>
-              <Why text={`You started this search on your ${ss.device} (synced_searches table). We carry unfinished searches across your devices so you can pick up where you left off.`}/>
+              <span style={{ color: "rgba(255,255,255,.35)" }}>·</span>
+              <span className="font-normal">{ss.updated_at || ss.created_at}</span>
+              <Why text={`You left this booking mid-flow on your ${ss.device}. We carry the exact step and your selections across web, the AI assistant and WhatsApp (synced_searches table), so you can resume anywhere.`}/>
             </div>
-            <div className="flex items-center gap-3 flex-1 min-w-[220px]" style={{ color: "#fff" }}>
-              <RouteRibbon small from={ss.origin} to={ss.dest}/>
-              <Chip tone="ink">{ss.travel_date} · {ss.pax} adult</Chip>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-3 flex-1 min-w-[240px]" style={{ color: "#fff" }}>
+                <RouteRibbon small from={ss.origin} to={ss.dest}/>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(163,230,53,.9)", color: "#0A0B0A" }}>Step {STAGE_STEP[jStage] || 1} of 4</span>
+                    <span className="text-sm font-semibold" style={{ color: "var(--dxp-lime)" }}>{STAGE_LABEL[jStage]}</span>
+                  </div>
+                  <div className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,.6)" }}>{ss.travel_date}{jParts.length ? " · " + jParts.join(" · ") : ""}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <GhostBtn onClick={() => startFresh(ss)} className="!py-2 !px-4">Start fresh</GhostBtn>
+                <PrimaryBtn onClick={() => resumeJourney({ origin: ss.origin, dest: ss.dest, date: ss.travel_date, stage: jStage, flight_no: ss.flight_no, seat: ss.seat, items: jItems, cabin: ss.cabin })} className="!py-2 !px-4">Resume <ArrowRight size={15}/></PrimaryBtn>
+              </div>
             </div>
-            <PrimaryBtn onClick={() => bookDestination({ code: ss.dest, city: cityName(ss.dest), origin: ss.origin, reason: `Resuming your saved ${cityName(ss.origin)} → ${cityName(ss.dest)} search.` })} className="!py-2 !px-4">Resume search <ArrowRight size={15}/></PrimaryBtn>
           </Card>
           </div>
         )}
@@ -601,7 +635,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             <div className="grid md:grid-cols-2">
               {/* Image side */}
               <div className="relative min-h-[260px] md:min-h-full">
-                <img src={rec.package.image} alt={rec.package.event} className="absolute inset-0 w-full h-full object-cover"/>
+                <img src={rec.package.image} alt={rec.package.event} className="absolute inset-0 w-full h-full object-cover" style={{ background: "var(--dxp-surface-2)" }} onError={(e) => { if (e.currentTarget.src !== FALLBACK_PHOTO) e.currentTarget.src = FALLBACK_PHOTO; }}/>
                 <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.1), rgba(10,11,10,.6))" }}/>
                 <span className="absolute top-4 left-4 text-[11px] font-bold px-3 py-1.5 rounded-full" style={{ background: "rgba(163,230,53,.92)", color: "#0A0B0A" }}>{rec.package.badge}</span>
                 <div className="absolute left-5 bottom-5 right-5">
@@ -674,7 +708,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             return (
               <button key={d.code} onClick={() => bookDestination(d)}
                 className="lg:row-span-2 relative rounded-3xl overflow-hidden group text-left min-h-[300px] lg:min-h-[420px]">
-                <img src={cityPhoto(d.code)} alt={d.city} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"/>
+                <CityImg code={d.code} alt={d.city} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"/>
                 <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.1) 30%, rgba(10,11,10,.85) 100%)" }}/>
                 {booked > 0 && <span className="absolute top-4 right-4 text-[11px] font-bold px-3 py-1.5 rounded-full" style={{ background: "rgba(163,230,53,.9)", color: "#0A0B0A" }}>Booked {booked}×</span>}
                 <div className="absolute left-5 bottom-5 right-5">
@@ -697,7 +731,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
               return (
                 <button key={d.code} onClick={() => bookDestination(d)}
                   className="relative rounded-3xl overflow-hidden group text-left min-h-[200px]">
-                  <img src={cityPhoto(d.code)} alt={d.city} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"/>
+                  <CityImg code={d.code} alt={d.city} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"/>
                   <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,10,.15) 25%, rgba(10,11,10,.8) 100%)" }}/>
                   <span className="absolute top-3 right-3 text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(20,22,20,.7)", color: "#fff", backdropFilter: "blur(4px)" }}>{booked > 0 ? `Booked ${booked}×` : (d.tag || "Via Lisbon")}</span>
                   <div className="absolute left-4 bottom-4 right-4">
@@ -2422,7 +2456,63 @@ function App() {
   const refreshProfile = async () => setProfile(await api.get("/profile"));
   const go = (s) => { setScreen(s); window.scrollTo(0, 0); if (s === "login" && typeof window !== "undefined") window.location.hash = ""; if (s === "home") refreshProfile(); if (s === "search") refreshSuggested(); };
   const [seat, setSeat] = useState("");
-  const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); go("seatmap"); };
+
+  // ── Cross-channel journey: stage ↔ web screen, and save/restore helpers ──
+  const STAGE_SCREEN = { results: "search", seat: "seatmap", extras: "basket", review: "checkout" };
+  const STAGE_LABEL = { results: "Choosing a flight", seat: "Selecting a seat", extras: "Adding extras", review: "Reviewing & payment" };
+  // Persist the current step to the shared journey (fire-and-forget).
+  const saveJourney = (stage, extra = {}) => {
+    const origin = extra.origin || flight?.origin || searchOrigin;
+    const dest = extra.dest || flight?.dest || searchDest;
+    if (!origin || !dest) return;
+    api.post("/journey", {
+      origin, dest, date: extra.date || searchDate, device: "Web app", stage,
+      flight_no: extra.flight_no !== undefined ? extra.flight_no : flight?.flight_no,
+      seat: extra.seat !== undefined ? extra.seat : (seat || undefined),
+      items: extra.items !== undefined ? extra.items : items,
+      cabin: extra.cabin || flight?.cabin || "Economy",
+    }).catch(() => {});
+  };
+  // Restore selections from a saved journey and jump to the exact screen.
+  const resumeJourney = async (j) => {
+    if (!j || !j.stage) return;
+    const origin = j.origin, dest = j.dest;
+    setSearchOrigin(origin); setSearchDest(dest); if (j.date) setSearchDate(j.date);
+    setPrefilledReason(`Resuming where you left off — ${STAGE_LABEL[j.stage] || "your search"}.`);
+    // Always (re)load the route's flights so the chosen flight object is available.
+    const r = await api.get(`/search?origin=${origin}&dest=${dest}&date=${j.date || searchDate}`);
+    setSearchResults(r);
+    const chosen = j.flight_no && r?.flights ? r.flights.find(x => x.flight_no === j.flight_no) : null;
+    if (chosen) {
+      setFlight(chosen);
+      const restoreItems = (j.items && j.items.length) ? j.items : items;
+      setItems(restoreItems);
+      if (j.seat) setSeat(j.seat);
+      await api.post("/basket", { flight_no: chosen.flight_no, items: restoreItems });
+    }
+    go(STAGE_SCREEN[j.stage] || "search");
+  };
+  // Explicit start-over: clear shared journey, go to a clean search.
+  const startFresh = async (j) => {
+    await api.post("/journey/clear").catch(() => {});
+    setFlight(null); setSeat(""); setItems(ancillaries.filter(x => x.auto).map(x => x.code));
+    setSearchResults(null); setPrefilledReason(null);
+    await refreshProfile();
+    go("search");
+  };
+
+  const selectFlight = async (f) => { setFlight(f); await api.post("/basket", { flight_no: f.flight_no, items }); saveJourney("seat", { flight_no: f.flight_no, origin: f.origin, dest: f.dest, items }); go("seatmap"); };
+
+  // Reactively persist the cross-channel journey as the user moves through the
+  // web booking funnel, so any channel can resume at the exact step + selections.
+  useEffect(() => {
+    const SCREEN_STAGE = { seatmap: "seat", basket: "extras", checkout: "review" };
+    const stage = SCREEN_STAGE[screen];
+    if (stage && flight?.flight_no) {
+      saveJourney(stage, { flight_no: flight.flight_no, origin: flight.origin, dest: flight.dest, seat: seat || undefined, items });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, flight, seat, items]);
 
   // Flight search — logs to DB, feeds personalization.
   // keepReason=true preserves the "picked for you" banner (set by bookDestination).
@@ -2532,7 +2622,7 @@ function App() {
 
       {/* Whole app uses the DXP dark theme — every screen rendered inside the dark scope */}
       <div className="dxp-home">
-      {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual}/>}
+      {screen === "home" && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual} resumeJourney={resumeJourney} startFresh={startFresh}/>}
       {screen === "search" && <SearchScreen origin={searchOrigin} setOrigin={setSearchOrigin} dest={searchDest} setDest={setSearchDest} date={searchDate} setDate={setSearchDate} onSearch={runSearch} results={searchResults} searching={searching} selectFlight={selectFlight} routes={routes} suggested={suggested} prefilledReason={prefilledReason}/>}
       {screen === "flights" && <Flights flights={flights} pattern={profile.pattern} selectFlight={selectFlight} toast={toast}/>}
       {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast} profile={profile}/>}

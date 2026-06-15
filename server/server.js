@@ -130,12 +130,9 @@ app.get("/api/search", (req, res) => {
   // Log the search itself — this is behavioural data the CDP would use
   db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at)
     VALUES (1,?,?,?,?,?,?,?)`).run(origin, dest, date, 1, stored.length, "Web app", now());
-  // Keep the "continue your last search" banner LIVE — reflect this real search,
-  // not a stale seed. (One synced row per user; we overwrite it each search.)
+  // Keep the cross-channel journey LIVE at the RESULTS stage for this real search.
   const pax = Number(req.query.pax) || 1;
-  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
-  db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at)
-    VALUES (1,?,?,?,?,?,?)`).run(origin, dest, date, pax, "Web app", now());
+  saveJourney({ origin, dest, date, device: "Web app", stage: "results" });
   // Search-abandonment journey: queue a follow-up. If no booking on this route
   // follows shortly, an offer email goes out too. (Demo timings are compressed.)
   scheduleSearchFollowup(origin, dest, date, stored);
@@ -238,6 +235,66 @@ app.get("/api/profile", (req, res) => {
   };
   log("api_profile_fetch", { source: "users, preferences, vouchers, travel_history, searches", topRoute, topFlight });
   res.json({ user, prefs, vouchers, history, pattern, syncedSearch: search, recentSearches });
+});
+
+/* ── Cross-channel journey state ───────────────────────────────────────────
+   One shared, unpaid in-progress journey per customer. Every channel (web, AI
+   chat, WhatsApp) writes its current STAGE + selections here as the customer
+   progresses, so "Resume" on any channel drops them back at the exact step.
+   Stages: search → results → seat → extras → review.  Cleared on payment or
+   explicit start-over.                                                        */
+const STAGE_ORDER = ["search", "results", "seat", "extras", "review"];
+function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin }) {
+  const prev = db.prepare("SELECT * FROM synced_searches WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+  // If this update is for the same route, keep the furthest stage reached (don't regress
+  // the badge when a later channel just re-opens an earlier screen) unless selections advance.
+  const sameRoute = prev && prev.origin === origin && prev.dest === dest;
+  const prevRank = sameRoute ? STAGE_ORDER.indexOf(prev.stage || "results") : -1;
+  const newRank = STAGE_ORDER.indexOf(stage || "results");
+  const keptStage = newRank >= prevRank ? (stage || "results") : prev.stage;
+  const merged = {
+    origin, dest,
+    date: date || prev?.travel_date || null,
+    device: device || prev?.device || "Web app",
+    stage: keptStage,
+    flight_no: flight_no !== undefined ? flight_no : (sameRoute ? prev?.flight_no : null),
+    seat: seat !== undefined ? seat : (sameRoute ? prev?.seat : null),
+    items: items !== undefined ? items : (sameRoute && prev?.items_json ? JSON.parse(prev.items_json) : []),
+    cabin: cabin || (sameRoute ? prev?.cabin : null) || "Economy",
+  };
+  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
+  db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at,stage,flight_no,seat,items_json,cabin,updated_at)
+    VALUES (1,?,?,?,1,?,?,?,?,?,?,?,?)`).run(
+      merged.origin, merged.dest, merged.date, merged.device, now(),
+      merged.stage, merged.flight_no || null, merged.seat || null,
+      JSON.stringify(merged.items || []), merged.cabin, now());
+  return merged;
+}
+function getJourney() {
+  const j = db.prepare("SELECT * FROM synced_searches WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+  if (!j) return null;
+  return {
+    origin: j.origin, dest: j.dest, date: j.travel_date, device: j.device,
+    stage: j.stage || "results", flight_no: j.flight_no, seat: j.seat,
+    items: j.items_json ? JSON.parse(j.items_json) : [], cabin: j.cabin || "Economy",
+    updated_at: j.updated_at || j.created_at,
+  };
+}
+// Read the current journey (web/AI/WhatsApp all poll this to resume).
+app.get("/api/journey", (req, res) => { res.json(getJourney() || { stage: null }); });
+// Save/advance the journey stage from any channel.
+app.post("/api/journey", (req, res) => {
+  const { origin, dest, date, device, stage, flight_no, seat, items, cabin } = req.body || {};
+  if (!origin || !dest) return res.status(400).json({ ok: false, message: "origin and dest required" });
+  const saved = saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin });
+  log("journey_saved", { stage: saved.stage, route: `${origin}→${dest}`, flight: saved.flight_no, seat: saved.seat });
+  res.json({ ok: true, journey: getJourney() });
+});
+// Explicit start-over: clear the saved journey.
+app.post("/api/journey/clear", (req, res) => {
+  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
+  log("journey_cleared", {});
+  res.json({ ok: true });
 });
 
 /* Affinity-driven package recommendation. We read the persona's co-branded card
@@ -381,7 +438,7 @@ app.post("/api/pay", async (req, res) => {
   if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=1 AND status='active'").run();
   db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
   // Booking completed → clear the "resume your search" banner for this destination
-  db.prepare("DELETE FROM synced_searches WHERE user_id=1 AND dest=?").run(f.dest);
+  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
   // Feed the booking back into travel history → future recommendations learn from it
   db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
     VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
@@ -563,6 +620,8 @@ const AGENT_TOOLS = [
     input_schema: { type: "object", properties: {} } },
   { name: "get_recommendation", description: "Get the customer's personalized experiential PACKAGE — derived from their co-branded TAP credit-card spend. Each customer has an affinity (football / golf / music) and a matching bundle of event ticket + hotel + return flight. Use when they ask 'any packages for me', 'what should I do this weekend', 'recommend something', 'anything fun in <city>', or react to their interest. Returns the affinity, the rationale (which card-spend category drove it), and the full package with prices (and any add-on like a golf-bag).",
     input_schema: { type: "object", properties: {} } },
+  { name: "get_journey", description: "Get the customer's UNFINISHED booking journey shared across web, this chat, and WhatsApp. Use when they say 'where was I', 'continue/resume my booking', 'pick up where I left off', 'did I have something going', or otherwise reference an in-progress booking. Returns the stage they left at (results/seat/extras/review), the route, and their selections (flight, seat, add-ons). After calling it, re-select that flight with select_flight if one was chosen, then guide them from that exact step — do NOT restart from scratch.",
+    input_schema: { type: "object", properties: {} } },
   { name: "check_in", description: "Check the customer in for their current active booking. Issues the boarding pass. Use when they say 'check me in' or 'check in'.",
     input_schema: { type: "object", properties: {} } },
   { name: "cancel_booking", description: "Cancel the customer's current active booking with an instant refund (miles restored, voucher reactivated, card amount returned). Only call after the customer clearly confirms they want to cancel.",
@@ -641,10 +700,8 @@ function agentRunTool(name, input, session) {
     const stored = db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, date);
     db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at) VALUES (1,?,?,?,?,?,?,?)`)
       .run(origin, dest, date, 1, stored.length, "Chat agent", now());
-    // Live "continue your last search" banner + abandonment follow-up (same as web search)
-    db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
-    db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at) VALUES (1,?,?,?,?,?,?)`)
-      .run(origin, dest, date, 1, "Chat agent", now());
+    // Live "continue your last search" banner — record journey at the RESULTS stage
+    saveJourney({ origin, dest, date, device: "Chat agent", stage: "results" });
     scheduleSearchFollowup(origin, dest, date, stored);
     log("agent_search", { origin, dest, date, results: stored.length });
     session.lastSearch = { origin, dest, date, flights: stored };
@@ -679,6 +736,7 @@ function agentRunTool(name, input, session) {
     db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
     db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)").run(f.flight_no, JSON.stringify(auto), now());
     session.selected = { flight_no: f.flight_no, items: auto, seat: prefSeat() };
+    saveJourney({ origin: f.origin, dest: f.dest, date: f.flight_date, device: "Chat agent", stage: "seat", flight_no: f.flight_no, items: auto });
     log("agent_select", { flight_no: f.flight_no });
     return { ok: true, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, arr: f.arr, price: f.price, seat: session.selected.seat, auto_extras: auto };
   }
@@ -704,6 +762,8 @@ function agentRunTool(name, input, session) {
     sel.items = [...new Set([...sel.items, ...codes])];
     db.prepare("UPDATE baskets SET items_json=? WHERE user_id=1 AND status='open'").run(JSON.stringify(sel.items));
     const basket = basketTotal(sel);
+    const af = flightByNo(sel.flight_no) || {};
+    saveJourney({ origin: af.origin, dest: af.dest, date: af.flight_date, device: "Chat agent", stage: "extras", flight_no: sel.flight_no, seat: sel.seat, items: sel.items });
     log("agent_extras", { flight_no: sel.flight_no, items: sel.items, total: basket.total });
     return { ok: true, items: basket.named, fare: basket.fare, extras_total: basket.extras, total: basket.total,
       note: `Basket total is now €${basket.total.toFixed(2)} (fare €${basket.fare} + extras €${basket.extras.toFixed(2)}). Quote this total.` };
@@ -719,6 +779,8 @@ function agentRunTool(name, input, session) {
     const removed = before.filter(c => !sel.items.includes(c));
     db.prepare("UPDATE baskets SET items_json=? WHERE user_id=1 AND status='open'").run(JSON.stringify(sel.items));
     const basket = basketTotal(sel);
+    const rf = flightByNo(sel.flight_no) || {};
+    saveJourney({ origin: rf.origin, dest: rf.dest, date: rf.flight_date, device: "Chat agent", stage: "extras", flight_no: sel.flight_no, seat: sel.seat, items: sel.items });
     log("agent_extras_removed", { flight_no: sel.flight_no, removed, items: sel.items, total: basket.total });
     return { ok: true, removed, items: basket.named, fare: basket.fare, extras_total: basket.extras, total: basket.total,
       note: removed.length
@@ -754,6 +816,7 @@ function agentRunTool(name, input, session) {
     // Persist: update the basket seat (pre-purchase) and/or the active booking seat.
     if (session.selected) session.selected.seat = target;
     db.prepare("UPDATE bookings SET seat=? WHERE user_id=1 AND status='confirmed'").run(target);
+    if (session.selected) { const cf = flightByNo(session.selected.flight_no) || {}; saveJourney({ origin: cf.origin, dest: cf.dest, date: cf.flight_date, device: "Chat agent", stage: "extras", flight_no: session.selected.flight_no, seat: target, items: session.selected.items }); }
     log("agent_change_seat", { from: cur, to: target, cabin: seatCabinLabel(target), diff });
     return { ok: true, from: cur, seat: target, cabin: seatCabinLabel(target),
       price: newPrice, included: newPrice === 0, fare_diff: diff,
@@ -779,7 +842,7 @@ function agentRunTool(name, input, session) {
     if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
     if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=1 AND status='active'").run();
     db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
-    db.prepare("DELETE FROM synced_searches WHERE user_id=1 AND dest=?").run(f.dest);
+    db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
     db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,'Business')`)
       .run(f.flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
     log("agent_checkout", { pnr, gross, split: { voucher_amt, miles_used, card_amt } });
@@ -817,6 +880,29 @@ function agentRunTool(name, input, session) {
       } : null,
       note: `This is a personalized package for ${u.first_name}, derived from their card spend. Offer it warmly, mention WHY (the card-spend signal), and that it bundles event + hotel + return flight in one tap.`,
     };
+  }
+  if (name === "get_journey") {
+    const j = getJourney();
+    if (!j || !j.stage) return { ok: true, in_progress: false, note: "No unfinished booking in progress. Offer to start a new search." };
+    const f = j.flight_no ? flightByNo(j.flight_no) : null;
+    // If a flight was chosen, hydrate the agent session so change_seat/add_extras/checkout work right away.
+    if (f) {
+      const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code);
+      const items = [...new Set([...(j.items || []), ...auto])];
+      session.selected = { flight_no: f.flight_no, items, seat: j.seat || prefSeat() };
+      db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
+      db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)").run(f.flight_no, JSON.stringify(items), now());
+    }
+    const stageNext = {
+      results: "They were still choosing a flight — search the route and show options.",
+      seat: "They had selected the flight and were choosing a seat — confirm the seat (their saved one, if any) or offer to change it, then continue to extras.",
+      extras: "They were adding extras — show what's in the basket and the current total, ask if they want anything else, then offer checkout.",
+      review: "They were at review & payment — summarise the basket + total and offer to complete payment.",
+    };
+    return { ok: true, in_progress: true,
+      stage: j.stage, route: `${cityName(j.origin)}→${cityName(j.dest)}`, origin: j.origin, dest: j.dest, date: j.date,
+      flight_no: j.flight_no, seat: j.seat, items: j.items, cabin: j.cabin, last_channel: j.device,
+      note: `Resume HERE — do not restart. ${stageNext[j.stage] || "Continue from where they left off."}${f ? " I've reloaded their selection into context." : ""}` };
   }
   if (name === "get_booking") {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();

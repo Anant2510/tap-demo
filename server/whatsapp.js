@@ -141,6 +141,21 @@ const latestBooking = () =>
   db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 
+// ── Cross-channel journey: persist the WhatsApp step + selections to the shared
+//    journey so web / AI / WhatsApp can all resume at the exact stage. ────────
+async function saveJourneyWA(stage, d) {
+  const f = d?.flight_no ? flightByNo(d.flight_no) : null;
+  if (!f) return;
+  try {
+    await apiCall("POST", "/journey", {
+      origin: f.origin, dest: f.dest, date: f.flight_date, device: "WhatsApp", stage,
+      flight_no: d.flight_no, seat: d.seat || undefined,
+      items: (d.items || []).filter(c => c !== "seat"), cabin: d.cabin || "Economy",
+    });
+  } catch {}
+}
+const readJourney = () => apiCall("GET", "/journey").catch(() => null);
+
 /* ── Per-sender menu context: maps the number the user just typed
       (1,2,3…) back to an action id, based on the last menu we sent.
       Kept in memory; fine for a demo. ───────────────────────────── */
@@ -180,20 +195,28 @@ const setCtx = (to, c) => { ctx[bareNumber(to)] = { ...(ctx[bareNumber(to)] || {
 async function sendMainMenu(to) {
   const u = db.prepare("SELECT first_name, miles, tier, affinity_label FROM users WHERE id=1").get();
   const pat = db.prepare("SELECT flight_no FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
-  await sendList(to,
-    `TAP AI · ${u.first_name}`,
-    `Olá ${u.first_name} 👋 Linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles). Tap an option below, or just type where you want to go (e.g. "flights to Madrid").`,
-    "Main menu",
-    [
-      { id: "BOOK_USUAL", title: "Book my usual flight", description: "Your regular route, one tap" },
-      { id: "MADE_FOR_YOU", title: "Made for you", description: u.affinity_label ? `${u.affinity_label} package` : "A package picked for you" },
-      { id: "MY_BOOKING", title: "My booking", description: "View your current trip" },
-      { id: "EXTRAS", title: "Add extras", description: "Bags, seats, meals, wifi" },
-      { id: "STATUS", title: "Flight status", description: "Is my flight on time?" },
-      { id: "CHECKIN", title: "Check in", description: "Get your boarding pass" },
-      { id: "CANCEL", title: "Cancel booking", description: "Instant refund" },
-    ],
-    { "1": "BOOK_USUAL", "2": "MADE_FOR_YOU", "3": "MY_BOOKING", "4": "EXTRAS", "5": "STATUS", "6": "CHECKIN", "7": "CANCEL", "0": "MENU" });
+  // If there's an unfinished cross-channel journey, surface a Resume row at the top.
+  const j = await readJourney();
+  const STAGE_WORD = { results: "choosing a flight", seat: "seat selection", extras: "extras", review: "review & pay" };
+  const rows = [];
+  const map = { "0": "MENU" };
+  if (j && j.stage && j.dest) {
+    rows.push({ id: "RESUME", title: "↩️ Resume booking", description: `${cityName(j.origin)}→${cityName(j.dest)} · ${STAGE_WORD[j.stage] || "in progress"}` });
+  }
+  rows.push(
+    { id: "BOOK_USUAL", title: "Book my usual flight", description: "Your regular route, one tap" },
+    { id: "MADE_FOR_YOU", title: "Made for you", description: u.affinity_label ? `${u.affinity_label} package` : "A package picked for you" },
+    { id: "MY_BOOKING", title: "My booking", description: "View your current trip" },
+    { id: "EXTRAS", title: "Add extras", description: "Bags, seats, meals, wifi" },
+    { id: "STATUS", title: "Flight status", description: "Is my flight on time?" },
+    { id: "CHECKIN", title: "Check in", description: "Get your boarding pass" },
+    { id: "CANCEL", title: "Cancel booking", description: "Instant refund" },
+  );
+  rows.forEach((r, i) => { map[String(i + 1)] = r.id; });
+  const greeting = (j && j.stage && j.dest)
+    ? `Olá ${u.first_name} 👋 You have a booking in progress (${cityName(j.origin)}→${cityName(j.dest)}). Tap Resume to continue where you left off, or pick another option.`
+    : `Olá ${u.first_name} 👋 Linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles). Tap an option below, or just type where you want to go (e.g. "flights to Madrid").`;
+  await sendList(to, `TAP AI · ${u.first_name}`, greeting, "Main menu", rows.slice(0, 10), map);
 }
 
 /* ── Booking-flow step helpers (flight → seat → extras → checkout → pay) ── */
@@ -219,6 +242,7 @@ async function startSeatStep(to, f) {
   const map = { "0": "MENU" }; const lines = [];
   alts.slice(0, 4).forEach((s, i) => { const n = String(i + 1); map[n] = `SEAT_${s}`; lines.push(`${n}️⃣  Seat ${s}${s === recSeat ? "  ⭐ your usual" : ""}`); });
   setMenu(to, map);
+  await saveJourneyWA("seat", getDraft(to));
   await sendText(to,
 `✈️ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
 
@@ -244,6 +268,7 @@ async function startExtrasStep(to, note) {
   });
   map["9"] = "XDONE";
   setMenu(to, map);
+  await saveJourneyWA("extras", d);
   const head = note ? `${note}\n\n` : "";
   await sendText(to,
 `${head}🧳 Add extras (reply a number to toggle):
@@ -262,6 +287,7 @@ async function startCheckoutReview(to) {
   const anc = db.prepare("SELECT code,name,price FROM ancillaries").all();
   const extraNames = d.items.filter(c => !["seat","bag","meal"].includes(c)).map(c => anc.find(a => a.code === c)?.name || c);
   const card = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+  await saveJourneyWA("review", d);
   await sendButtons(to,
 `🧾 *Review your booking*
 ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
@@ -276,6 +302,33 @@ Total €${priced.gross.toFixed(2)}
 }
 
 async function handleAction(to, id) {
+  /* Resume the shared cross-channel journey at the exact step the customer left. */
+  if (id === "RESUME") {
+    const j = await readJourney();
+    if (!j || !j.stage) { await sendText(to, "Nothing in progress to resume — let's start a new search."); return sendMainMenu(to); }
+    const f = j.flight_no ? flightByNo(j.flight_no) : null;
+    // Rebuild the WhatsApp draft from the saved journey.
+    const d = getDraft(to);
+    d.flight_no = j.flight_no || null;
+    d.seat = j.seat || d.seat;
+    d.items = ["seat", ...(j.items || [])];
+    if (j.stage === "results" || !f) {
+      // Only a route was chosen → re-run the route search so they can pick a flight.
+      const home = j.origin || "OPO";
+      return searchRoute(to, home, j.dest, j.date || "2026-06-15", "resume");
+    }
+    await sendText(to, `↩️ Picking up where you left off — ${cityName(f.origin)} → ${cityName(f.dest)}, ${({seat:"choosing your seat",extras:"adding extras",review:"reviewing & payment"})[j.stage] || "your booking"}.`);
+    if (j.stage === "seat") return startSeatStep(to, f);
+    if (j.stage === "extras") return startExtrasStep(to);
+    if (j.stage === "review") return startCheckoutReview(to);
+    return startSeatStep(to, f);
+  }
+  if (id === "START_FRESH") {
+    await apiCall("POST", "/journey/clear");
+    clearDraft(to);
+    await sendText(to, "Starting fresh. Where would you like to fly? (e.g. \"flights to Madrid\")");
+    return;
+  }
   if (id === "BOOK_USUAL") {
     const prof = await apiCall("GET", "/profile");
     const pat = prof?.pattern || {};
@@ -583,6 +636,8 @@ async function handleIncoming({ from, text }) {
     return handleAction(from, "BOOK_USUAL");
   }
   if (/^cancel\b/.test(t)) return handleAction(from, "CANCEL");
+  if (/^(resume|continue|carry on|pick up|where was i|where were we|finish (my )?booking)\b/.test(t) || /\bcontinue where (i|we) left\b/.test(t)) return handleAction(from, "RESUME");
+  if (/^(start (over|fresh|again)|new search|forget (it|that)|scrap (it|that))\b/.test(t)) return handleAction(from, "START_FRESH");
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
   if (/\b(my booking|my flight|my trip|booking details|view booking|show booking)\b/.test(t) || /^booking\b/.test(t)) return handleAction(from, "MY_BOOKING");
