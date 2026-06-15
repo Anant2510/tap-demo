@@ -481,6 +481,15 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const [payMiles, setPayMiles] = useState(false);
   const [rec, setRec] = useState(null);
   useEffect(() => { (async () => { try { setRec(await api.get("/recommendation")); } catch {} })(); }, []);
+  const [upcoming, setUpcoming] = useState(null);
+  useEffect(() => { (async () => { try {
+    const bk = await api.get("/bookings");
+    const t0 = new Date("2026-06-15T00:00:00Z");
+    const conf = (bk || []).filter(b => b.status === "confirmed" && b.flight && b.flight_date);
+    const up = conf.filter(b => new Date(b.flight_date) >= t0).sort((a, b) => new Date(a.flight_date) - new Date(b.flight_date))[0]
+      || conf.sort((a, b) => new Date(b.flight_date) - new Date(a.flight_date))[0];
+    setUpcoming(up || null);
+  } catch {} })(); }, []);
 
   const u = profile.user, pat = profile.pattern, ss = profile.syncedSearch;
   const home = pat.origin || u.home_airport || "OPO";
@@ -504,6 +513,14 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const today = new Date("2026-06-15T00:00:00Z");
   const daysTo = (() => { try { const n = Math.round((new Date(ss.travel_date) - today) / 86400e3); return n >= 0 ? n : null; } catch { return null; } })();
   const fmtDate = (d) => { try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); } catch { return d || ""; } };
+
+  // Next BOOKED trip (confirmed) — countdown + contextual action (check-in / seat upgrade offer).
+  const upF = upcoming && upcoming.flight;
+  const upDays = (() => { try { return Math.round((new Date(upcoming.flight_date) - today) / 86400e3); } catch { return null; } })();
+  const upCountdown = upDays == null ? "" : upDays <= 0 ? "DEPARTS TODAY" : upDays === 1 ? "DEPARTS TOMORROW" : `${upDays} DAYS TO GO`;
+  const upSoon = upDays != null && upDays <= 1;            // inside the check-in window
+  const seatPref = ((profile.prefs && profile.prefs.seat) || "").split(" ")[0];
+  const upgradePrice = 15;                                  // demo seat-upgrade fare
 
   const sendOffer = async () => {
     setSendingOffer(true);
@@ -571,6 +588,13 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
               </div>
               <h1 className="font-display font-black text-white tracking-tight leading-[0.98] text-5xl sm:text-6xl">{u.first_name}, make your<br/>{tripCity} trip unforgettable.</h1>
               <p className="text-white/85 mt-5 text-lg max-w-md leading-relaxed">{daysTo != null ? `You're ${daysTo} days from your next adventure to ${tripCity}. ` : ""}Let's complete your trip — beautifully.</p>
+              <div className="inline-flex items-start gap-2.5 mt-5 rounded-2xl px-4 py-2.5 max-w-md" style={{ background: "rgba(0,0,0,.24)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.16)" }}>
+                <span className="text-base leading-none mt-0.5" style={{ color: "#FFE7B0" }}>✦</span>
+                <div>
+                  <div className="text-[10px] font-black tracking-wide" style={{ color: "#FFE7B0" }}>THIS WEEK FOR YOU · FROM YOUR TRAVEL HISTORY</div>
+                  <div className="text-white text-[13px] font-semibold mt-0.5">Your usual {homeCity} → {destCity} from {EUR(usualPrice)} — earn double {u.tier} miles.</div>
+                </div>
+              </div>
               <div className="flex flex-wrap items-center gap-3 mt-6">
                 <button onClick={doSearch} className="inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold text-white shadow-lg" style={{ background: "var(--tap-green)" }}><Search size={16}/> Search from {EUR(usualPrice)}</button>
                 <button onClick={sendOffer} className="inline-flex items-center gap-2 px-4 py-3 rounded-full font-semibold text-sm bg-white/15 text-white" style={{ backdropFilter: "blur(6px)" }}>{sendingOffer ? <Loader2 className="animate-spin" size={15}/> : <Mail size={15}/>} Email me this week's offer</button>
@@ -578,19 +602,36 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             </div>
             {/* Right: trip + hotel cards */}
             <div className="space-y-4">
-              {ss && ss.dest ? (
+              {upF ? (
                 <div className="rounded-2xl p-4 text-white shadow-xl" style={{ background: "linear-gradient(180deg,#0E2A1E,#0A1C14)" }}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide" style={{ color: "var(--tap-green)" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--tap-green)" }}/> YOUR TRIP · {daysTo != null ? `${daysTo} DAYS TO GO` : "IN PROGRESS"}</div>
-                    {ss.flight_no && <span className="text-[10px] font-semibold text-white/45 tracking-wider">{ss.flight_no}</span>}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide" style={{ color: "var(--tap-green)" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--tap-green)" }}/> YOUR UPCOMING TRIP · {upCountdown}</div>
+                    <span className="text-[10px] font-semibold text-white/45 tracking-wider shrink-0">{upcoming.flight_no} · {upcoming.pnr}</span>
                   </div>
-                  <div className="font-display font-extrabold text-xl mt-2">{homeCity}–{tripCity} · {fmtDate(ss.travel_date)}</div>
-                  <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,.14)" }}><div className="h-full rounded-full" style={{ width: `${readyPct}%`, background: "var(--tap-green)" }}/></div>
-                  <div className="text-right text-[11px] font-bold mt-1" style={{ color: "var(--tap-green)" }}>{readyPct}% ready</div>
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="text-[12px] text-white/70">{essentials} essentials to add · <span style={{ color: "#FFE7B0" }}>save {EUR(bundleSave)} bundled</span></div>
-                    <button onClick={() => resumeJourney({ origin: ss.origin, dest: ss.dest, date: ss.travel_date, stage: jStage, flight_no: ss.flight_no, seat: ss.seat, items: jItems, cabin: ss.cabin })} className="text-[13px] font-bold inline-flex items-center gap-1" style={{ color: "var(--tap-green)" }}>Open trip <ArrowRight size={14}/></button>
-                  </div>
+                  <div className="font-display font-extrabold text-xl mt-2">{cityName(upF.origin)}–{cityName(upF.dest)} · {fmtDate(upcoming.flight_date)}</div>
+                  <div className="text-[12px] text-white/65 mt-1">{upF.dep ? `Departs ${upF.dep}` : ""}{upcoming.seat ? ` · seat ${upcoming.seat}` : ""} · {upcoming.checked_in ? "checked in ✓" : "not checked in"}</div>
+                  {upcoming.checked_in ? (
+                    <div className="flex items-center justify-between mt-3">
+                      <div className="text-[12px] text-white/70 inline-flex items-center gap-1.5"><QrCode size={14} style={{ color: "var(--tap-green)" }}/> Boarding pass ready</div>
+                      <button onClick={() => go("manage")} className="text-[13px] font-bold inline-flex items-center gap-1" style={{ color: "var(--tap-green)" }}>View pass <ArrowRight size={14}/></button>
+                    </div>
+                  ) : upSoon ? (
+                    <div className="flex items-center justify-between mt-3">
+                      <div className="text-[12px] inline-flex items-center gap-1.5" style={{ color: "#FFE7B0" }}><QrCode size={14}/> Check-in is open</div>
+                      <button onClick={() => go("checkin")} className="text-[13px] font-bold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ background: "var(--tap-green)", color: "#06210F" }}>Check in now <ArrowRight size={14}/></button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-3 rounded-xl px-3 py-2 flex items-start gap-2" style={{ background: "rgba(255,231,176,.12)", border: "1px solid rgba(255,231,176,.25)" }}>
+                        <span className="leading-none mt-0.5" style={{ color: "#FFE7B0" }}>✦</span>
+                        <div className="text-[12px] text-white/85">{u.tier} offer: upgrade to a front-row seat for {EUR(upgradePrice)}{seatPref ? ` — you usually sit ${seatPref}` : ""}.</div>
+                      </div>
+                      <div className="flex items-center justify-between mt-2.5">
+                        <button onClick={() => go("manage")} className="text-[12px] font-semibold text-white/70 inline-flex items-center gap-1">Open trip <ArrowRight size={13}/></button>
+                        <button onClick={() => { toast(`${u.tier} upgrade`, `Front-row seat for ${EUR(upgradePrice)} added to ${upcoming.pnr}.`); go("manage"); }} className="text-[13px] font-bold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ background: "var(--tap-green)", color: "#06210F" }}>Add upgrade · {EUR(upgradePrice)}</button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-2xl p-4 text-white shadow-xl" style={{ background: "linear-gradient(180deg,#0E2A1E,#0A1C14)" }}>
@@ -614,7 +655,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                     {ss.device && <span className="inline-flex items-center gap-1"><Laptop size={13} className="text-gray-400"/> from your {ss.device}</span>}
                   </div>
                   <div className="flex items-center gap-2 mt-3">
-                    <button onClick={() => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Resuming your ${cityName(sOrigin)} → ${tripCity} search.` })} className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-white" style={{ background: "var(--tap-green)" }}>Resume search <ArrowRight size={15}/></button>
+                    <button onClick={() => resumeJourney({ origin: ss.origin, dest: ss.dest, date: ss.travel_date, stage: jStage, flight_no: ss.flight_no, seat: ss.seat, items: jItems, cabin: ss.cabin })} className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-white" style={{ background: "var(--tap-green)" }}>Resume search <ArrowRight size={15}/></button>
                     <button onClick={() => { startFresh(ss); toast("Cleared", "Starting a fresh search."); }} className="px-3.5 py-2.5 rounded-xl text-sm font-semibold border text-gray-600" style={{ borderColor: "var(--tap-line)" }}>Start fresh</button>
                   </div>
                 </div>
