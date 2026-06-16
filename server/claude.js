@@ -63,6 +63,10 @@ async function callClaude(messages, { json = false, maxTokens = 1000 } = {}) {
 async function callClaudeAgent(messages, tools, runTool, { maxTokens = 1200, maxTurns = 5 } = {}) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("no_api_key");
+  // If a key IS set but the network can't reach the API (e.g. blocked egress on the
+  // VM), don't let the request hang: abort after AGENT_TIMEOUT_MS so the caller fails
+  // over to the deterministic agent fast instead of spinning until the OS TCP timeout.
+  const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS) || 12000;
   const convo = [...messages];
   const toolCalls = [];
   const sys = danielContext() + `
@@ -107,14 +111,26 @@ USE THE CONVERSATION CONTEXT — DO NOT ASK WHAT YOU ALREADY KNOW:
 After acting, reply in one or two crisp sentences using the real PNR, route, date and seat from the result; the UI renders cards and updates the screen, so don't list every flight in prose. Always work from the customer's real profile in your context (their saved card, voucher, miles, preferred seat, and travel pattern).`;
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
-        max_tokens: maxTokens, system: sys, tools, messages: convo,
-      }),
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), AGENT_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
+          max_tokens: maxTokens, system: sys, tools, messages: convo,
+        }),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      // network failure or our own abort → throw so /api/ai/agent fails over to the
+      // deterministic agent immediately (the chat never goes dead).
+      throw new Error(e.name === "AbortError" ? `agent_timeout_${AGENT_TIMEOUT_MS}ms` : "agent_network: " + e.message);
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) throw new Error("api_" + res.status + ": " + (await res.text()).slice(0, 200));
     const data = await res.json();
     const blocks = data.content || [];
