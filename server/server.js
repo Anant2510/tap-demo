@@ -1021,6 +1021,94 @@ app.post("/api/ai/agent", async (req, res) => {
 });
 
 /* Personalized marketing offer — generated from DB history, then emailed */
+// Portugal Stopover — TAP's signature story: break your journey in Lisbon/Porto for
+// up to 10 days at no extra airfare. Personalized by the traveller's affinity, and
+// shared by the home screen + WhatsApp so the story is identical across channels.
+app.get("/api/stopover", (req, res) => {
+  const u = db.prepare("SELECT first_name, tier, home_airport, affinity, affinity_label FROM users WHERE id=1").get() || {};
+  const home = u.home_airport || "OPO";
+  const hub = home === "LIS" ? "OPO" : "LIS";        // stop in the Portugal hub you're not based at
+  const nights = 3;
+  const HOTELS = {
+    LIS: { name: "Hotel Avenida Palace", area: "Avenida da Liberdade", price: 80 },
+    OPO: { name: "Hotel Infante Sagres", area: "Ribeira", price: 72 },
+  };
+  const hotel = { ...(HOTELS[hub] || HOTELS.LIS) };
+  hotel.nights = nights; hotel.total = nights * hotel.price;
+  const EXP = {
+    LIS: {
+      football: { title: "Matchday at Estádio da Luz", tag: "Football", price: 70 },
+      golf: { title: "Round at Penha Longa Resort", tag: "Golf", price: 120 },
+      music: { title: "Fado night in Alfama", tag: "Live music", price: 45 },
+      general: [
+        { title: "Time Out Market food crawl", tag: "Food", price: 35 },
+        { title: "Belém & Jerónimos Monastery", tag: "Culture", price: 25 },
+        { title: "Sintra palaces day trip", tag: "Day trip", price: 60 },
+      ],
+    },
+    OPO: {
+      football: { title: "Matchday at Estádio do Dragão", tag: "Football", price: 65 },
+      golf: { title: "Round at Oporto Golf Club", tag: "Golf", price: 110 },
+      music: { title: "Live session at Casa da Música", tag: "Live music", price: 40 },
+      general: [
+        { title: "Port wine cellar tasting", tag: "Wine", price: 30 },
+        { title: "Douro river cruise", tag: "River", price: 28 },
+        { title: "Ribeira & Livraria Lello walk", tag: "Culture", price: 20 },
+      ],
+    },
+  };
+  const hubExp = EXP[hub] || EXP.LIS;
+  const hero = hubExp[u.affinity] || null;
+  const experiences = [hero, ...hubExp.general].filter(Boolean).slice(0, 3);
+  res.json({
+    hub, hubCity: cityName(hub), nights, maxDays: 10,
+    headline: `Add a free stopover in ${cityName(hub)}`,
+    subline: "Break your journey for up to 10 days — your TAP airfare stays exactly the same.",
+    hotel, experiences,
+    affinity: u.affinity, affinityLabel: u.affinity_label,
+    why: hero ? `Hand-picked for a ${(u.affinity_label || "traveller").toLowerCase()} like you.` : `Highlights of ${cityName(hub)}.`,
+    heroExperience: hero ? hero.title : null,
+    fromPrice: hotel.total,
+    airfareNote: "Flights stay the same price — you only pay for your stay & experiences.",
+  });
+});
+
+// Offer of the week — deterministic + personalized from travel history, so the SAME
+// offer shows on the home screen and on WhatsApp. Rotates weekly (stable within a week).
+app.get("/api/offers/today", (req, res) => {
+  const u = db.prepare("SELECT first_name, tier, home_airport, miles FROM users WHERE id=1").get() || {};
+  const home = u.home_airport || "OPO";
+  const ranked = db.prepare(
+    "SELECT f.dest d, COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest!=? GROUP BY f.dest ORDER BY c DESC, f.dest"
+  ).all(home).map(r => r.d);
+  let cands = ranked.length ? ranked
+    : db.prepare("SELECT dest FROM routes WHERE origin=? ORDER BY base_fare ASC, dest LIMIT 4").all(home).map(r => r.dest);
+  if (!cands.length) cands = ["LIS"];
+  const weekIdx = Math.floor(Date.now() / (7 * 86400e3));     // rotates each week
+  const dest = cands[weekIdx % cands.length];
+  const route = db.prepare("SELECT base_fare FROM routes WHERE origin=? AND dest=?").get(home, dest) || {};
+  const base = Math.round(route.base_fare || 99);
+  const discountPct = 20;
+  const price = Math.max(29, Math.round(base * (1 - discountPct / 100)));
+  const tier = u.tier || "Gold";
+  const milesPerk = tier === "Platinum" ? "Triple miles" : tier === "Silver" ? "25% bonus miles" : "Double miles";
+  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all();
+  const counts = {};
+  past.forEach(b => { try { JSON.parse(b.items_json || "[]").forEach(x => counts[x] = (counts[x] || 0) + 1); } catch {} });
+  let perkAnc = null, best = 0;
+  db.prepare("SELECT code,name FROM ancillaries WHERE auto=0 AND price>0").all()
+    .forEach(a => { if ((counts[a.code] || 0) > best) { best = counts[a.code]; perkAnc = a; } });
+  const perk = perkAnc ? `${milesPerk} + half-price ${perkAnc.name}` : `${milesPerk} + free seat selection`;
+  const reason = ranked.length ? `Because ${cityName(dest)} is one of your most-booked routes.` : `A popular getaway from ${cityName(home)}.`;
+  res.json({
+    badge: "Offer of the week",
+    origin: home, dest, originCity: cityName(home), destCity: cityName(dest),
+    price, was: base, discountPct, tier, milesPerk, perk, reason,
+    title: `${cityName(dest)} from €${price}`,
+    detail: `${cityName(home)} → ${cityName(dest)} · was €${base}, now €${price}. ${perk}.`,
+  });
+});
+
 app.post("/api/offers/send", async (req, res) => {
   let offer, ai = "live";
   const u = db.prepare("SELECT first_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get() || {};

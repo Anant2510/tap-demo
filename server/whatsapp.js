@@ -209,6 +209,8 @@ async function sendMainMenu(to) {
   rows.push(
     { id: "BOOK_USUAL", title: "Book my usual flight", description: "Your regular route, one tap" },
     { id: "MADE_FOR_YOU", title: "Made for you", description: u.affinity_label ? `${u.affinity_label} package` : "A package picked for you" },
+    { id: "OFFER", title: "💎 Offer of the week", description: "Your personalized deal" },
+    { id: "STOPOVER", title: "🇵🇹 Portugal stopover", description: "Free stop in Lisbon/Porto" },
     { id: "MY_BOOKING", title: "My booking", description: "View your current trip" },
     { id: "EXTRAS", title: "Add extras", description: "Bags, seats, meals, wifi" },
     { id: "STATUS", title: "Flight status", description: "Is my flight on time?" },
@@ -371,6 +373,9 @@ async function handleAction(to, id) {
     return startExtrasStep(to, `${d.items.includes(code) ? "Added" : "Removed"} ${code}.`);
   }
   if (id === "XDONE") return startCheckoutReview(to);
+  if (id === "OFFER") return showOffer(to);
+  if (id === "STOPOVER") return showStopover(to);
+  if (id.startsWith("OFFERBOOK_")) { const p = id.split("_"); return searchRoute(to, p[1], p[2], "2026-06-15", "offer"); }
 
   /* CHECKOUT → PAY / HOLD using the full draft */
   if (id === "DO_PAY") {
@@ -606,6 +611,52 @@ Reply:  1 to confirm cancel   ·   0 to keep my booking`);
    Twilio posts application/x-www-form-urlencoded with fields like
    From="whatsapp:+91...", Body="1". server.js parses the form and
    passes { from, text } here. ─────────────────────────────────── */
+// Map a natural-language phrase to a real ancillary code (for "add/remove <extra>").
+function matchAncillary(t) {
+  let code = null;
+  if (/\b(transfers?|airport transfer|taxi|cab|shuttle|ride)\b/.test(t)) code = "transfer";
+  else if (/\blounges?\b/.test(t)) code = "lounge";
+  else if (/\b(wi-?\s?fi|internet|wireless)\b/.test(t)) code = "wifi";
+  else if (/\b(bags?|baggage|luggage|suitcases?)\b/.test(t)) code = "bag";
+  else if (/\b(meals?|food|dining|lunch|dinner|catering)\b/.test(t)) code = "meal";
+  if (!code) return null;
+  return db.prepare("SELECT 1 FROM ancillaries WHERE code=? LIMIT 1").get(code) ? code : null;
+}
+
+// Offer of the week — the SAME personalized offer the home screen shows.
+async function showOffer(to) {
+  const o = await apiCall("GET", "/offers/today").catch(() => null);
+  if (!o) { await sendText(to, "No offer available right now — reply \"menu\"."); return sendMainMenu(to); }
+  setMenu(to, { "1": `OFFERBOOK_${o.origin}_${o.dest}`, "0": "MENU" });
+  await sendText(to,
+`💎 *${o.badge}* — for you
+*${o.destCity} from €${o.price}*  (was €${o.was}, −${o.discountPct}%)
+${o.originCity} → ${o.destCity}
+✨ ${o.perk}
+${o.reason}
+
+Reply 1 to book this offer · 0 for menu`);
+}
+
+// Portugal Stopover — the same personalized story the home screen tells.
+async function showStopover(to) {
+  const s = await apiCall("GET", "/stopover").catch(() => null);
+  if (!s) { await sendText(to, "Stopover info isn't available right now — reply \"menu\"."); return sendMainMenu(to); }
+  const exp = s.experiences.map((x, i) => `${i === 0 ? "⭐" : "•"} ${x.title} — €${x.price}`).join("\n");
+  setMenu(to, { "1": "BOOK_USUAL", "0": "MENU" });
+  await sendText(to,
+`🇵🇹 *Portugal Stopover* — ${s.headline}
+${s.subline}
+
+🏨 ${s.hotel.name} · ${s.hotel.area}
+   €${s.hotel.price}/night · ${s.hotel.nights} nights${s.affinityLabel ? `\n\n✨ For a ${s.affinityLabel.toLowerCase()}:` : ""}
+${exp}
+
+Stay from €${s.fromPrice}. ${s.airfareNote}
+
+Reply 1 to book your usual flight with this stopover · 0 for menu`);
+}
+
 async function handleIncoming({ from, text }) {
   if (!from) return;
   const bare = bareNumber(from);
@@ -618,6 +669,24 @@ async function handleIncoming({ from, text }) {
   // 1) If the reply is a number that maps to the menu we last sent → run it
   const choice = resolveChoice(from, text);
   if (choice) return handleAction(from, choice);
+
+  // 1b) Plain-language "add/remove <extra>" during the booking flow (active draft):
+  //     "remove transfer", "add wifi", "drop the lounge", "no bags". The numbered
+  //     toggles still work — this just understands natural language at the extras step.
+  {
+    const d = getDraft(from);
+    const ancCode = matchAncillary(t);
+    const removeIntent = /\b(remove|drop|delete|take ?off|without|cancel|don'?t want|no longer)\b/.test(t) || /^no\s/.test(t);
+    const addIntent = /\b(add|include|put|want|with|keep)\b/.test(t);
+    if (d && d.flight_no && ancCode && (removeIntent || addIntent)) {
+      const has = d.items.includes(ancCode);
+      const nm = (db.prepare("SELECT name FROM ancillaries WHERE code=?").get(ancCode) || {}).name || ancCode;
+      let note;
+      if (removeIntent) { if (has) { d.items = d.items.filter(c => c !== ancCode); note = `Removed ${nm}.`; } else note = `${nm} wasn't added.`; }
+      else { if (!has) { d.items.push(ancCode); note = `Added ${nm}.`; } else note = `${nm} is already in your trip.`; }
+      return startExtrasStep(from, note);
+    }
+  }
 
   // 2) Fast deterministic paths (instant, no LLM needed)
   if (/^(hi|hello|hey|menu|start|olá|ola)\b/.test(t) || t === "") return sendMainMenu(from);
@@ -644,6 +713,8 @@ async function handleIncoming({ from, text }) {
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
   if (/\b(my booking|my flight|my trip|booking details|view booking|show booking)\b/.test(t) || /^booking\b/.test(t)) return handleAction(from, "MY_BOOKING");
+  if (/\b(stop ?over|portugal stop|layover|stop in portugal)\b/.test(t)) return showStopover(from);
+  if (/\b(offer|offers|deal|deals|special|promo|discount)\b/.test(t) && !/book|cancel|status|check.?in/.test(t)) return showOffer(from);
   if (/\b(packages?|made for me|made for you|recommend|suggestions?|what should i do|things to do|anything fun|what'?s on|whats on|events?|concerts?|matches?|tournaments?|golf|football|music)\b/.test(t) && !/book|cancel|status|check.?in/.test(t)) return handleAction(from, "MADE_FOR_YOU");
   if (/\b(seat options|seating options|available seats|seat map|what seats|which seats)\b/.test(t)) return handleAction(from, "SEATMAP_INFO");
   if (/\b(change|move|switch|upgrade).{0,20}\bseat\b|\bseat\b.{0,20}\b(change|window|aisle|business|premium)\b|\bwindow seat\b|\baisle seat\b/.test(t)) return runAgent(from, text);

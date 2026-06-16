@@ -481,6 +481,11 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const [payMiles, setPayMiles] = useState(false);
   const [rec, setRec] = useState(null);
   useEffect(() => { (async () => { try { setRec(await api.get("/recommendation")); } catch {} })(); }, []);
+  const [offer, setOffer] = useState(null);
+  useEffect(() => { (async () => { try { setOffer(await api.get("/offers/today")); } catch {} })(); }, []);
+  const [stop, setStop] = useState(null);
+  useEffect(() => { (async () => { try { setStop(await api.get("/stopover")); } catch {} })(); }, []);
+  const scrollToStopover = () => document.getElementById("tap-stopover")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const [upcoming, setUpcoming] = useState(null);
   useEffect(() => { (async () => { try {
     const bk = await api.get("/bookings");
@@ -564,7 +569,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           <button onClick={() => go("home")} className="shrink-0"><TapLogo/></button>
           <nav className="hidden lg:flex items-center gap-6">
             {navItem("Book", () => go("home"), true)}
-            {navItem("Portugal Stopover", () => toast("Portugal Stopover", "Add up to 10 free days in Portugal on your connection."), false)}
+            {navItem("Portugal Stopover", scrollToStopover, false)}
             {navItem("Trip Extras", () => go("manage"), false)}
             {navItem("TAP Miles & Go", () => go("miles"), false)}
           </nav>
@@ -600,13 +605,26 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
               </div>
               <h1 className="font-display font-black text-white tracking-tight leading-[0.98] text-5xl sm:text-6xl">{u.first_name}, make your<br/>{tripCity} trip unforgettable.</h1>
               <p className="text-white/85 mt-5 text-lg max-w-md leading-relaxed">{daysTo != null ? `You're ${daysTo} days from your next adventure to ${tripCity}. ` : ""}Let's complete your trip — beautifully.</p>
-              <div className="inline-flex items-start gap-2.5 mt-5 rounded-2xl px-4 py-2.5 max-w-md" style={{ background: "rgba(0,0,0,.24)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.16)" }}>
-                <span className="text-base leading-none mt-0.5" style={{ color: "#FFE7B0" }}>✦</span>
-                <div>
-                  <div className="text-[10px] font-black tracking-wide" style={{ color: "#FFE7B0" }}>THIS WEEK FOR YOU · FROM YOUR TRAVEL HISTORY</div>
-                  <div className="text-white text-[13px] font-semibold mt-0.5">Your usual {homeCity} → {destCity} from {EUR(usualPrice)} — earn double {u.tier} miles.</div>
+              {offer ? (
+                <div className="mt-5 rounded-2xl px-4 py-3 max-w-md" style={{ background: "rgba(0,0,0,.26)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.18)" }}>
+                  <div className="flex items-center gap-1.5 text-[10px] font-black tracking-wide mb-1" style={{ color: "#FFE7B0" }}>✦ {(offer.badge || "Offer of the week").toUpperCase()} · FROM YOUR TRAVEL HISTORY</div>
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <span className="text-white font-display font-extrabold text-lg leading-tight">{offer.destCity} from {EUR(offer.price)}</span>
+                    {offer.was > offer.price && <span className="text-white/55 text-sm line-through">{EUR(offer.was)}</span>}
+                    {offer.discountPct > 0 && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--tap-green)", color: "#06210F" }}>−{offer.discountPct}%</span>}
+                  </div>
+                  <div className="text-white/80 text-[12px] mt-1">{offer.perk}</div>
+                  <button onClick={() => bookDestination({ code: offer.dest, origin: offer.origin, date: sDate, reason: offer.detail })} className="mt-2.5 text-[13px] font-bold px-3.5 py-1.5 rounded-lg inline-flex items-center gap-1" style={{ background: "var(--tap-green)", color: "#fff" }}>Book this offer <ArrowRight size={14}/></button>
                 </div>
-              </div>
+              ) : (
+                <div className="inline-flex items-start gap-2.5 mt-5 rounded-2xl px-4 py-2.5 max-w-md" style={{ background: "rgba(0,0,0,.24)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.16)" }}>
+                  <span className="text-base leading-none mt-0.5" style={{ color: "#FFE7B0" }}>✦</span>
+                  <div>
+                    <div className="text-[10px] font-black tracking-wide" style={{ color: "#FFE7B0" }}>THIS WEEK FOR YOU · FROM YOUR TRAVEL HISTORY</div>
+                    <div className="text-white text-[13px] font-semibold mt-0.5">Your usual {homeCity} → {destCity} from {EUR(usualPrice)} — earn double {u.tier} miles.</div>
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3 mt-6">
                 <button onClick={doSearch} className="inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold text-white shadow-lg" style={{ background: "var(--tap-green)" }}><Search size={16}/> Search from {EUR(usualPrice)}</button>
                 <button onClick={sendOffer} className="inline-flex items-center gap-2 px-4 py-3 rounded-full font-semibold text-sm bg-white/15 text-white" style={{ backdropFilter: "blur(6px)" }}>{sendingOffer ? <Loader2 className="animate-spin" size={15}/> : <Mail size={15}/>} Email me this week's offer</button>
@@ -719,7 +737,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                 <button key={s} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-semibold text-gray-700" style={{ borderColor: "var(--tap-line)" }}>{s} <ChevronRight size={14} className="rotate-90 text-gray-400"/></button>
               ))}
               <div className="ml-auto inline-flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--tap-ink)" }}>
-                {toggle(stopover, () => setStopover(v => !v), "lg")}
+                {toggle(stopover, () => { const nv = !stopover; setStopover(nv); if (nv) scrollToStopover(); }, "lg")}
                 Add Portugal Stopover <span className="text-gray-400 font-normal">· free, up to 10 days</span>
               </div>
             </div>
@@ -846,6 +864,57 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           </div>
         )}
       </div>
+
+      {/* ── Portugal Stopover story (scroll target for the nav + search toggle) ── */}
+      {stop && (
+        <div id="tap-stopover" className="max-w-[1180px] mx-auto px-5 pt-4 pb-12">
+          <div className="rounded-3xl overflow-hidden border shadow-sm" style={{ borderColor: "var(--tap-line)" }}>
+            <div className="grid md:grid-cols-2">
+              <div className="relative min-h-[300px]">
+                <CityImg code={stop.hub} alt={stop.hubCity} className="absolute inset-0 w-full h-full object-cover"/>
+                <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(86,28,98,.82), rgba(176,40,116,.7) 55%, rgba(240,104,58,.62))" }}/>
+                <div className="relative p-6 h-full flex flex-col">
+                  <span className="inline-flex items-center gap-1.5 self-start text-[11px] font-black px-2.5 py-1 rounded-full" style={{ background: "#fff", color: "var(--tap-deep)" }}>🇵🇹 PORTUGAL STOPOVER · FREE</span>
+                  <div className="mt-auto">
+                    <div className="font-display font-black text-3xl text-white tracking-tight leading-tight">{stop.headline}</div>
+                    <p className="text-white/90 mt-2 text-sm max-w-sm">{stop.subline}</p>
+                    <div className="inline-flex items-center gap-1.5 mt-3 text-[12px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,.18)", color: "#fff", backdropFilter: "blur(6px)" }}>Up to {stop.maxDays} days · airfare unchanged</div>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6 bg-white">
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="font-display font-black text-2xl tracking-tight" style={{ color: "var(--tap-ink)" }}>Your {stop.hubCity} stopover</h2>
+                  <Why text={`The Portugal Stopover lets you break a TAP connection in ${stop.hubCity} for up to ${stop.maxDays} days at no extra airfare. ${stop.why}`}/>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-2xl mb-3" style={{ background: "var(--tap-mist)" }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-white"><Building2 size={18} style={{ color: "var(--tap-green)" }}/></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold truncate" style={{ color: "var(--tap-ink)" }}>{stop.hotel.name}</div>
+                    <div className="text-[11px] text-gray-500">{stop.hotel.area} · {stop.hotel.nights} nights</div>
+                  </div>
+                  <div className="text-right"><div className="font-display font-black text-base" style={{ color: "var(--tap-ink)" }}>{EUR(stop.hotel.price)}</div><div className="text-[10px] text-gray-400">/ night</div></div>
+                </div>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">{stop.affinityLabel ? `For a ${stop.affinityLabel.toLowerCase()}` : "Highlights"}</div>
+                <div className="space-y-2 mb-4">
+                  {stop.experiences.map((x, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: i === 0 ? "#FCEFF4" : "var(--tap-mist)" }}>{i === 0 ? <Sparkles size={15} style={{ color: "var(--tap-red)" }}/> : <MapPin size={15} style={{ color: "var(--tap-green)" }}/>}</div>
+                      <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate" style={{ color: "var(--tap-ink)" }}>{x.title}</div><div className="text-[11px] text-gray-400">{x.tag}{i === 0 && stop.affinityLabel ? " · picked for you" : ""}</div></div>
+                      <div className="text-sm font-bold" style={{ color: "var(--tap-ink)" }}>{EUR(x.price)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--tap-line)" }}>
+                  <div><div className="text-[11px] text-gray-400">Stopover stay from</div><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(stop.fromPrice)}</div></div>
+                  <button onClick={() => { setStopover(true); toast("Stopover added", `Free ${stop.hubCity} stopover added — your flight price is unchanged.`); doSearch(); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-white" style={{ background: "var(--tap-green)" }}>Add stopover <ArrowRight size={15}/></button>
+                </div>
+                <div className="text-[11px] text-gray-400 mt-2 flex items-center gap-1"><CheckCircle2 size={12} style={{ color: "var(--tap-green)" }}/> {stop.airfareNote}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating AI button (red, matches comp) */}
       <button onClick={openAssistant} className="fixed bottom-6 right-6 z-30 w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white" style={{ background: "var(--tap-red)" }} aria-label="Open TAP AI Assistant"><Sparkles size={24}/></button>
