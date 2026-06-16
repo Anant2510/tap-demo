@@ -523,6 +523,11 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const bundleSave = +(essentials * 14.5).toFixed(2);
   const today = new Date("2026-06-15T00:00:00Z");
   const daysTo = (() => { try { const n = Math.round((new Date(ss.travel_date) - today) / 86400e3); return n >= 0 ? n : null; } catch { return null; } })();
+  const daysPhrase =
+    daysTo == null ? "" :
+    daysTo === 0 ? `Your ${tripCity} trip is today. ` :
+    daysTo === 1 ? `Your ${tripCity} trip is tomorrow. ` :
+    `You're ${daysTo} days from your next adventure to ${tripCity}. `;
   const fmtDate = (d) => { try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); } catch { return d || ""; } };
 
   // Next BOOKED trip (confirmed) — countdown + contextual action (check-in / seat upgrade offer).
@@ -604,7 +609,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                 <span className="text-[13px] font-semibold" style={{ color: "#FFE7B0" }}>{u.miles.toLocaleString()} tap.miles</span>
               </div>
               <h1 className="font-display font-black text-white tracking-tight leading-[0.98] text-5xl sm:text-6xl">{u.first_name}, make your<br/>{tripCity} trip unforgettable.</h1>
-              <p className="text-white/85 mt-5 text-lg max-w-md leading-relaxed">{daysTo != null ? `You're ${daysTo} days from your next adventure to ${tripCity}. ` : ""}Let's complete your trip — beautifully.</p>
+              <p className="text-white/85 mt-5 text-lg max-w-md leading-relaxed">{daysPhrase}Let's complete your trip — beautifully.</p>
               {offer ? (
                 <div className="mt-5 rounded-2xl px-4 py-3 max-w-md" style={{ background: "rgba(0,0,0,.26)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.18)" }}>
                   <div className="flex items-center gap-1.5 text-[10px] font-black tracking-wide mb-1" style={{ color: "#FFE7B0" }}>✦ {(offer.badge || "Offer of the week").toUpperCase()} · FROM YOUR TRAVEL HISTORY</div>
