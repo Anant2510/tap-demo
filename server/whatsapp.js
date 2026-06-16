@@ -315,7 +315,8 @@ async function startExpressReview(to, f) {
   const u = db.prepare("SELECT full_name, tier, member_no, card_brand, card_last4 FROM users WHERE id=1").get() || {};
   const tier = (u.tier || "Gold").toUpperCase();
   const miles = Math.round(priced.gross * 11);
-  await saveJourneyWA("review", d);
+  // Standalone express flow — does NOT write the shared journey, so it never
+  // collides with "Resume your search" (which tracks the normal step-by-step flow).
   await sendButtons(to,
 `⚡ *Express checkout — your usual flight*
 ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
@@ -352,7 +353,7 @@ async function handleAction(to, id) {
     await sendText(to, `↩️ Picking up where you left off — ${cityName(f.origin)} → ${cityName(f.dest)}, ${({seat:"choosing your seat",extras:"adding extras",review:"reviewing & payment"})[j.stage] || "your booking"}.`);
     if (j.stage === "seat") return startSeatStep(to, f);
     if (j.stage === "extras") return startExtrasStep(to);
-    if (j.stage === "review") return startExpressReview(to, f);
+    if (j.stage === "review") return startCheckoutReview(to);
     return startSeatStep(to, f);
   }
   if (id === "START_FRESH") {

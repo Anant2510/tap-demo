@@ -595,10 +595,10 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
         </div>
       </header>
 
-      {/* ── Hero (green #46A41A over the destination city) ── */}
+      {/* ── Hero (magenta→coral over the destination city) ── */}
       <section className="relative overflow-hidden">
         <CityImg code={tripDest} alt={tripCity} className="absolute inset-0 w-full h-full object-cover"/>
-        <div className="absolute inset-0" style={{ background: "linear-gradient(115deg, rgba(45,105,16,.95) 0%, rgba(70,164,26,.9) 48%, rgba(70,164,26,.8) 100%)" }}/>
+        <div className="absolute inset-0" style={{ background: "linear-gradient(115deg, rgba(86,28,98,.94) 0%, rgba(176,40,116,.88) 42%, rgba(240,104,58,.82) 100%)" }}/>
         <div className="relative max-w-[1180px] mx-auto px-5 pt-4 pb-24 lg:pb-28">
           <div className="grid lg:grid-cols-[1.35fr_1fr] gap-8 items-start">
             {/* Left: greeting + headline */}
@@ -2855,7 +2855,7 @@ function App() {
   const [seat, setSeat] = useState("");
 
   // ── Cross-channel journey: stage ↔ web screen, and save/restore helpers ──
-  const STAGE_SCREEN = { results: "search", seat: "seatmap", extras: "basket", review: "express" };
+  const STAGE_SCREEN = { results: "search", seat: "seatmap", extras: "basket", review: "checkout" };
   const STAGE_LABEL = { results: "Choosing a flight", seat: "Selecting a seat", extras: "Adding extras", review: "Reviewing & payment" };
   // Persist the current step to the shared journey (fire-and-forget).
   const saveJourney = (stage, extra = {}) => {
@@ -2903,7 +2903,7 @@ function App() {
   // Reactively persist the cross-channel journey as the user moves through the
   // web booking funnel, so any channel can resume at the exact step + selections.
   useEffect(() => {
-    const SCREEN_STAGE = { seatmap: "seat", basket: "extras", checkout: "review", express: "review" };
+    const SCREEN_STAGE = { seatmap: "seat", basket: "extras", checkout: "review" };
     const stage = SCREEN_STAGE[screen];
     if (stage && flight?.flight_no) {
       saveJourney(stage, { flight_no: flight.flight_no, origin: flight.origin, dest: flight.dest, seat: seat || undefined, items });
@@ -2974,8 +2974,8 @@ function App() {
     setFlight(usual);
     const seatPref = (profile?.prefs?.seat || "").split(" ")[0] || "";
     setSeat(seatPref);
-    await api.post("/basket", { flight_no: usual.flight_no, items });
-    saveJourney("review", { flight_no: usual.flight_no, origin: usual.origin, dest: usual.dest, seat: seatPref, items });
+    // Express checkout is a standalone 2-step flow — it deliberately does NOT write
+    // the shared cross-channel journey, so it never collides with "Resume your search".
     go("express");
   };
   const toggleItem = async (code) => {
