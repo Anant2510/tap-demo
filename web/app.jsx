@@ -2250,7 +2250,7 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
       setMsgs(m => [...m, { role: "user", content: "Resume my search" }, { role: "assistant", content: `↩️ Reopening your ${resumeRoute || "search"} where you left off — finish it on screen now.` }]);
       onCommand?.({ action: "resume" });
     } else {
-      setMsgs(m => [...m, { role: "user", content: "Express checkout my usual flight" }, { role: "assistant", content: `⚡ Opening Express checkout for your usual ${usualRoute}${recLabel ? ` · recommended ${recLabel}` : ""} — seat, bags, saved card${tier ? ` and ${tier} perks` : ""} are pre-filled. Just confirm to pay.` }]);
+      setMsgs(m => [...m, { role: "user", content: "Express checkout my usual flight" }, { role: "assistant", content: `⚡ Opening Express checkout for your usual ${usualRoute}${recLabel ? ` · recommended ${recLabel}` : ""} — seat, bags, saved card${tier ? ` and ${tier} perks` : ""} are pre-filled. Say "pay" here to confirm, or use the sheet on screen.` }]);
       onCommand?.({ action: "express" });
     }
   };
@@ -3013,7 +3013,9 @@ function App() {
   const openExpress = async () => {
     const o = profile?.pattern?.origin || profile?.user?.home_airport || "OPO";
     const dst = profile?.pattern?.dest || "LIS";
-    const f = await api.get(`/flights?dest=${dst}&origin=${o}`);
+    let f = [];
+    try { f = await api.get(`/flights?dest=${dst}&origin=${o}`); } catch { f = []; }
+    if (!Array.isArray(f) || !f.length) { toast("Couldn't open express checkout", `${cityName(o)} → ${cityName(dst)} — try search instead.`); go("search"); return; }
     setFlights(f);
     const usual = f.find(x => x.flight_no === (profile?.pattern?.topFlight)) || f.find(x => x.recommended) || f[0];
     if (!usual) { toast("No usual flight found", `${cityName(o)} → ${cityName(dst)}`); go("search"); return; }

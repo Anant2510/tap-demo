@@ -845,8 +845,22 @@ function agentRunTool(name, input, session) {
       note: `Moved you to ${target} (${seatCabinLabel(target)})${newPrice === 0 ? ", included with " + tier : ", €" + newPrice}${diff > 0 ? ` (+€${diff})` : diff < 0 ? ` (−€${-diff})` : ""}.` };
   }
   if (name === "checkout") {
-    const sel = session.selected;
-    if (!sel) return { ok: false, message: "No flight selected to pay for." };
+    let sel = session.selected;
+    if (!sel) {
+      // Fall back to the open basket (e.g. express started from a chip/home didn't run
+      // select_flight in this chat session), then to the customer's usual flight.
+      const b = db.prepare("SELECT flight_no, items_json FROM baskets WHERE user_id=1 AND status='open' ORDER BY id DESC LIMIT 1").get();
+      if (b && b.flight_no) { let it = []; try { it = JSON.parse(b.items_json || "[]"); } catch {} sel = { flight_no: b.flight_no, items: it, seat: prefSeat() }; }
+    }
+    if (!sel) {
+      const home = (db.prepare("SELECT home_airport FROM users WHERE id=1").get() || {}).home_airport || "OPO";
+      const row = db.prepare("SELECT route FROM travel_history WHERE user_id=1 AND route LIKE ? GROUP BY route ORDER BY COUNT(*) DESC LIMIT 1").get(home + "→%")
+        || db.prepare("SELECT route FROM travel_history WHERE user_id=1 GROUP BY route ORDER BY COUNT(*) DESC LIMIT 1").get();
+      const fr = row ? db.prepare("SELECT flight_no FROM travel_history WHERE user_id=1 AND route=? GROUP BY flight_no ORDER BY COUNT(*) DESC LIMIT 1").get(row.route) : null;
+      const uf = fr ? flightByNo((fr.flight_no || "").toUpperCase()) : null;
+      if (uf) { const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code); sel = { flight_no: uf.flight_no, items: auto, seat: prefSeat() }; }
+    }
+    if (!sel) return { ok: false, message: "No flight selected to pay for. Tell me where you'd like to fly, or tap Express checkout for your usual flight." };
     const f = flightByNo(sel.flight_no);
     const basket = basketTotal(sel);
     const gross = basket.total;
@@ -950,6 +964,15 @@ function agentRunTool(name, input, session) {
     const DOWS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], MONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const recommendedDate = d.toISOString().slice(0, 10);
     const recommendedLabel = `${DOWS[d.getUTCDay()]} ${d.getUTCDate()} ${MONS[d.getUTCMonth()]}`;
+    // Queue the usual flight into the basket + session so a follow-up "pay" in chat
+    // (or after tapping the Express chip) has something to check out.
+    const uf = flightByNo((fr?.flight_no || "").toUpperCase());
+    if (uf) {
+      const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code);
+      db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
+      db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)").run(uf.flight_no, JSON.stringify(auto), now());
+      session.selected = { flight_no: uf.flight_no, items: auto, seat: prefSeat() };
+    }
     return { ok: true, route: `${cityName(o)}→${cityName(dst)}`, origin: o, dest: dst, flight_no: fr?.flight_no || "", recommendedDate, recommendedLabel };
   }
   if (name === "check_in") {
@@ -1093,7 +1116,7 @@ function deterministicAgent(text, session) {
   if ((has("express") || has("book", "checkout", "complete", "rebook")) && has("usual", "regular", "same as always", "same flight")) {
     const r = run("express_usual");
     return done(r.ok
-      ? `Opening Express checkout for your usual ${r.route}${r.recommendedLabel ? ` · recommended ${r.recommendedLabel}` : ""} — your seat, bags, saved card and tier perks are already pre-filled. Just confirm to pay.`
+      ? `Opening Express checkout for your usual ${r.route}${r.recommendedLabel ? ` · recommended ${r.recommendedLabel}` : ""} — your seat, bags, saved card and tier perks are already pre-filled. Say "pay" here to confirm, or use the on-screen sheet.`
       : (r.message || "I couldn't load your usual flight just now — try the menu."));
   }
   // cancel
@@ -1112,7 +1135,7 @@ function deterministicAgent(text, session) {
     return done(r.message || "You have no upcoming flight to check in for.");
   }
   // wallet / miles / voucher
-  if (has("miles", "voucher", "balance", "points", "wallet") || (has("pay") && has("with"))) {
+  if (has("miles", "voucher", "balance", "points", "wallet") || (/\bpay with\b/.test(q) && has("miles", "voucher", "card", "points")) || has("what can i pay", "how can i pay", "how do i pay", "payment method")) {
     const r = run("get_wallet");
     const v = r.voucher && r.voucher.available ? ` Your voucher ${r.voucher.code} is worth €${r.voucher.amount}.` : "";
     return done(`You have ${r.miles.toLocaleString()} miles (≈ €${r.miles_value_eur}).${v} Any booking can be split across miles, voucher and your ${r.card}.`);
@@ -1149,10 +1172,16 @@ function deterministicAgent(text, session) {
     const r = run("get_flight_info", { flight_no: "TP" + fno });
     return done(r.ok ? `${r.flight_no} ${r.route} departs ${r.dep}, arrives ${r.arr}, €${r.price}. ${r.note}` : (r.message || "I don't have that flight yet."));
   }
-  // checkout / pay
-  if (has("check out", "checkout", "pay now", "book it", "complete booking", "confirm booking", "purchase")) {
+  // checkout / pay — confirm payment for the queued flight (express, search, or usual)
+  const queued = !!(session.selected || db.prepare("SELECT 1 FROM baskets WHERE user_id=1 AND status='open' LIMIT 1").get());
+  const payConfirm = has("check out", "checkout", "pay now", "book it", "complete booking", "confirm booking", "purchase",
+    "proceed with payment", "proceed to payment", "proceed to pay", "proceed with the payment", "confirm payment", "confirm the payment",
+    "complete payment", "complete the payment", "make payment", "make the payment", "pay & confirm", "pay and confirm",
+    "confirm and pay", "confirm & pay", "finalize payment", "finalise payment", "pay for it", "just pay");
+  const shortYes = queued && /^(yes|yep|yeah|sure|ok|okay|confirm|go ahead|do it|proceed|pay|please pay|pay it|let'?s do it|sounds good|confirm it)[\s.!]*$/i.test(q.trim());
+  if (payConfirm || shortYes) {
     const r = run("checkout", {});
-    if (r.ok) return done(`Booked ✅ PNR ${r.pnr} — ${r.route}, departs ${r.dep}. Paid: voucher €${r.split.voucher}, ${r.split.miles} miles, card €${r.split.card}.`);
+    if (r.ok) return done(`✅ Payment confirmed — booking ${r.pnr}. ${r.route}, departing ${r.dep}. €${r.total} settled (voucher €${r.split.voucher} · ${r.split.miles.toLocaleString()} miles · card €${r.split.card}). Your confirmation is on screen now.`);
     return done(r.message || "Pick a flight first and I'll check you out.");
   }
   // add / remove extras
