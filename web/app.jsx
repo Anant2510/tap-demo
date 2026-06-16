@@ -499,6 +499,12 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const sDest = tripDest;                               // profiled search destination
   const sDate = (ss && ss.travel_date) || null;         // pre-filled timeframe
   const homeCity = cityName(home), destCity = cityName(dest), tripCity = cityName(tripDest);
+  // Editable flight search — defaults to the profiled route/dates, but ANY of the 92
+  // network airports can be typed and searched. Re-syncs to the profile on persona switch.
+  const [fromCode, setFromCode] = useState(sOrigin);
+  const [toCode, setToCode] = useState(sDest);
+  const [depDate, setDepDate] = useState(sDate || "");
+  useEffect(() => { setFromCode(sOrigin); setToCode(sDest); setDepDate(sDate || ""); }, [sOrigin, sDest, sDate]);
   const initials = u.full_name.split(" ").map(w => w[0]).slice(0, 2).join("");
   const usualPrice = pat.usualPrice != null ? pat.usualPrice : 201;
 
@@ -529,6 +535,12 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
     toast("Personalized offer emailed", `"${r.offer.subject}" → ${r.email.to} · ${r.email.status}`);
   };
   const doSearch = () => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Your ${homeCity} ⇄ ${tripCity} route — dates pre-filled from your trip.` });
+  const doWidgetSearch = () => {
+    if (!fromCode || !toCode) { toast("Pick a route", "Choose where you're flying from and to."); return; }
+    if (fromCode === toCode) { toast("Same airports", "Origin and destination can't match."); return; }
+    bookDestination({ code: toCode, origin: fromCode, date: depDate || sDate, reason: `${cityName(fromCode)} → ${cityName(toCode)}${(depDate || sDate) ? " · " + fmtDate(depDate || sDate) : ""} — your search.` });
+  };
+  const swapEnds = () => { setFromCode(toCode); setToCode(fromCode); };
 
   const TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
   const onTab = (t) => { if (t === "Flight Status") return go("status"); setTab(t); if (t !== "Flights") toast(t, "This demo wires the Flights flow end-to-end; the other tabs are illustrative."); };
@@ -675,14 +687,21 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
         <div className="relative max-w-[1180px] mx-auto px-5 -mt-32 lg:-mt-36 pb-2">
           <div className="bg-white rounded-3xl shadow-2xl border p-5 sm:p-6" style={{ borderColor: "var(--tap-line)" }}>
             <div className="flex flex-wrap items-center gap-1 mb-4">
-              {TABS.map(t => (
-                <button key={t} onClick={() => onTab(t)} className="px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors"
-                  style={t === tab ? { background: "#E7F7EE", color: "var(--tap-deep)" } : { color: "#5b6b63" }}>{t}</button>
-              ))}
+              {TABS.map(t => {
+                const enabled = t === "Flights" || t === "Flight Status";
+                const active = t === "Flights";
+                return (
+                  <button key={t} disabled={!enabled}
+                    onClick={enabled && t === "Flight Status" ? () => go("status") : undefined}
+                    title={enabled ? undefined : "Coming soon"}
+                    className={`px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${enabled ? "" : "cursor-not-allowed"}`}
+                    style={active ? { background: "#E7F7EE", color: "var(--tap-deep)" } : enabled ? { color: "#5b6b63" } : { color: "#c3ccc7" }}>{t}</button>
+                );
+              })}
             </div>
             <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2 rounded-xl" style={{ background: "#EAF8F0" }}>
               <div className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: "var(--tap-deep)" }}><Sparkles size={14} style={{ color: "var(--tap-green)" }}/> We loaded your upcoming trip · adjust or search something new</div>
-              <button onClick={() => { startFresh(ss); toast("Cleared", "Starting a fresh search."); }} className="text-[13px] font-bold text-gray-500 hover:text-gray-700">Clear</button>
+              <button onClick={() => { setToCode(""); setDepDate(""); toast("Cleared", "Pick any destination and dates to search."); }} className="text-[13px] font-bold text-gray-500 hover:text-gray-700">Clear</button>
             </div>
             {profile.recentSearches && profile.recentSearches.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-4">
@@ -704,21 +723,16 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                 Add Portugal Stopover <span className="text-gray-400 font-normal">· free, up to 10 days</span>
               </div>
             </div>
-            <div className="grid lg:grid-cols-[1fr_auto_1fr_1.1fr_auto] gap-3 items-stretch">
-              <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--tap-line)" }}>
-                <div className="text-[10px] font-bold tracking-wide text-gray-400">FROM</div>
-                <div className="font-display font-black text-lg" style={{ color: "var(--tap-ink)" }}>{home} <span className="text-xs font-semibold text-gray-400">{homeCity}</span></div>
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
+              <AirportInput label="From" value={fromCode} onChange={setFromCode} icon={<Plane size={12} className="text-gray-400"/>}/>
+              <button onClick={swapEnds} className="lg:mb-1 self-center w-9 h-9 rounded-full border flex items-center justify-center text-gray-500 shrink-0 hover:bg-gray-50" style={{ borderColor: "var(--tap-line)" }} aria-label="Swap origin and destination"><ArrowLeftRight size={15}/></button>
+              <AirportInput label="To" value={toCode} onChange={setToCode} icon={<MapPin size={12} className="text-gray-400"/>}/>
+              <div className="flex-1 min-w-[150px]">
+                <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1"><Calendar size={12}/> Depart</label>
+                <input type="date" value={depDate || ""} min="2026-06-15" onChange={(e) => setDepDate(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}/>
               </div>
-              <button className="self-center w-9 h-9 rounded-full border flex items-center justify-center text-gray-500 shrink-0" style={{ borderColor: "var(--tap-line)" }} aria-label="Swap"><ArrowLeftRight size={15}/></button>
-              <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--tap-line)" }}>
-                <div className="text-[10px] font-bold tracking-wide text-gray-400">TO</div>
-                <div className="font-display font-black text-lg" style={{ color: "var(--tap-ink)" }}>{tripDest} <span className="text-xs font-semibold text-gray-400">{tripCity}</span></div>
-              </div>
-              <div className="rounded-2xl border px-4 py-3 flex items-center gap-2.5" style={{ borderColor: "var(--tap-line)" }}>
-                <Calendar size={16} className="text-gray-400 shrink-0"/>
-                <div><div className="text-[10px] font-bold tracking-wide text-gray-400">DEPART — RETURN</div><div className="font-bold text-[15px]" style={{ color: "var(--tap-ink)" }}>{fmtDate(ss && ss.travel_date) || "Pick dates"} {stopover && <span className="text-[11px] font-semibold text-gray-400">· Stopover 3N</span>}</div></div>
-              </div>
-              <button onClick={doSearch} className="rounded-2xl px-6 py-3 font-bold text-white inline-flex items-center justify-center gap-2 shadow-lg" style={{ background: "var(--tap-green)" }}><Sparkles size={17}/> Search from {EUR(usualPrice)}</button>
+              <button onClick={doWidgetSearch} className="rounded-xl px-6 py-2.5 font-bold text-white inline-flex items-center justify-center gap-2 shadow-lg shrink-0" style={{ background: "var(--tap-green)" }}><Search size={17}/> Search</button>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
               <div className="flex items-center gap-5">
