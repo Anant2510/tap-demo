@@ -628,7 +628,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                   <span className="text-base leading-none mt-0.5" style={{ color: "#FFE7B0" }}>✦</span>
                   <div>
                     <div className="text-[10px] font-black tracking-wide" style={{ color: "#FFE7B0" }}>THIS WEEK FOR YOU · FROM YOUR TRAVEL HISTORY</div>
-                    <div className="text-white text-[13px] font-semibold mt-0.5">Your usual {homeCity} → {destCity} from {EUR(usualPrice)} — earn double {u.tier} miles.</div>
+                    <div className="text-white text-[13px] font-semibold mt-0.5">Your usual {homeCity} → {destCity} from {EUR(usualPrice)} — earn double {u.tier} miles.{pat.recommendedLabel ? ` Next: ${pat.recommendedLabel}.` : ""}</div>
                   </div>
                 </div>
               )}
@@ -676,6 +676,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                   <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide" style={{ color: "var(--tap-green)" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--tap-green)" }}/> BOOK YOUR USUAL FLIGHT</div>
                   <div className="font-display font-extrabold text-xl mt-2">{homeCity}–{destCity}</div>
                   <div className="text-[12px] text-white/70 mt-1">{pat.topFlight} · {pat.usualDep}{pat.usualPrice != null ? ` · ${EUR(pat.usualPrice)}` : ""}</div>
+                  {pat.recommendedLabel && <div className="text-[11px] mt-1.5 inline-flex items-center gap-1 font-semibold" style={{ color: "var(--tap-green)" }}><Calendar size={12}/> Recommended: {pat.recommendedLabel}</div>}
                   <button onClick={openExpress} className="w-full mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold" style={{ background: "var(--tap-green)", color: "#06210F" }}><Zap size={15}/> Express checkout</button>
                   <button onClick={bookUsual} className="w-full mt-2 text-[12px] font-semibold text-white/70 inline-flex items-center justify-center gap-1">or search this route <ArrowRight size={13}/></button>
                 </div>
@@ -703,6 +704,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                   <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide mb-2" style={{ color: "var(--tap-green)" }}><Repeat size={13}/> BOOK YOUR USUAL FLIGHT</div>
                   <div className="flex items-center gap-2 font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>{cityName(sOrigin)} <ArrowRight size={15} style={{ color: "var(--tap-green)" }}/> {destCity}</div>
                   <div className="text-[12px] text-gray-500 mt-1">{pat.topFlight}{pat.usualDep ? ` · ${pat.usualDep}` : ""}{pat.usualPrice != null ? ` · ${EUR(pat.usualPrice)}` : ""}</div>
+                  {pat.recommendedLabel && <div className="text-[11px] mt-1 inline-flex items-center gap-1 font-semibold" style={{ color: "var(--tap-green)" }}><Calendar size={12}/> Recommended: {pat.recommendedLabel}</div>}
                   <button onClick={openExpress} className="w-full mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-white" style={{ background: "var(--tap-green)" }}><Zap size={15}/> Express checkout</button>
                   <button onClick={() => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Your usual ${cityName(sOrigin)} → ${destCity} route.` })} className="w-full mt-2 text-[12px] font-semibold text-gray-500 inline-flex items-center justify-center gap-1">or search this route <ArrowRight size={13}/></button>
                 </div>
@@ -2209,7 +2211,17 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
   const firstName = profile?.user?.first_name || "there";
   const d1 = cityName(profile?.pattern?.dest || profile?.user?.home_airport || "LIS");
   const d2 = cityName((profile?.pattern?.searchedDests && profile.pattern.searchedDests[0]?.code) || profile?.user?.home_airport || "OPO");
-  const [msgs, setMsgs] = useState([{ role: "assistant", content: `Hi ${firstName} ✈️ Tell me where you want to go and when — I'll plan the rest.` }]);
+  const pat = profile?.pattern || {};
+  const ssOpen = profile?.syncedSearch;
+  const inProgress = !!(ssOpen && ssOpen.dest);
+  const usualRoute = `${cityName(pat.origin || profile?.user?.home_airport || "OPO")} → ${cityName(pat.dest || "LIS")}`;
+  const resumeRoute = inProgress ? `${cityName(ssOpen.origin)} → ${cityName(ssOpen.dest)}` : "";
+  const recLabel = pat.recommendedLabel || "";
+  const tier = profile?.user?.tier || "";
+  const greeting = `Hi ${firstName} ✈️ Tell me where you want to go and when — I'll plan the rest.`
+    + (inProgress ? `\n\n↩️ You have a search in progress (${resumeRoute}) — tap "Resume your search" below to finish it.` : "")
+    + `\n\n⚡ Or book your usual ${usualRoute}${recLabel ? ` for ${recLabel}` : ""} in two taps with Express checkout.`;
+  const [msgs, setMsgs] = useState([{ role: "assistant", content: greeting }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
@@ -2228,6 +2240,19 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
       setMsgs(m => [...m, { role: "assistant", content: "Something went wrong reaching the agent — try again." }]);
     }
     setBusy(false);
+  };
+
+  // Direct actions (resume / express) — drive the main screen via onCommand, with a
+  // confirming bubble. These don't round-trip the agent, so they work in any mode.
+  const act = (kind) => {
+    if (busy) return;
+    if (kind === "resume") {
+      setMsgs(m => [...m, { role: "user", content: "Resume my search" }, { role: "assistant", content: `↩️ Reopening your ${resumeRoute || "search"} where you left off — finish it on screen now.` }]);
+      onCommand?.({ action: "resume" });
+    } else {
+      setMsgs(m => [...m, { role: "user", content: "Express checkout my usual flight" }, { role: "assistant", content: `⚡ Opening Express checkout for your usual ${usualRoute}${recLabel ? ` · recommended ${recLabel}` : ""} — seat, bags, saved card${tier ? ` and ${tier} perks` : ""} are pre-filled. Just confirm to pay.` }]);
+      onCommand?.({ action: "express" });
+    }
   };
 
   if (!open) return null;
@@ -2260,6 +2285,13 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
         </div>
         {/* chips + input */}
         <div className="p-3 border-t bg-white" style={{ borderColor: "var(--tap-line)" }}>
+          {/* primary actions — resume an in-progress search + express-checkout the usual flight */}
+          <div className="flex flex-wrap gap-2 mb-2">
+            {inProgress && (
+              <button onClick={() => act("resume")} className="text-[12px] font-bold px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 text-white" style={{ background: "var(--tap-green)" }}><RotateCcw size={13}/> Resume your search</button>
+            )}
+            <button onClick={() => act("express")} className="text-[12px] font-bold px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 text-white" style={{ background: "var(--tap-green)" }}><Zap size={13}/> Express · your usual{recLabel ? ` · ${recLabel}` : ""}</button>
+          </div>
           <div className="flex flex-wrap gap-2 mb-2.5">
             {chips.map(s => (
               <button key={s} onClick={() => send(s)} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={{ background: "#F1F3F2", color: "var(--tap-deep)" }}>{s}</button>
@@ -3021,6 +3053,20 @@ function App() {
         setFlight(latest.flight);
         setReceipt({ pnr: cmd.pnr, flight: latest.flight });
         go("confirmed");
+      }
+    } else if (cmd.action === "express") {
+      // chat → open the 2-step Express Checkout for the usual flight
+      setAssistantOpen(false);
+      openExpress();
+    } else if (cmd.action === "resume") {
+      // chat → reopen the in-progress search/booking at the saved step
+      setAssistantOpen(false);
+      const ss = profile?.syncedSearch;
+      if (ss && ss.dest) {
+        let it = []; try { it = ss.items_json ? JSON.parse(ss.items_json) : []; } catch {}
+        resumeJourney({ origin: ss.origin, dest: ss.dest, date: ss.travel_date, stage: ss.stage || "results", flight_no: ss.flight_no, seat: ss.seat, items: it, cabin: ss.cabin });
+      } else {
+        go("search");
       }
     }
   };

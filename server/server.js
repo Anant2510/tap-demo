@@ -224,6 +224,21 @@ app.get("/api/profile", (req, res) => {
   try { usualPrice = db.prepare("SELECT price FROM flights WHERE flight_no=? ORDER BY id DESC LIMIT 1").get(topFlight)?.price ?? null; } catch {}
   const [usualOrigin, usualDest] = topRoute.split("→");
 
+  // Recommended next date for the usual flight = the next occurrence of the weekday
+  // the customer usually flies it (relative to today, 2026-06-15). Surfaced wherever
+  // we offer express checkout of the usual flight (home, web chat, WhatsApp).
+  const MONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let recommendedDate = null, recommendedLabel = "";
+  {
+    const TODAY = new Date("2026-06-15T00:00:00Z");
+    const dow = topOut ? new Date(topOut.trip_date).getUTCDay() : NaN;
+    const d = new Date(TODAY);
+    if (Number.isNaN(dow)) d.setUTCDate(d.getUTCDate() + 7);
+    else { const days = (dow - TODAY.getUTCDay() + 7) % 7 || 7; d.setUTCDate(d.getUTCDate() + days); }
+    recommendedDate = d.toISOString().slice(0, 10);
+    recommendedLabel = `${dows[d.getUTCDay()]} ${d.getUTCDate()} ${MONS[d.getUTCMonth()]}`;
+  }
+
   const pattern = {
     route: topRoute.replace("→", " ⇄ "),
     topRoute, topFlight,
@@ -234,6 +249,7 @@ app.get("/api/profile", (req, res) => {
     usualOutNo: topFlight || "", usualBackNo: backFlight || "",
     usualDep: topOut?.dep_time || "",
     usualPrice,
+    recommendedDate, recommendedLabel,
     destCounts,
     searchedDests,
   };
@@ -586,7 +602,7 @@ app.post("/api/ai/chat", async (req, res) => {
    `cards` render inline in the chat; `command` tells the main screen
    what to do (chat is primary, screen follows). ─────────────────── */
 const AGENT_TOOLS = [
-  { name: "search_flights", description: "Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is 2026-06-11).",
+  { name: "search_flights", description: "Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is 2026-06-15).",
     input_schema: { type: "object", properties: {
       origin: { type: "string", description: "Origin IATA code, e.g. OPO. If the customer didn't specify an origin, use the customer's home airport." },
       dest: { type: "string", description: "Destination IATA code, e.g. LIS, MAD, CDG. REQUIRED — never guess this. If unknown, call list_destinations instead." },
@@ -625,6 +641,8 @@ const AGENT_TOOLS = [
   { name: "get_recommendation", description: "Get the customer's personalized experiential PACKAGE — derived from their co-branded TAP credit-card spend. Each customer has an affinity (football / golf / music) and a matching bundle of event ticket + hotel + return flight. Use when they ask 'any packages for me', 'what should I do this weekend', 'recommend something', 'anything fun in <city>', or react to their interest. Returns the affinity, the rationale (which card-spend category drove it), and the full package with prices (and any add-on like a golf-bag).",
     input_schema: { type: "object", properties: {} } },
   { name: "get_journey", description: "Get the customer's UNFINISHED booking journey shared across web, this chat, and WhatsApp. Use when they say 'where was I', 'continue/resume my booking', 'pick up where I left off', 'did I have something going', or otherwise reference an in-progress booking. Returns the stage they left at (results/seat/extras/review), the route, and their selections (flight, seat, add-ons). After calling it, re-select that flight with select_flight if one was chosen, then guide them from that exact step — do NOT restart from scratch.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "express_usual", description: "Open the 2-step Express Checkout for the customer's USUAL flight — their recurring route with seat, bags, saved card and tier perks pre-filled. Use when they say 'book my usual', 'express checkout my usual flight', 'rebook my regular route'. Returns the route, the usual flight number and the recommended next date; the app then opens Express Checkout.",
     input_schema: { type: "object", properties: {} } },
   { name: "check_in", description: "Check the customer in for their current active booking. Issues the boarding pass. Use when they say 'check me in' or 'check in'.",
     input_schema: { type: "object", properties: {} } },
@@ -914,6 +932,26 @@ function agentRunTool(name, input, session) {
     const f = flightByNo(b.flight_no) || {};
     return { ok: true, booking: { pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, seat: b.seat, status: f.status, checked_in: !!b.checked_in } };
   }
+  if (name === "express_usual") {
+    // The customer's recurring route + the recommended next date for it. Mirrors the
+    // /api/profile pattern logic so chat, home and WhatsApp agree. Emits an "express"
+    // command (see buildUI) that opens the 2-step Express Checkout on the web screen.
+    const home = (db.prepare("SELECT home_airport FROM users WHERE id=1").get() || {}).home_airport || "OPO";
+    const row = db.prepare("SELECT route, COUNT(*) c FROM travel_history WHERE user_id=1 AND route LIKE ? GROUP BY route ORDER BY c DESC LIMIT 1").get(home + "→%")
+      || db.prepare("SELECT route, COUNT(*) c FROM travel_history WHERE user_id=1 GROUP BY route ORDER BY c DESC LIMIT 1").get();
+    const topRoute = row?.route || `${home}→LIS`;
+    const [o, dst] = topRoute.split("→");
+    const fr = db.prepare("SELECT flight_no, trip_date FROM travel_history WHERE user_id=1 AND route=? GROUP BY flight_no ORDER BY COUNT(*) DESC LIMIT 1").get(topRoute);
+    const TODAY = new Date("2026-06-15T00:00:00Z");
+    const dow = fr?.trip_date ? new Date(fr.trip_date).getUTCDay() : NaN;
+    const d = new Date(TODAY);
+    if (Number.isNaN(dow)) d.setUTCDate(d.getUTCDate() + 7);
+    else { const days = (dow - TODAY.getUTCDay() + 7) % 7 || 7; d.setUTCDate(d.getUTCDate() + days); }
+    const DOWS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], MONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const recommendedDate = d.toISOString().slice(0, 10);
+    const recommendedLabel = `${DOWS[d.getUTCDay()]} ${d.getUTCDate()} ${MONS[d.getUTCMonth()]}`;
+    return { ok: true, route: `${cityName(o)}→${cityName(dst)}`, origin: o, dest: dst, flight_no: fr?.flight_no || "", recommendedDate, recommendedLabel };
+  }
   if (name === "check_in") {
     const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
     if (!b) return { ok: false, state: "no_booking", message: "You have no upcoming flight to check in for." };
@@ -984,6 +1022,8 @@ function buildUI(toolCalls) {
     } else if (tc.name === "cancel_booking" && tc.result?.ok && tc.result.state === "cancelled") {
       cards = [{ type: "cancelled", ...tc.result }];
       command = { action: "navigate", screen: "manage" };
+    } else if (tc.name === "express_usual" && tc.result?.ok) {
+      command = { action: "express" };   // opens the 2-step Express Checkout on the web screen
     }
   }
   return { cards, command };
@@ -1047,6 +1087,14 @@ function deterministicAgent(text, session) {
     if (j.in_progress) { if (j.flight_no) run("select_flight", { flight_no: j.flight_no });
       return done(`You left off at the "${j.stage}" step on ${j.route} (${j.date}). I've reloaded your selections — want to keep going from there?`); }
     return done("You don't have an unfinished booking right now. Tell me where you'd like to fly and I'll search.");
+  }
+  // express checkout of the USUAL flight — "book my usual", "express checkout my usual",
+  // "my regular flight". Opens the 2-step Express Checkout (command from express_usual).
+  if ((has("express") || has("book", "checkout", "complete", "rebook")) && has("usual", "regular", "same as always", "same flight")) {
+    const r = run("express_usual");
+    return done(r.ok
+      ? `Opening Express checkout for your usual ${r.route}${r.recommendedLabel ? ` · recommended ${r.recommendedLabel}` : ""} — your seat, bags, saved card and tier perks are already pre-filled. Just confirm to pay.`
+      : (r.message || "I couldn't load your usual flight just now — try the menu."));
   }
   // cancel
   if (has("cancel")) {
@@ -1129,9 +1177,25 @@ function deterministicAgent(text, session) {
     const r = run("get_suggestions");
     return done(`Based on how you fly, you might like ${(r.suggestions || []).slice(0, 4).map(s => s.city).join(", ")}. Want me to search any of these?`);
   }
+  // date-only follow-up on an active route — "for the 20th", "how about June 20",
+  // "what about tomorrow", "make it the 20th". Re-runs the SAME route for the new
+  // date (mirrors WhatsApp) instead of falling through to the generic menu.
+  {
+    const followDate = whatsapp.parseDate(q);
+    const ls = session.lastSearch;
+    const namesNewCity = !!parseRoute(text, homeCode).dest;
+    const looksLikeFollowup = followDate && (/\b(how about|what about|and|same|that route|those|again|instead|make it|change.*date|different date|for the|on the)\b/.test(q) || q.trim().split(/\s+/).length <= 6);
+    if (ls && ls.dest && followDate && !namesNewCity && looksLikeFollowup) {
+      const r = run("search_flights", { origin: ls.origin, dest: ls.dest, date: followDate });
+      if (r.ok) { const lo = Math.min(...r.flights.map(f => f.price)); return done(`Found ${r.flights.length} flights ${cityName(r.origin)}→${r.city} on ${r.date}, from €${lo}. Pick one below, or say a flight number to add it.`); }
+      return done(r.message || "I couldn't find that route on that date — want to try another date?");
+    }
+  }
   // flight search (route)
   if (has("flight", "fly", "search", "go to", "travel", "trip", "book") || / to /.test(q)) {
-    const { origin, dest } = parseRoute(text, homeCode);
+    let { origin, dest } = parseRoute(text, homeCode);
+    const ls = session.lastSearch;
+    if (!dest && ls && ls.dest) { origin = ls.origin; dest = ls.dest; } // keep active route when only the date changed
     const date = whatsapp.parseDate(q) || "2026-06-15";
     if (!dest) {
       const r = run("list_destinations", { origin });

@@ -200,14 +200,20 @@ async function sendMainMenu(to) {
   const pat = db.prepare("SELECT flight_no FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
   // If there's an unfinished cross-channel journey, surface a Resume row at the top.
   const j = await readJourney();
+  // Usual route + recommended next date, so the express option shows what & when.
+  const prof = await apiCall("GET", "/profile").catch(() => null);
+  const P = prof?.pattern || {};
+  const usualDesc = (P.origin && P.dest)
+    ? `${cityName(P.origin)}→${cityName(P.dest)}${P.recommendedLabel ? ` · ${P.recommendedLabel}` : ""} · one tap`
+    : "Your regular route, one tap";
   const STAGE_WORD = { results: "choosing a flight", seat: "seat selection", extras: "extras", review: "review & pay" };
   const rows = [];
   const map = { "0": "MENU" };
   if (j && j.stage && j.dest) {
-    rows.push({ id: "RESUME", title: "↩️ Resume booking", description: `${cityName(j.origin)}→${cityName(j.dest)} · ${STAGE_WORD[j.stage] || "in progress"}` });
+    rows.push({ id: "RESUME", title: "↩️ Resume your search", description: `${cityName(j.origin)}→${cityName(j.dest)} · ${STAGE_WORD[j.stage] || "in progress"}` });
   }
   rows.push(
-    { id: "BOOK_USUAL", title: "Book my usual flight", description: "Your regular route, one tap" },
+    { id: "BOOK_USUAL", title: "⚡ Express · my usual flight", description: usualDesc },
     { id: "MADE_FOR_YOU", title: "Made for you", description: u.affinity_label ? `${u.affinity_label} package` : "A package picked for you" },
     { id: "OFFER", title: "💎 Offer of the week", description: "Your personalized deal" },
     { id: "STOPOVER", title: "🇵🇹 Portugal stopover", description: "Free stop in Lisbon/Porto" },
@@ -319,7 +325,8 @@ async function startExpressReview(to, f) {
   // collides with "Resume your search" (which tracks the normal step-by-step flow).
   await sendButtons(to,
 `⚡ *Express checkout — your usual flight*
-${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
+${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)}
+🗓️ ${f.flight_date} (recommended) · ${f.dep}–${f.arr}
 
 👤 ${u.full_name} · ${tier} · ${u.member_no}
 💺 Seat ${d.seat || "auto"} · 🧳 cabin bag + checked 23kg
@@ -367,7 +374,8 @@ async function handleAction(to, id) {
     const pat = prof?.pattern || {};
     const origin = pat.origin || prof?.user?.home_airport || "OPO";
     const dest = pat.dest || "LIS";
-    const flights = await apiCall("GET", `/flights?dest=${dest}&origin=${origin}`);
+    const dateQ = pat.recommendedDate ? `&date=${pat.recommendedDate}` : "";
+    const flights = await apiCall("GET", `/flights?dest=${dest}&origin=${origin}${dateQ}`);
     const f = flights.find(x => x.flight_no === pat.topFlight) || flights[0];
     if (!f) { await sendText(to, "Couldn't load your usual flight — try the menu."); return sendMainMenu(to); }
     const seat = (prof?.prefs?.seat || "").split(" ")[0] || "";
@@ -864,12 +872,13 @@ function detectDest(t) {
   return null;
 }
 
-/* Parse a relative date phrase → YYYY-MM-DD. "Today" in the demo is 2026-06-15
-   — matching the UI date picker, the search defaults and the seeded data. Handles
-   today/tonight, tomorrow and day after tomorrow (incl. common chat shorthand such
-   as "tomm" / "tmrw"), weekday names, this/next weekend, "in N days" and next week,
-   plus an explicit YYYY-MM-DD. Returns null if no date phrase is present. Shared
-   with the web AI agent (server.js) so both channels resolve dates identically. */
+/* Parse a date phrase → YYYY-MM-DD. "Today" in the demo is 2026-06-15 — matching
+   the UI date picker, the search defaults and the seeded data. Handles today/tonight,
+   tomorrow and day after tomorrow (incl. chat shorthand like "tomm" / "tmrw"), weekday
+   names, this/next weekend, "in N days", next week, natural calendar dates ("20th june",
+   "june 20", "20/06", "the 20th") with optional year, and an explicit YYYY-MM-DD. Returns
+   null if no date phrase is present. Shared with the web AI agent (server.js) so both
+   channels resolve dates identically. */
 function parseDate(t) {
   const TODAY = new Date("2026-06-15T00:00:00Z");
   const iso = (d) => d.toISOString().slice(0, 10);
@@ -892,6 +901,46 @@ function parseDate(t) {
   }
   if (/\bin (\d+) days?\b/.test(t)) { const m = t.match(/\bin (\d+) days?\b/); return add(parseInt(m[1])); }
   if (/\bnext week\b/.test(t)) return add(7);
+
+  // ── Natural calendar dates ───────────────────────────────────────────────
+  // "20 june", "20th june", "20th of june", "june 20", "june 20th", "20/06",
+  // "16/06/2026", and a bare "the 20th". Year is optional; when omitted we take
+  // the NEXT occurrence (so "20 june" with today 15 Jun → this 20 Jun, but a date
+  // already past → same date next year). Numeric form is day/month (European).
+  const MON = { jan:1, january:1, feb:2, february:2, mar:3, march:3, apr:4, april:4,
+    may:5, jun:6, june:6, jul:7, july:7, aug:8, august:8, sep:9, sept:9, september:9,
+    oct:10, october:10, nov:11, november:11, dec:12, december:12 };
+  const monRe = Object.keys(MON).join("|");
+  const fromYMD = (mm, dd, yr) => {
+    if (!(mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31)) return null;
+    let y = yr ? parseInt(yr.length === 2 ? "20" + yr : yr, 10) : TODAY.getUTCFullYear();
+    let d = new Date(Date.UTC(y, mm - 1, dd));
+    if (!yr && d < TODAY) d = new Date(Date.UTC(y + 1, mm - 1, dd)); // next occurrence
+    return iso(d);
+  };
+  let dm;
+  // day-then-month: "20 june", "20th june", "20th of june", optional trailing year
+  if ((dm = t.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${monRe})\\b(?:[, ]+(\\d{4}))?`)))) {
+    const r = fromYMD(MON[dm[2]], parseInt(dm[1], 10), dm[3]); if (r) return r;
+  }
+  // month-then-day: "june 20", "june 20th", optional trailing year
+  if ((dm = t.match(new RegExp(`\\b(${monRe})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:[, ]+(\\d{4}))?`)))) {
+    const r = fromYMD(MON[dm[1]], parseInt(dm[2], 10), dm[3]); if (r) return r;
+  }
+  // numeric day/month(/year), slash only to avoid clashing with "2-3 days" etc.
+  if ((dm = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/))) {
+    const r = fromYMD(parseInt(dm[2], 10), parseInt(dm[1], 10), dm[3]); if (r) return r;
+  }
+  // bare day-of-month: "the 20th", "on the 3rd", "20th" (needs the ordinal suffix)
+  if ((dm = t.match(/\b(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b/))) {
+    const dd = parseInt(dm[1], 10);
+    if (dd >= 1 && dd <= 31) {
+      const m = TODAY.getUTCMonth(), y = TODAY.getUTCFullYear();
+      let d = new Date(Date.UTC(y, m, dd));
+      if (d < TODAY) d = new Date(Date.UTC(y, m + 1, dd)); // already past → next month
+      return iso(d);
+    }
+  }
   return null;
 }
 
