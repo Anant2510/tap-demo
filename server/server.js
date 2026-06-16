@@ -603,7 +603,7 @@ const AGENT_TOOLS = [
   { name: "get_flight_info", description: "Look up details and seat availability for a SPECIFIC flight number the customer mentions (e.g. 'does TP1481 have availability tomorrow', 'tell me about TP501'). Use this instead of asking the customer which destination — the flight number already identifies the route. Returns the flight's route, times, price, cabin classes and seat availability.",
     input_schema: { type: "object", properties: {
       flight_no: { type: "string", description: "The flight number, e.g. TP1481." },
-      date: { type: "string", description: "Optional travel date YYYY-MM-DD; 'tomorrow' relative to today (2026-06-12) is 2026-06-13." },
+      date: { type: "string", description: "Optional travel date YYYY-MM-DD; 'tomorrow' relative to today (2026-06-15) is 2026-06-16." },
     }, required: ["flight_no"] } },
   { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer). Returns the updated item list AND the recomputed basket total.",
     input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
@@ -1132,7 +1132,7 @@ function deterministicAgent(text, session) {
   // flight search (route)
   if (has("flight", "fly", "search", "go to", "travel", "trip", "book") || / to /.test(q)) {
     const { origin, dest } = parseRoute(text, homeCode);
-    const date = (text.match(/\b(20\d{2}-\d{2}-\d{2})\b/) || [])[1] || "2026-06-15";
+    const date = whatsapp.parseDate(q) || "2026-06-15";
     if (!dest) {
       const r = run("list_destinations", { origin });
       return done(r.ok ? `From ${r.originCity} you can fly to ${r.count} cities — ${r.destinations.slice(0, 6).map(d => d.city).join(", ")} and more. Which destination?` : "Where would you like to fly to?");

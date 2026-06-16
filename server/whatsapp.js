@@ -864,17 +864,22 @@ function detectDest(t) {
   return null;
 }
 
-/* Parse a relative date phrase → YYYY-MM-DD. "Today" is 2026-06-12 in the demo.
-   Handles tomorrow / day after tomorrow / weekday names / this weekend, and an
-   explicit YYYY-MM-DD. Returns null if no date phrase is present. */
+/* Parse a relative date phrase → YYYY-MM-DD. "Today" in the demo is 2026-06-15
+   — matching the UI date picker, the search defaults and the seeded data. Handles
+   today/tonight, tomorrow and day after tomorrow (incl. common chat shorthand such
+   as "tomm" / "tmrw"), weekday names, this/next weekend, "in N days" and next week,
+   plus an explicit YYYY-MM-DD. Returns null if no date phrase is present. Shared
+   with the web AI agent (server.js) so both channels resolve dates identically. */
 function parseDate(t) {
-  const TODAY = new Date("2026-06-12T00:00:00Z");
+  const TODAY = new Date("2026-06-15T00:00:00Z");
   const iso = (d) => d.toISOString().slice(0, 10);
   const add = (n) => { const d = new Date(TODAY); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+  // the many ways people write "tomorrow" in a chat box (no bare "tom" — that's a name)
+  const TM = "(?:tomorrow|tomorow|tommorow|tommorrow|tomoz|tomm|tmrw|tmw|2moro|2morrow)";
   const explicit = t.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
   if (explicit) return explicit[1];
-  if (/\bday after tomorrow\b/.test(t)) return add(2);
-  if (/\btomorrow\b/.test(t)) return add(1);
+  if (new RegExp(`\\bday after ${TM}\\b`).test(t)) return add(2);
+  if (new RegExp(`\\b${TM}\\b`).test(t)) return add(1);
   if (/\btoday\b|\btonight\b/.test(t)) return add(0);
   if (/\b(this |next )?weekend\b/.test(t)) { // next Saturday
     let d = new Date(TODAY); const days = (6 - d.getUTCDay() + 7) % 7 || 7; d.setUTCDate(d.getUTCDate() + days); return iso(d);
@@ -940,4 +945,4 @@ ${recovery.message}
 Reply:  1 to ${keep}   ·   2 to ${move}`);
 }
 
-module.exports = { handleIncoming, pushDisruption, sendMainMenu, CONFIGURED };
+module.exports = { handleIncoming, pushDisruption, sendMainMenu, CONFIGURED, parseDate };
