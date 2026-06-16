@@ -1219,10 +1219,15 @@ function Payment({ profile, flight, ancillaries, items, seat, onPaid, toast }) {
 
   const pay = async () => {
     setPaying(true);
-    const r = await api.post("/pay", { flight_no: flight.flight_no, items, total, seat: seat || (profile?.prefs?.seat || "").split(" ")[0] || undefined,
-      voucher_amt: voucherVal, miles_used: milesVal > 0 ? Math.min(milesUsed, maxMiles) : 0, miles_amt: milesVal, card_amt: cardVal });
-    toast("Confirmation email sent", `${r.email.subject} → ${r.email.to} · ${r.email.status}`);
-    onPaid({ pnr: r.pnr, total, voucherVal, milesVal, cardVal });
+    try {
+      const r = await api.post("/pay", { flight_no: flight.flight_no, items, total, seat: seat || (profile?.prefs?.seat || "").split(" ")[0] || undefined,
+        voucher_amt: voucherVal, miles_used: milesVal > 0 ? Math.min(milesUsed, maxMiles) : 0, miles_amt: milesVal, card_amt: cardVal });
+      if (!r || !r.ok) { toast("Couldn't complete payment", (r && r.error) || "Please try again."); setPaying(false); return; }
+      if (r.email) toast("Confirmation email sent", `${r.email.subject} → ${r.email.to} · ${r.email.status}`);
+      onPaid({ pnr: r.pnr, total, voucherVal, milesVal, cardVal, flight });
+    } catch (e) {
+      toast("Couldn't complete payment", "Please try again."); setPaying(false);
+    }
   };
 
   return (
@@ -1291,7 +1296,7 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
   const out = flight;
   const tierFree = u.tier === "Gold" || u.tier === "Platinum" || u.tier === "Silver";
   // synthesize the return leg from the recurring pattern (display only; books the outbound PNR)
-  const retNo = pat.usualBack || ("TP" + ((parseInt((out.flight_no || "TP1923").replace(/\D/g, "")) || 1923) + 19));
+  const retNo = pat.usualBackNo || ("TP" + ((parseInt((out.flight_no || "TP1923").replace(/\D/g, "")) || 1923) + 19));
   const addDays = (d, n) => { try { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); } catch { return d; } };
   const outDate = out.flight_date, retDate = addDays(outDate, 2);
   const ret = { flight_no: retNo, origin: out.dest, dest: out.origin, dep: "19:10", arr: "20:05" };
@@ -1312,11 +1317,16 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
   const pay = async () => {
     if (!accept) return;
     setPaying(true);
-    const r = await api.post("/pay", { flight_no: out.flight_no, items, seat: seatOut, total,
-      voucher_amt: 0, miles_used: useMiles ? milesForTrip : 0, miles_amt: useMiles ? total : 0, card_amt: useMiles ? 0 : total });
-    toast("Booking confirmed", `${r.pnr} · itinerary emailed to ${u.email}`);
-    onPaid({ pnr: r.pnr, total, voucherVal: 0, milesVal: useMiles ? total : 0, cardVal: useMiles ? 0 : total,
-      express: true, milesEarned, statusMiles, tripsToNextTier, ret, retDate, seatOut, seatRet });
+    try {
+      const r = await api.post("/pay", { flight_no: out.flight_no, items, seat: seatOut, total,
+        voucher_amt: 0, miles_used: useMiles ? milesForTrip : 0, miles_amt: useMiles ? total : 0, card_amt: useMiles ? 0 : total });
+      if (!r || !r.ok) { toast("Couldn't complete payment", (r && r.error) || "Please try again."); setPaying(false); return; }
+      toast("Booking confirmed", `${r.pnr} · itinerary emailed to ${u.email}`);
+      onPaid({ pnr: r.pnr, total, voucherVal: 0, milesVal: useMiles ? total : 0, cardVal: useMiles ? 0 : total,
+        express: true, milesEarned, statusMiles, tripsToNextTier, ret, retDate, seatOut, seatRet, flight: out });
+    } catch (e) {
+      toast("Couldn't complete payment", "Please try again."); setPaying(false);
+    }
   };
 
   const Stepper = () => (
@@ -1451,17 +1461,21 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
 /* ── CONFIRMATION (Step 2 of 2) ── */
 function Confirmed({ profile, flight, receipt, go }) {
   const u = profile.user;
+  // Null-safe flight: the confirmation must NEVER blank out, even if the live
+  // flight object isn't in React state (e.g. arriving from the chat checkout).
+  // Fall back to flight basics carried on the receipt, then to safe placeholders.
+  const f = flight || receipt.flight || {};
   const seat = receipt.seatOut || (profile.prefs?.seat || "").split(" ")[0] || "—";
-  const total = receipt.total || flight.price;
+  const total = receipt.total || f.price || 0;
   const milesEarned = receipt.milesEarned ?? Math.round(total * 11);
   const statusMiles = receipt.statusMiles ?? Math.round(milesEarned * 0.2);
   const tripsToNextTier = receipt.tripsToNextTier ?? 2;
   const paidLabel = receipt.cardVal > 0 ? `${u.card_brand} ••${u.card_last4}` : (receipt.milesVal > 0 ? "Miles & Go" : "Voucher");
   const base = Math.round(total * 0.79), taxes = total - base;
   const useful = [
-    { tag: "EXPERIENCE", title: `${cityName(flight.dest)} food & wine tour`, sub: "3h · 5 stops · tastings included", price: 65 },
-    { tag: "DAY TRIP", title: `Sintra full-day from ${cityName(flight.origin)}`, sub: "Pena Palace, Regaleira & Cabo da Roca", price: 89 },
-    { tag: "TRANSFER", title: `Return transfer hotel → ${flight.origin}`, sub: "Private sedan · save 10% when paired", price: 25 },
+    { tag: "EXPERIENCE", title: `${f.dest ? cityName(f.dest) : "Your destination"} food & wine tour`, sub: "3h · 5 stops · tastings included", price: 65 },
+    { tag: "DAY TRIP", title: `Sintra full-day from ${f.origin ? cityName(f.origin) : "the city"}`, sub: "Pena Palace, Regaleira & Cabo da Roca", price: 89 },
+    { tag: "TRANSFER", title: `Return transfer hotel → ${f.origin || ""}`, sub: "Private sedan · save 10% when paired", price: 25 },
   ];
   return (
     <div className="max-w-5xl mx-auto px-4 pb-24 pt-8">
@@ -1477,8 +1491,8 @@ function Confirmed({ profile, flight, receipt, go }) {
           <Card className="p-5">
             <div className="flex items-center gap-2 mb-3"><span className="font-display font-extrabold text-base" style={{ color: "var(--tap-ink)" }}>Your itinerary</span><span className="text-[11px] font-bold text-white px-2 py-0.5 rounded-full" style={{ background: "var(--tap-red)" }}>PNR {receipt.pnr}</span></div>
             <div className="rounded-2xl p-4" style={{ background: "#EAF7E1" }}>
-              <RouteRibbon from={`${flight.origin} ${flight.dep || ""}`} to={`${flight.dest} ${flight.arr || ""}`}/>
-              <div className="text-[12px] text-gray-500 text-center mt-2">{fmtDate(flight.flight_date)} · {flight.flight_no} · seat {seat} · gate info 90 min before</div>
+              <RouteRibbon from={`${f.origin || ""} ${f.dep || ""}`} to={`${f.dest || ""} ${f.arr || ""}`}/>
+              <div className="text-[12px] text-gray-500 text-center mt-2">{f.flight_date ? fmtDate(f.flight_date) : ""} · {f.flight_no || receipt.pnr} · seat {seat} · gate info 90 min before</div>
             </div>
             <div className="flex flex-wrap gap-2 mt-3 text-[12px]">
               {[`${u.first_name} · ${seat}`, "Carry-on ×1", "Standard seat", "Snack"].map((c, i) => (

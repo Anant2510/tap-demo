@@ -34,6 +34,28 @@ const PINNED = {
     { flight_no: "TP1937", dep: "12:40", arr: "13:35", aircraft: "A319",    price: 69, seats_left: 52 },
     { flight_no: "TP1943", dep: "18:35", arr: "19:30", aircraft: "A321neo", price: 91, seats_left: 12 },
   ],
+  // Sofia's leisure commute (Lisbon ⇄ Madeira) — her usual is TP1696
+  "LIS-FNC": [
+    { flight_no: "TP1690", dep: "07:30", arr: "09:00", aircraft: "A320neo", price: 52, seats_left: 41, lowest: 1 },
+    { flight_no: "TP1696", dep: "10:20", arr: "11:50", aircraft: "A321neo", price: 58, seats_left: 23, recommended: 1 },
+    { flight_no: "TP1698", dep: "15:10", arr: "16:40", aircraft: "A319",    price: 66, seats_left: 38 },
+    { flight_no: "TP1702", dep: "19:25", arr: "20:55", aircraft: "A320neo", price: 61, seats_left: 29 },
+  ],
+  // Sofia's in-progress search (Lisbon → Barcelona) — her saved journey is on TP1042
+  "LIS-BCN": [
+    { flight_no: "TP1038", dep: "06:50", arr: "08:35", aircraft: "A320neo", price: 66, seats_left: 44, lowest: 1 },
+    { flight_no: "TP1042", dep: "11:30", arr: "13:15", aircraft: "A321neo", price: 74, seats_left: 21, recommended: 1 },
+    { flight_no: "TP1050", dep: "18:40", arr: "20:25", aircraft: "A320neo", price: 70, seats_left: 33 },
+  ],
+  // Lars's transatlantic commute (Frankfurt ⇄ New York) — his usual is TP201 (Business)
+  "FRA-JFK": [
+    { flight_no: "TP201", dep: "10:40", arr: "13:30", aircraft: "A330neo", price: 612, seats_left: 14, recommended: 1 },
+    { flight_no: "TP207", dep: "16:55", arr: "19:45", aircraft: "A339",    price: 668, seats_left: 9 },
+  ],
+  "JFK-FRA": [
+    { flight_no: "TP202", dep: "18:20", arr: "08:05", aircraft: "A330neo", price: 598, seats_left: 12, recommended: 1, lowest: 1 },
+    { flight_no: "TP208", dep: "21:30", arr: "11:15", aircraft: "A339",    price: 640, seats_left: 17 },
+  ],
 };
 
 // Generate the day's flights for a route. Count & spread scale with haul length.

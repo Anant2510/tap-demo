@@ -231,6 +231,7 @@ app.get("/api/profile", (req, res) => {
     last: onTopRoute.length,
     matching: flightCounts[topFlight] || 0,
     usualOut, usualBack,
+    usualOutNo: topFlight || "", usualBackNo: backFlight || "",
     usualDep: topOut?.dep_time || "",
     usualPrice,
     destCounts,
@@ -988,6 +989,163 @@ function buildUI(toolCalls) {
   return { cards, command };
 }
 
+// ── Deterministic agent fallback ──────────────────────────────────
+// When no ANTHROPIC_API_KEY is set (or the live call fails), the chat STILL
+// works: we parse the customer's message, run the SAME tools the live agent
+// uses, and return a real reply + cards + screen command via buildUI(). Every
+// fact comes from the live database — identical truth with or without the LLM.
+let _airportIndex = null;
+function airportIndex() {
+  if (_airportIndex) return _airportIndex;
+  const rows = db.prepare("SELECT code, city FROM airports").all();
+  const byCity = rows.map(r => ({ code: r.code.toUpperCase(), lc: (r.city || "").toLowerCase() }))
+    .filter(a => a.lc.length >= 4).sort((a, b) => b.lc.length - a.lc.length); // longest first
+  const codes = new Set(rows.map(r => r.code.toUpperCase()));
+  _airportIndex = { byCity, codes };
+  return _airportIndex;
+}
+function resolveAirport(text) {
+  if (!text) return null;
+  const { byCity, codes } = airportIndex();
+  const lc = text.toLowerCase();
+  for (const a of byCity) if (lc.includes(a.lc)) return a.code;       // city name
+  const m = text.toUpperCase().match(/\b([A-Z]{3})\b/g);              // explicit IATA
+  if (m) for (const c of m) if (codes.has(c)) return c;
+  return null;
+}
+function parseRoute(text, home) {
+  const t = (text || "").toLowerCase();
+  let origin = null, dest = null, m;
+  if ((m = t.match(/from\s+(.+?)\s+to\s+([a-z .'-]+)/))) { origin = resolveAirport(m[1]); dest = resolveAirport(m[2]); }
+  if (!dest && (m = t.match(/\bto\s+([a-z .'-]+)/))) dest = resolveAirport(m[1]);
+  if (!origin && (m = t.match(/\bfrom\s+([a-z .'-]+)/))) origin = resolveAirport(m[1]);
+  if (!origin && !dest) {                                             // bare "lisbon madrid"
+    const { byCity } = airportIndex(), found = [];
+    for (const a of byCity) { const i = t.indexOf(a.lc); if (i >= 0) found.push({ code: a.code, i }); }
+    found.sort((a, b) => a.i - b.i);
+    if (found.length >= 2) { origin = found[0].code; dest = found[1].code; }
+    else if (found.length === 1) dest = found[0].code;
+  }
+  return { origin: origin || home, dest };
+}
+function deterministicAgent(text, session) {
+  const q = (text || "").toLowerCase();
+  const calls = [];
+  const run = (name, input = {}) => {
+    let result; try { result = agentRunTool(name, input, session); } catch (e) { result = { ok: false, error: e.message }; }
+    calls.push({ name, input, result }); return result;
+  };
+  const me = db.prepare("SELECT home_airport, first_name FROM users WHERE id=1").get() || {};
+  const homeCode = me.home_airport || "OPO";
+  const has = (...ws) => ws.some(w => q.includes(w));
+  const done = (reply) => ({ reply, toolCalls: calls });
+  const EXTRAS = ["wifi", "meal", "lounge", "xbag", "bag", "transfer", "carbon"];
+
+  // resume / continue an unfinished booking
+  if (has("where was i", "resume", "pick up", "continue my", "where did i", "left off", "in progress")) {
+    const j = run("get_journey");
+    if (j.in_progress) { if (j.flight_no) run("select_flight", { flight_no: j.flight_no });
+      return done(`You left off at the "${j.stage}" step on ${j.route} (${j.date}). I've reloaded your selections — want to keep going from there?`); }
+    return done("You don't have an unfinished booking right now. Tell me where you'd like to fly and I'll search.");
+  }
+  // cancel
+  if (has("cancel")) {
+    const confirm = has("yes", "confirm", "go ahead", "do it", "please cancel");
+    const r = run("cancel_booking", { confirm });
+    if (r.state === "needs_confirm") return done(`Just to confirm — cancel ${r.pnr} (${r.route}, ${r.date})? Say "yes, cancel" and I'll refund it.`);
+    if (r.state === "cancelled") return done(`Done — ${r.pnr} is cancelled and refunded (${r.refund.miles} miles, voucher €${r.refund.voucher}, card €${r.refund.card}).`);
+    return done(r.message || "There's nothing to cancel.");
+  }
+  // check in
+  if (has("check in", "check-in", "checkin", "boarding pass")) {
+    const r = run("check_in");
+    if (r.state === "checked_in_now") return done(`Checked in ✅ ${r.route}, seat ${r.seat}, boarding group ${r.group}. PNR ${r.pnr}.`);
+    if (r.state === "already_checked_in") return done(`You're already checked in for ${r.route} — seat ${r.seat}, group ${r.group}.`);
+    return done(r.message || "You have no upcoming flight to check in for.");
+  }
+  // wallet / miles / voucher
+  if (has("miles", "voucher", "balance", "points", "wallet") || (has("pay") && has("with"))) {
+    const r = run("get_wallet");
+    const v = r.voucher && r.voucher.available ? ` Your voucher ${r.voucher.code} is worth €${r.voucher.amount}.` : "";
+    return done(`You have ${r.miles.toLocaleString()} miles (≈ €${r.miles_value_eur}).${v} Any booking can be split across miles, voucher and your ${r.card}.`);
+  }
+  // personalized package / what to do
+  if (has("package", "recommend", "what should i do", "things to do", "weekend", "anything fun", "what to do")) {
+    const r = run("get_recommendation");
+    if (r.package) { const p = r.package; return done(`Because of your ${r.affinity_label} card spend, I'd suggest the ${p.event} at ${p.venue} — ticket + ${p.hotel_nights} nights at ${p.hotel} + return flight, €${p.total} all-in.`); }
+    return done("Let me pull a package tailored to you.");
+  }
+  // seat (change or list)
+  if (has("seat")) {
+    const seatM = (text.toUpperCase().match(/\b(\d{1,2}[A-F])\b/) || [])[1];
+    if (seatM || has("change", "move", "window", "aisle", "business", "premium", "legroom", "front")) {
+      const pref = ["window", "aisle", "business", "premium", "extra legroom", "front"].find(p => q.includes(p.split(" ")[0]));
+      const r = run("change_seat", seatM ? { seat: seatM } : { preference: pref || "window" });
+      return done(r.ok ? r.note : (r.message || "Tell me a seat like 12A or a preference."));
+    }
+    return done(run("list_seats").note);
+  }
+  // my booking / status
+  if (has("my booking", "my flight", "am i checked", "on time", "my trip", "my reservation", "booking status")) {
+    const r = run("get_booking");
+    if (r.booking) return done(`Your booking ${r.booking.pnr}: ${r.booking.route}, seat ${r.booking.seat}, ${r.booking.checked_in ? "checked in" : "not checked in yet"}.`);
+    return done("You don't have an active booking yet. Want to book your usual flight or search a route?");
+  }
+  // specific flight number (info or select)
+  const fno = (text.toUpperCase().match(/\bTP\s?(\d{2,4})\b/) || [])[1];
+  if (fno && !/ to | from /.test(q)) {
+    if (has("book", "select", "choose", "take", "pick", "add")) {
+      const r = run("select_flight", { flight_no: "TP" + fno });
+      return done(r.ok ? `Added ${r.flight_no} (${r.route}, ${r.dep}–${r.arr}, €${r.price}) to your basket, seat ${r.seat}. Say "check out" to pay.` : (r.message || "Search the route first."));
+    }
+    const r = run("get_flight_info", { flight_no: "TP" + fno });
+    return done(r.ok ? `${r.flight_no} ${r.route} departs ${r.dep}, arrives ${r.arr}, €${r.price}. ${r.note}` : (r.message || "I don't have that flight yet."));
+  }
+  // checkout / pay
+  if (has("check out", "checkout", "pay now", "book it", "complete booking", "confirm booking", "purchase")) {
+    const r = run("checkout", {});
+    if (r.ok) return done(`Booked ✅ PNR ${r.pnr} — ${r.route}, departs ${r.dep}. Paid: voucher €${r.split.voucher}, ${r.split.miles} miles, card €${r.split.card}.`);
+    return done(r.message || "Pick a flight first and I'll check you out.");
+  }
+  // add / remove extras
+  if (has("add", "want", "include") && EXTRAS.some(c => q.includes(c))) {
+    const codes = EXTRAS.filter(c => q.includes(c));
+    const r = run("add_extras", { codes });
+    return done(r.ok ? r.note : (r.message || "Select a flight first."));
+  }
+  if (has("remove", "drop", "don't want", "dont want", "without", "no ") && EXTRAS.some(c => q.includes(c))) {
+    const codes = EXTRAS.filter(c => q.includes(c));
+    const r = run("remove_extras", { codes });
+    return done(r.ok ? r.note : (r.message || "Select a flight first."));
+  }
+  // where can I fly (factual) / destinations from
+  if (has("where can i fly", "where do we fly", "destinations from", "options from", "fly from", "where can i go")) {
+    const m = q.match(/from\s+([a-z .'-]+)/); const o = (m && resolveAirport(m[1])) || homeCode;
+    const r = run("list_destinations", { origin: o });
+    return done(r.ok ? `From ${r.originCity} you can fly to ${r.count} cities — including ${r.destinations.slice(0, 6).map(d => d.city).join(", ")} and more. Which one?` : (r.message || "Tell me an origin."));
+  }
+  // suggestions / inspiration
+  if (has("where should i go", "ideas", "inspire", "somewhere", "suggest a", "surprise me")) {
+    const r = run("get_suggestions");
+    return done(`Based on how you fly, you might like ${(r.suggestions || []).slice(0, 4).map(s => s.city).join(", ")}. Want me to search any of these?`);
+  }
+  // flight search (route)
+  if (has("flight", "fly", "search", "go to", "travel", "trip", "book") || / to /.test(q)) {
+    const { origin, dest } = parseRoute(text, homeCode);
+    const date = (text.match(/\b(20\d{2}-\d{2}-\d{2})\b/) || [])[1] || "2026-06-15";
+    if (!dest) {
+      const r = run("list_destinations", { origin });
+      return done(r.ok ? `From ${r.originCity} you can fly to ${r.count} cities — ${r.destinations.slice(0, 6).map(d => d.city).join(", ")} and more. Which destination?` : "Where would you like to fly to?");
+    }
+    const r = run("search_flights", { origin, dest, date });
+    if (r.ok) { const lo = Math.min(...r.flights.map(f => f.price)); return done(`Found ${r.flights.length} flights ${cityName(r.origin)}→${r.city} on ${r.date}, from €${lo}. Pick one below, or say a flight number to add it.`); }
+    if (r.available_destinations) return done(`${r.message} From ${cityName(origin)} you can fly to ${r.available_destinations.slice(0, 6).map(d => d.city).join(", ")} and more.`);
+    return done(r.message || "Tell me the route (e.g. 'Lisbon to Madrid') and I'll search.");
+  }
+  // default — genuinely helpful menu (only when nothing matched)
+  return done(`Hi ${me.first_name || "there"} — I can search flights ("flights to Madrid"), show your miles & voucher, change your seat, pull up your booking, check you in, or recommend a trip tailored to you. What would you like to do?`);
+}
+
 app.post("/api/ai/agent", async (req, res) => {
   const messages = (req.body.messages || []).slice(-12);
   const screen = req.body.screen || "home";
@@ -1016,7 +1174,17 @@ app.post("/api/ai/agent", async (req, res) => {
     res.json({ reply: reply || "Done.", cards, command, ai: "live", tools: toolCalls.map(t => t.name) });
   } catch (e) {
     log("ai_agent_error", { error: e.message });
-    res.json({ reply: FALLBACKS.chat, cards: [], command: null, ai: "cached" });
+    // No API key (or the live call failed) → deterministic agent. The chat still
+    // runs real tools and returns real cards/commands, so it never goes dead.
+    try {
+      const lastUser = [...messages].reverse().find(m => m.role === "user" && typeof m.content === "string");
+      const { reply, toolCalls } = deterministicAgent(lastUser ? lastUser.content : "", session);
+      const { cards, command } = buildUI(toolCalls);
+      res.json({ reply, cards, command, ai: "offline", tools: toolCalls.map(t => t.name) });
+    } catch (e2) {
+      log("ai_agent_fallback_error", { error: e2.message });
+      res.json({ reply: FALLBACKS.chat, cards: [], command: null, ai: "cached" });
+    }
   }
 });
 
