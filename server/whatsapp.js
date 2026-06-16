@@ -306,6 +306,33 @@ Total €${priced.gross.toFixed(2)}
     { "1": "DO_PAY", "2": "DO_HOLD", "3": "MENU", "0": "MENU" });
 }
 
+// Express checkout for the usual flight — everything pre-filled, one tap to pay.
+// Mirrors the web Express Checkout and shares the "review" journey stage so the
+// trip resumes across channels (web ⇄ WhatsApp) at exactly this point.
+async function startExpressReview(to, f) {
+  const d = getDraft(to);
+  const priced = priceDraft(d, f);
+  const u = db.prepare("SELECT full_name, tier, member_no, card_brand, card_last4 FROM users WHERE id=1").get() || {};
+  const tier = (u.tier || "Gold").toUpperCase();
+  const miles = Math.round(priced.gross * 11);
+  await saveJourneyWA("review", d);
+  await sendButtons(to,
+`⚡ *Express checkout — your usual flight*
+${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
+
+👤 ${u.full_name} · ${tier} · ${u.member_no}
+💺 Seat ${d.seat || "auto"} · 🧳 cabin bag + checked 23kg
+🎟️ Lounge + priority boarding FREE · ${tier}
+💳 ${u.card_brand || "Card"} ••${u.card_last4 || "0000"}
+
+*Total €${priced.gross.toFixed(2)}* · earn ${miles.toLocaleString()} miles
+ • Voucher −€${priced.voucher} · ${priced.miles_used.toLocaleString()} mi −€${priced.miles_amt} · card €${priced.card.toFixed(2)}
+
+Everything's pre-filled — just confirm.`,
+    [{ id: "EXPRESS_PAY", title: "Pay & confirm" }, { id: "MENU", title: "Back to menu" }],
+    { "1": "EXPRESS_PAY", "0": "MENU" });
+}
+
 async function handleAction(to, id) {
   /* Resume the shared cross-channel journey at the exact step the customer left. */
   if (id === "RESUME") {
@@ -325,7 +352,7 @@ async function handleAction(to, id) {
     await sendText(to, `↩️ Picking up where you left off — ${cityName(f.origin)} → ${cityName(f.dest)}, ${({seat:"choosing your seat",extras:"adding extras",review:"reviewing & payment"})[j.stage] || "your booking"}.`);
     if (j.stage === "seat") return startSeatStep(to, f);
     if (j.stage === "extras") return startExtrasStep(to);
-    if (j.stage === "review") return startCheckoutReview(to);
+    if (j.stage === "review") return startExpressReview(to, f);
     return startSeatStep(to, f);
   }
   if (id === "START_FRESH") {
@@ -344,7 +371,7 @@ async function handleAction(to, id) {
     if (!f) { await sendText(to, "Couldn't load your usual flight — try the menu."); return sendMainMenu(to); }
     const seat = (prof?.prefs?.seat || "").split(" ")[0] || "";
     const d = getDraft(to); d.flight_no = f.flight_no; d.seat = seat; d.items = ["seat","bag","meal"];
-    return startSeatStep(to, f);
+    return startExpressReview(to, f);
   }
 
   /* Pick a flight returned by a search → go to SEAT selection */
@@ -378,7 +405,7 @@ async function handleAction(to, id) {
   if (id.startsWith("OFFERBOOK_")) { const p = id.split("_"); return searchRoute(to, p[1], p[2], "2026-06-15", "offer"); }
 
   /* CHECKOUT → PAY / HOLD using the full draft */
-  if (id === "DO_PAY") {
+  if (id === "DO_PAY" || id === "EXPRESS_PAY") {
     const d = getDraft(to);
     const f = flightByNo(d.flight_no);
     if (!f) { await sendText(to, "Your selection expired — reply \"menu\" to start again."); clearDraft(to); return sendMainMenu(to); }

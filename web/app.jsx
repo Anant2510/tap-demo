@@ -39,7 +39,7 @@ const countryName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].country) |
 /* ── Theme / primitives ── */
 const Fonts = () => (
   <style>{`
-    :root{ --tap-green:#00A357; --tap-deep:#063A28; --tap-ink:#0E1F18; --tap-mist:#F2F6F3;
+    :root{ --tap-green:#46A41A; --tap-deep:#063A28; --tap-ink:#0E1F18; --tap-mist:#F2F6F3;
       --tap-line:#DCE7E0; --tap-red:#E2354B; --tap-gold:#C9A227; --tap-amber:#E8930C;
       /* FLYTAP DXP dark theme */
       --dxp-bg:#0A0B0A; --dxp-surface:#141614; --dxp-surface-2:#1C1F1C; --dxp-line:#2A2E2A;
@@ -91,14 +91,21 @@ const Fonts = () => (
   `}</style>
 );
 
+// TAP Air Portugal lockup. Rebuilt as inline SVG so it scales crisply and themes
+// for light/dark. To use the exact brand asset, drop it at public/tap-logo.png and
+// replace the <svg> below with <img src="/tap-logo.png" alt="TAP Air Portugal" .../>.
 const TapLogo = ({ light = false, size = "text-xl" }) => (
-  <div className={`font-display font-black tracking-tight ${size}`}>
-    {light ? (
-      <span className="dxp-grad-text">TAP</span>
-    ) : (
-      <><span style={{ color: "var(--tap-red)" }}>T</span><span style={{ color: "var(--tap-deep)" }}>A</span><span style={{ color: "var(--tap-green)" }}>P</span></>
-    )}
-    <span className={`ml-2 font-semibold text-xs tracking-widest uppercase ${light ? "text-white" : "text-gray-500"}`}>Air Portugal</span>
+  <div className="flex items-center gap-2">
+    <svg width="38" height="28" viewBox="0 0 38 28" fill="none" aria-label="TAP Air Portugal" className="shrink-0">
+      <rect x="0.5" y="0.5" width="37" height="27" rx="7" fill="var(--tap-red)"/>
+      <path d="M6 21 C13 7 25 5 33 8 L33 12 C24 9.5 15 11.5 9.5 21.5 Z" fill="#ffffff"/>
+      <path d="M6 21 C13 8 24 7 33 9.5 L33 12 C24 9.5 15 11.5 9.5 21.5 Z" fill="var(--tap-green)" opacity="0.95"/>
+      <circle cx="29.5" cy="9" r="2.1" fill="var(--tap-gold)"/>
+    </svg>
+    <div className={`font-display font-black tracking-tight ${size} leading-none`}>
+      <span style={{ color: light ? "#ffffff" : "var(--tap-ink)" }}>TAP</span>
+      <span className={`ml-1.5 font-semibold text-[10px] tracking-[0.18em] uppercase align-middle ${light ? "text-white/80" : "text-gray-500"}`}>Air Portugal</span>
+    </div>
   </div>
 );
 const TierBadge = ({ tier = "Gold" }) => {
@@ -151,7 +158,7 @@ const PrimaryBtn = ({ children, onClick, className = "", disabled }) => (
 const GhostBtn = ({ children, onClick, className = "" }) => (
   <button onClick={onClick}
     className={`dxp-ghost-btn inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm border transition-colors ${className}`}
-    style={{ borderColor: "var(--dxp-line)", color: "var(--dxp-text)", background: "var(--dxp-surface)" }}>{children}</button>
+    style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)", background: "#fff" }}>{children}</button>
 );
 const RouteRibbon = ({ from = "OPO", to = "LIS", dep, arr, small = false }) => (
   <div className={`flex items-center ${small ? "gap-2" : "gap-3"}`}>
@@ -473,19 +480,15 @@ function QuickBook({ go, bookDestination }) {
   );
 }
 
-function Home({ profile, destinations, go, openAssistant, toast, bookDestination, bookUsual, resumeJourney, startFresh }) {
+function Home({ profile, destinations, go, openAssistant, toast, bookDestination, bookUsual, resumeJourney, startFresh, openExtras, openExpress }) {
   const [sendingOffer, setSendingOffer] = useState(false);
   const [tab, setTab] = useState("Flights");
-  const [stopover, setStopover] = useState(true);
   const [flex, setFlex] = useState(false);
   const [payMiles, setPayMiles] = useState(false);
   const [rec, setRec] = useState(null);
   useEffect(() => { (async () => { try { setRec(await api.get("/recommendation")); } catch {} })(); }, []);
   const [offer, setOffer] = useState(null);
   useEffect(() => { (async () => { try { setOffer(await api.get("/offers/today")); } catch {} })(); }, []);
-  const [stop, setStop] = useState(null);
-  useEffect(() => { (async () => { try { setStop(await api.get("/stopover")); } catch {} })(); }, []);
-  const scrollToStopover = () => document.getElementById("tap-stopover")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const [upcoming, setUpcoming] = useState(null);
   useEffect(() => { (async () => { try {
     const bk = await api.get("/bookings");
@@ -574,8 +577,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           <button onClick={() => go("home")} className="shrink-0"><TapLogo/></button>
           <nav className="hidden lg:flex items-center gap-6">
             {navItem("Book", () => go("home"), true)}
-            {navItem("Portugal Stopover", scrollToStopover, false)}
-            {navItem("Trip Extras", () => go("manage"), false)}
+            {navItem("Trip Extras", openExtras, false)}
             {navItem("TAP Miles & Go", () => go("miles"), false)}
           </nav>
           <div className="flex items-center gap-3 ml-auto shrink-0">
@@ -593,25 +595,25 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
         </div>
       </header>
 
-      {/* ── Hero (magenta→coral over the destination city) ── */}
+      {/* ── Hero (green #46A41A over the destination city) ── */}
       <section className="relative overflow-hidden">
         <CityImg code={tripDest} alt={tripCity} className="absolute inset-0 w-full h-full object-cover"/>
-        <div className="absolute inset-0" style={{ background: "linear-gradient(115deg, rgba(86,28,98,.94) 0%, rgba(176,40,116,.88) 42%, rgba(240,104,58,.82) 100%)" }}/>
-        <div className="relative max-w-[1180px] mx-auto px-5 pt-10 pb-44 lg:pb-52">
+        <div className="absolute inset-0" style={{ background: "linear-gradient(115deg, rgba(45,105,16,.95) 0%, rgba(70,164,26,.9) 48%, rgba(70,164,26,.8) 100%)" }}/>
+        <div className="relative max-w-[1180px] mx-auto px-5 pt-4 pb-24 lg:pb-28">
           <div className="grid lg:grid-cols-[1.35fr_1fr] gap-8 items-start">
             {/* Left: greeting + headline */}
             <div>
-              <div className="inline-flex flex-wrap items-center gap-2.5 rounded-full pl-1.5 pr-4 py-1.5 mb-7" style={{ background: "rgba(0,0,0,.22)", backdropFilter: "blur(6px)" }}>
+              <div className="inline-flex flex-wrap items-center gap-2.5 rounded-full pl-1.5 pr-4 py-1.5 mb-3" style={{ background: "rgba(0,0,0,.22)", backdropFilter: "blur(6px)" }}>
                 <span className="w-7 h-7 rounded-full flex items-center justify-center font-display font-extrabold text-[11px] text-white" style={{ background: "rgba(255,255,255,.18)" }}>{initials}</span>
                 <span className="text-[13px] text-white font-semibold">Welcome back, {u.first_name}</span>
                 <span className="text-[11px] font-black px-1.5 py-0.5 rounded" style={{ background: "var(--tap-gold)", color: "#3A2D04" }}>{(u.tier || "GOLD").toUpperCase()} MEMBER</span>
                 <span className="text-white/55">•</span>
                 <span className="text-[13px] font-semibold" style={{ color: "#FFE7B0" }}>{u.miles.toLocaleString()} tap.miles</span>
               </div>
-              <h1 className="font-display font-black text-white tracking-tight leading-[0.98] text-5xl sm:text-6xl">{u.first_name}, make your<br/>{tripCity} trip unforgettable.</h1>
-              <p className="text-white/85 mt-5 text-lg max-w-md leading-relaxed">{daysPhrase}Let's complete your trip — beautifully.</p>
+              <h1 className="font-display font-black text-white tracking-tight leading-[0.98] text-3xl sm:text-4xl">{u.first_name}, make your<br/>{tripCity} trip unforgettable.</h1>
+              <p className="text-white/85 mt-2 text-base max-w-md leading-relaxed">{daysPhrase}Let's complete your trip — beautifully.</p>
               {offer ? (
-                <div className="mt-5 rounded-2xl px-4 py-3 max-w-md" style={{ background: "rgba(0,0,0,.26)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.18)" }}>
+                <div className="mt-3 rounded-2xl px-4 py-3 max-w-md" style={{ background: "rgba(0,0,0,.26)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.18)" }}>
                   <div className="flex items-center gap-1.5 text-[10px] font-black tracking-wide mb-1" style={{ color: "#FFE7B0" }}>✦ {(offer.badge || "Offer of the week").toUpperCase()} · FROM YOUR TRAVEL HISTORY</div>
                   <div className="flex items-end gap-2 flex-wrap">
                     <span className="text-white font-display font-extrabold text-lg leading-tight">{offer.destCity} from {EUR(offer.price)}</span>
@@ -622,7 +624,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                   <button onClick={() => bookDestination({ code: offer.dest, origin: offer.origin, date: sDate, reason: offer.detail })} className="mt-2.5 text-[13px] font-bold px-3.5 py-1.5 rounded-lg inline-flex items-center gap-1" style={{ background: "var(--tap-green)", color: "#fff" }}>Book this offer <ArrowRight size={14}/></button>
                 </div>
               ) : (
-                <div className="inline-flex items-start gap-2.5 mt-5 rounded-2xl px-4 py-2.5 max-w-md" style={{ background: "rgba(0,0,0,.24)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.16)" }}>
+                <div className="inline-flex items-start gap-2.5 mt-3 rounded-2xl px-4 py-2.5 max-w-md" style={{ background: "rgba(0,0,0,.24)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.16)" }}>
                   <span className="text-base leading-none mt-0.5" style={{ color: "#FFE7B0" }}>✦</span>
                   <div>
                     <div className="text-[10px] font-black tracking-wide" style={{ color: "#FFE7B0" }}>THIS WEEK FOR YOU · FROM YOUR TRAVEL HISTORY</div>
@@ -630,8 +632,9 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                   </div>
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-3 mt-6">
-                <button onClick={doSearch} className="inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold text-white shadow-lg" style={{ background: "var(--tap-green)" }}><Search size={16}/> Search from {EUR(usualPrice)}</button>
+              <div className="flex flex-wrap items-center gap-3 mt-4">
+                <button onClick={openExpress} className="inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold text-white shadow-lg" style={{ background: "var(--tap-green)" }}><Zap size={16}/> Book your usual · Express checkout</button>
+                <button onClick={doSearch} className="inline-flex items-center gap-2 px-4 py-3 rounded-full font-semibold text-sm bg-white/15 text-white" style={{ backdropFilter: "blur(6px)" }}><Search size={15}/> Search from {EUR(usualPrice)}</button>
                 <button onClick={sendOffer} className="inline-flex items-center gap-2 px-4 py-3 rounded-full font-semibold text-sm bg-white/15 text-white" style={{ backdropFilter: "blur(6px)" }}>{sendingOffer ? <Loader2 className="animate-spin" size={15}/> : <Mail size={15}/>} Email me this week's offer</button>
               </div>
             </div>
@@ -670,10 +673,11 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                 </div>
               ) : (
                 <div className="rounded-2xl p-4 text-white shadow-xl" style={{ background: "linear-gradient(180deg,#0E2A1E,#0A1C14)" }}>
-                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide" style={{ color: "var(--tap-green)" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--tap-green)" }}/> YOUR RECURRING ROUTE</div>
+                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide" style={{ color: "var(--tap-green)" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--tap-green)" }}/> BOOK YOUR USUAL FLIGHT</div>
                   <div className="font-display font-extrabold text-xl mt-2">{homeCity}–{destCity}</div>
                   <div className="text-[12px] text-white/70 mt-1">{pat.topFlight} · {pat.usualDep}{pat.usualPrice != null ? ` · ${EUR(pat.usualPrice)}` : ""}</div>
-                  <button onClick={bookUsual} className="mt-3 text-[13px] font-bold inline-flex items-center gap-1" style={{ color: "var(--tap-green)" }}>Book my usual <ArrowRight size={14}/></button>
+                  <button onClick={openExpress} className="w-full mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold" style={{ background: "var(--tap-green)", color: "#06210F" }}><Zap size={15}/> Express checkout</button>
+                  <button onClick={bookUsual} className="w-full mt-2 text-[12px] font-semibold text-white/70 inline-flex items-center justify-center gap-1">or search this route <ArrowRight size={13}/></button>
                 </div>
               )}
 
@@ -696,10 +700,11 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
                 </div>
               ) : (
                 <div className="bg-white rounded-2xl shadow-xl p-4 border" style={{ borderColor: "var(--tap-line)" }}>
-                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide mb-2" style={{ color: "var(--tap-green)" }}><Repeat size={13}/> YOUR USUAL ROUTE</div>
+                  <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide mb-2" style={{ color: "var(--tap-green)" }}><Repeat size={13}/> BOOK YOUR USUAL FLIGHT</div>
                   <div className="flex items-center gap-2 font-display font-extrabold text-lg" style={{ color: "var(--tap-ink)" }}>{cityName(sOrigin)} <ArrowRight size={15} style={{ color: "var(--tap-green)" }}/> {destCity}</div>
                   <div className="text-[12px] text-gray-500 mt-1">{pat.topFlight}{pat.usualDep ? ` · ${pat.usualDep}` : ""}{pat.usualPrice != null ? ` · ${EUR(pat.usualPrice)}` : ""}</div>
-                  <button onClick={() => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Your usual ${cityName(sOrigin)} → ${destCity} route.` })} className="w-full mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-white" style={{ background: "var(--tap-green)" }}>Search this route <ArrowRight size={15}/></button>
+                  <button onClick={openExpress} className="w-full mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-white" style={{ background: "var(--tap-green)" }}><Zap size={15}/> Express checkout</button>
+                  <button onClick={() => bookDestination({ code: sDest, origin: sOrigin, date: sDate, reason: `Your usual ${cityName(sOrigin)} → ${destCity} route.` })} className="w-full mt-2 text-[12px] font-semibold text-gray-500 inline-flex items-center justify-center gap-1">or search this route <ArrowRight size={13}/></button>
                 </div>
               )}
             </div>
@@ -707,7 +712,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
         </div>
 
         {/* ── Search widget (overlaps hero bottom) ── */}
-        <div className="relative max-w-[1180px] mx-auto px-5 -mt-32 lg:-mt-36 pb-2">
+        <div className="relative max-w-[1180px] mx-auto px-5 -mt-20 lg:-mt-24 pb-2">
           <div className="bg-white rounded-3xl shadow-2xl border p-5 sm:p-6" style={{ borderColor: "var(--tap-line)" }}>
             <div className="flex flex-wrap items-center gap-1 mb-4">
               {TABS.map(t => {
@@ -741,10 +746,6 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
               {["Round trip", "Travelers", "Economy"].map(s => (
                 <button key={s} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-semibold text-gray-700" style={{ borderColor: "var(--tap-line)" }}>{s} <ChevronRight size={14} className="rotate-90 text-gray-400"/></button>
               ))}
-              <div className="ml-auto inline-flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--tap-ink)" }}>
-                {toggle(stopover, () => { const nv = !stopover; setStopover(nv); if (nv) scrollToStopover(); }, "lg")}
-                Add Portugal Stopover <span className="text-gray-400 font-normal">· free, up to 10 days</span>
-              </div>
             </div>
             <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
               <AirportInput label="From" value={fromCode} onChange={setFromCode} icon={<Plane size={12} className="text-gray-400"/>}/>
@@ -869,57 +870,6 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
           </div>
         )}
       </div>
-
-      {/* ── Portugal Stopover story (scroll target for the nav + search toggle) ── */}
-      {stop && (
-        <div id="tap-stopover" className="max-w-[1180px] mx-auto px-5 pt-4 pb-12">
-          <div className="rounded-3xl overflow-hidden border shadow-sm" style={{ borderColor: "var(--tap-line)" }}>
-            <div className="grid md:grid-cols-2">
-              <div className="relative min-h-[300px]">
-                <CityImg code={stop.hub} alt={stop.hubCity} className="absolute inset-0 w-full h-full object-cover"/>
-                <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(86,28,98,.82), rgba(176,40,116,.7) 55%, rgba(240,104,58,.62))" }}/>
-                <div className="relative p-6 h-full flex flex-col">
-                  <span className="inline-flex items-center gap-1.5 self-start text-[11px] font-black px-2.5 py-1 rounded-full" style={{ background: "#fff", color: "var(--tap-deep)" }}>🇵🇹 PORTUGAL STOPOVER · FREE</span>
-                  <div className="mt-auto">
-                    <div className="font-display font-black text-3xl text-white tracking-tight leading-tight">{stop.headline}</div>
-                    <p className="text-white/90 mt-2 text-sm max-w-sm">{stop.subline}</p>
-                    <div className="inline-flex items-center gap-1.5 mt-3 text-[12px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,.18)", color: "#fff", backdropFilter: "blur(6px)" }}>Up to {stop.maxDays} days · airfare unchanged</div>
-                  </div>
-                </div>
-              </div>
-              <div className="p-6 bg-white">
-                <div className="flex items-center gap-2 mb-3">
-                  <h2 className="font-display font-black text-2xl tracking-tight" style={{ color: "var(--tap-ink)" }}>Your {stop.hubCity} stopover</h2>
-                  <Why text={`The Portugal Stopover lets you break a TAP connection in ${stop.hubCity} for up to ${stop.maxDays} days at no extra airfare. ${stop.why}`}/>
-                </div>
-                <div className="flex items-center gap-3 p-3 rounded-2xl mb-3" style={{ background: "var(--tap-mist)" }}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-white"><Building2 size={18} style={{ color: "var(--tap-green)" }}/></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-bold truncate" style={{ color: "var(--tap-ink)" }}>{stop.hotel.name}</div>
-                    <div className="text-[11px] text-gray-500">{stop.hotel.area} · {stop.hotel.nights} nights</div>
-                  </div>
-                  <div className="text-right"><div className="font-display font-black text-base" style={{ color: "var(--tap-ink)" }}>{EUR(stop.hotel.price)}</div><div className="text-[10px] text-gray-400">/ night</div></div>
-                </div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">{stop.affinityLabel ? `For a ${stop.affinityLabel.toLowerCase()}` : "Highlights"}</div>
-                <div className="space-y-2 mb-4">
-                  {stop.experiences.map((x, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: i === 0 ? "#FCEFF4" : "var(--tap-mist)" }}>{i === 0 ? <Sparkles size={15} style={{ color: "var(--tap-red)" }}/> : <MapPin size={15} style={{ color: "var(--tap-green)" }}/>}</div>
-                      <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate" style={{ color: "var(--tap-ink)" }}>{x.title}</div><div className="text-[11px] text-gray-400">{x.tag}{i === 0 && stop.affinityLabel ? " · picked for you" : ""}</div></div>
-                      <div className="text-sm font-bold" style={{ color: "var(--tap-ink)" }}>{EUR(x.price)}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--tap-line)" }}>
-                  <div><div className="text-[11px] text-gray-400">Stopover stay from</div><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(stop.fromPrice)}</div></div>
-                  <button onClick={() => { setStopover(true); toast("Stopover added", `Free ${stop.hubCity} stopover added — your flight price is unchanged.`); doSearch(); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-white" style={{ background: "var(--tap-green)" }}>Add stopover <ArrowRight size={15}/></button>
-                </div>
-                <div className="text-[11px] text-gray-400 mt-2 flex items-center gap-1"><CheckCircle2 size={12} style={{ color: "var(--tap-green)" }}/> {stop.airfareNote}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Floating AI button (red, matches comp) */}
       <button onClick={openAssistant} className="fixed bottom-6 right-6 z-30 w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white" style={{ background: "var(--tap-red)" }} aria-label="Open TAP AI Assistant"><Sparkles size={24}/></button>
@@ -1333,26 +1283,256 @@ function Payment({ profile, flight, ancillaries, items, seat, onPaid, toast }) {
   );
 }
 
-/* ── CONFIRMATION ── */
-function Confirmed({ profile, flight, receipt, go }) {
-  return (
-    <div className="max-w-xl mx-auto px-4 pt-14 pb-24 text-center">
-      <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center slide-up" style={{background:"#E2F4EA"}}>
-        <CheckCircle2 size={32} style={{color:"var(--tap-green)"}}/>
+/* ── EXPRESS CHECKOUT (Step 1 of 2: Review & Pay) ──
+   "Book your usual flight" lands here with everything pre-filled from the profile:
+   the usual round trip, saved seat, tier-free perks, saved card, miles. One Pay. */
+function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, toast, go }) {
+  const u = profile.user, pat = profile.pattern || {}, prefs = profile.prefs || {};
+  const out = flight;
+  const tierFree = u.tier === "Gold" || u.tier === "Platinum" || u.tier === "Silver";
+  // synthesize the return leg from the recurring pattern (display only; books the outbound PNR)
+  const retNo = pat.usualBack || ("TP" + ((parseInt((out.flight_no || "TP1923").replace(/\D/g, "")) || 1923) + 19));
+  const addDays = (d, n) => { try { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); } catch { return d; } };
+  const outDate = out.flight_date, retDate = addDays(outDate, 2);
+  const ret = { flight_no: retNo, origin: out.dest, dest: out.origin, dep: "19:10", arr: "20:05" };
+  const seatOut = (prefs.seat || "12A").split(" ")[0] || "12A";
+  const seatRet = "14C";
+  // price summary (itemizes the usual fare + the usual add-ons)
+  const base = Math.round(out.price * 0.79), taxes = out.price - base;
+  const seatPrice = 18, bagPrice = 25, carbon = 2;
+  const total = base + taxes + seatPrice + bagPrice + carbon;
+  const milesEarned = Math.round(total * 11);
+  const statusMiles = Math.round(milesEarned * 0.2);
+  const milesForTrip = Math.round(total / MILES_RATE);
+  const tripsToNextTier = { Silver: 4, Gold: 2, Platinum: 1 }[u.tier] || 2;
+  const [accept, setAccept] = useState(false);
+  const [useMiles, setUseMiles] = useState(false);
+  const [paying, setPaying] = useState(false);
+
+  const pay = async () => {
+    if (!accept) return;
+    setPaying(true);
+    const r = await api.post("/pay", { flight_no: out.flight_no, items, seat: seatOut, total,
+      voucher_amt: 0, miles_used: useMiles ? milesForTrip : 0, miles_amt: useMiles ? total : 0, card_amt: useMiles ? 0 : total });
+    toast("Booking confirmed", `${r.pnr} · itinerary emailed to ${u.email}`);
+    onPaid({ pnr: r.pnr, total, voucherVal: 0, milesVal: useMiles ? total : 0, cardVal: useMiles ? 0 : total,
+      express: true, milesEarned, statusMiles, tripsToNextTier, ret, retDate, seatOut, seatRet });
+  };
+
+  const Stepper = () => (
+    <div className="flex items-center gap-3 text-sm font-semibold mb-6">
+      <span className="inline-flex items-center gap-2" style={{ color: "var(--tap-ink)" }}><span className="w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center" style={{ background: "var(--tap-green)" }}>1</span> Review &amp; Pay</span>
+      <span className="flex-1 h-px" style={{ background: "var(--tap-line)" }}/>
+      <span className="inline-flex items-center gap-2 text-gray-400"><span className="w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center bg-gray-300">2</span> Confirmation</span>
+    </div>
+  );
+  const Section = ({ title, action, onAction, children }) => (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-display font-extrabold text-base" style={{ color: "var(--tap-ink)" }}>{title}</h3>
+        {action && <button onClick={onAction} className="text-[13px] font-bold" style={{ color: "var(--tap-green)" }}>{action}</button>}
       </div>
-      <h1 className="font-display font-black text-3xl mb-2" style={{color:"var(--tap-ink)"}}>You're booked, {profile.user.first_name}.</h1>
-      <p className="text-sm text-gray-500 mb-6">Confirmation <b>{receipt.pnr}</b> · written to the bookings table · email sent to {profile.user.email}.<br/>Auto check-in is ON — your boarding pass appears here 24h before departure.</p>
-      <Card className="ticket-edge p-5 text-left mb-5">
-        <div className="text-xs font-bold text-gray-400 mb-1">{flight.flight_no} · {fmtDate(flight.flight_date)} · Seat {(profile.prefs?.seat||"").split(" ")[0] || "—"}</div>
-        <RouteRibbon from={`${flight.origin} ${flight.dep}`} to={`${flight.dest} ${flight.arr}`}/>
-        <div className="h-px my-4" style={{background:"var(--tap-line)"}}/>
-        <div className="grid grid-cols-3 gap-2 text-center text-xs">
-          <div><div className="text-gray-400">Voucher</div><div className="font-bold" style={{color:"var(--tap-deep)"}}>−{EUR(receipt.voucherVal)}</div></div>
-          <div><div className="text-gray-400">Miles</div><div className="font-bold" style={{color:"var(--tap-deep)"}}>−{EUR(receipt.milesVal)}</div></div>
-          <div><div className="text-gray-400">Card</div><div className="font-bold" style={{color:"var(--tap-deep)"}}>{EUR(receipt.cardVal)}</div></div>
+      {children}
+    </Card>
+  );
+  const Leg = ({ tag, date, dep, depCode, depCity, arr, arrCode, arrCity, no }) => (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1">{tag} · {date}</div>
+      <div className="flex items-center gap-3">
+        <div><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{dep}</div><div className="text-[11px] text-gray-500">{depCode} · {depCity}</div></div>
+        <div className="flex-1 text-center"><div className="text-[10px] text-gray-400">55 min · Direct</div><div className="h-px my-1" style={{ background: "var(--tap-line)" }}/><div className="text-[10px] text-gray-400">{no} · A321neo</div></div>
+        <div className="text-right"><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{arr}</div><div className="text-[11px] text-gray-500">{arrCode} · {arrCity}</div></div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 pb-24 pt-8">
+      <Stepper/>
+      <h1 className="font-display font-black text-3xl mb-1" style={{ color: "var(--tap-ink)" }}>Express checkout</h1>
+      <p className="text-sm text-gray-500 mb-6">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
+      <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
+        <div className="space-y-4">
+          <Section title={`Your trip · ${cityName(out.origin)} ⇄ ${cityName(out.dest)}`} action="Change flight" onAction={() => go("search")}>
+            <Leg tag="Outbound" date={fmtDate(outDate)} dep={out.dep} depCode={out.origin} depCity={cityName(out.origin)} arr={out.arr} arrCode={out.dest} arrCity={cityName(out.dest)} no={out.flight_no}/>
+            <div className="h-px my-4" style={{ background: "var(--tap-line)" }}/>
+            <Leg tag="Return" date={fmtDate(retDate)} dep={ret.dep} depCode={ret.origin} depCity={cityName(ret.origin)} arr={ret.arr} arrCode={ret.dest} arrCity={cityName(ret.dest)} no={ret.flight_no}/>
+            <div className="flex items-center justify-between mt-4 pt-3 border-t" style={{ borderColor: "var(--tap-line)" }}>
+              <div className="text-[13px]"><span className="font-bold" style={{ color: "var(--tap-ink)" }}>Fare: Classic</span> <span className="text-gray-500">· 23kg bag · seat select · 50% refund</span></div>
+              <button className="text-[13px] font-bold" style={{ color: "var(--tap-green)" }} onClick={() => toast("Fare rules", "Classic: 23kg bag, seat select, 50% refund, changes for a fee.")}>See fare rules</button>
+            </div>
+          </Section>
+
+          <Section title="Passenger" action="Edit" onAction={() => go("manage")}>
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center font-display font-extrabold text-sm text-white shrink-0" style={{ background: "var(--tap-deep)" }}>{u.full_name.split(" ").map(w => w[0]).slice(0, 2).join("")}</div>
+              <div>
+                <div className="text-sm font-bold" style={{ color: "var(--tap-ink)" }}>{u.full_name} <span className="text-[11px] font-black px-1.5 py-0.5 rounded ml-1" style={{ background: "var(--tap-gold)", color: "#3A2D04" }}>{(u.tier || "GOLD").toUpperCase()}</span> <span className="text-[11px] text-gray-400">· {u.member_no}</span></div>
+                <div className="text-[12px] text-gray-500">{u.doc_id} · Nationality {u.nationality}</div>
+                <div className="text-[12px] font-semibold mt-0.5" style={{ color: "var(--tap-green)" }}>Frequent flyer benefits applied: priority boarding, lounge</div>
+              </div>
+            </div>
+          </Section>
+
+          <Section title="Seat selection" action="Change seat" onAction={() => go("seatmap")}>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <div><span className="font-bold" style={{ color: "var(--tap-ink)" }}>Outbound · {seatOut}</span> <span className="text-gray-500">(Window, Extra legroom)</span></div>
+              <span className="font-bold" style={{ color: "var(--tap-ink)" }}>{EUR(seatPrice)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <div><span className="font-bold" style={{ color: "var(--tap-ink)" }}>Return · {seatRet}</span> <span className="text-gray-500">(Aisle, Standard)</span></div>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#E2F4EA", color: "#066B3C" }}>FREE · {(u.tier || "GOLD").toUpperCase()}</span>
+            </div>
+          </Section>
+
+          <Section title="Baggage &amp; extras" action="Manage" onAction={() => go("basket")}>
+            {[
+              { label: "Cabin bag · 8kg", sub: "Included in fare", free: true },
+              { label: "Checked bag · 23kg ×1", sub: "Outbound + Return", price: bagPrice },
+              { label: "Lounge access · " + cityName(out.origin), sub: "Included with " + u.tier, free: true },
+              { label: "Priority boarding", sub: "Included with " + u.tier, free: true },
+              { label: "Carbon offset · 0.18t CO₂e", sub: "Verified Gold Standard", price: carbon },
+            ].map((x, i) => (
+              <div key={i} className="flex items-center justify-between py-1.5 text-sm">
+                <div><div className="font-semibold" style={{ color: "var(--tap-ink)" }}>{x.label}</div><div className="text-[11px] text-gray-400">{x.sub}</div></div>
+                {x.free ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#E2F4EA", color: "#066B3C" }}>{x.sub.startsWith("Included in") ? "INCLUDED" : `FREE · ${(u.tier || "GOLD").toUpperCase()}`}</span> : <span className="font-bold" style={{ color: "var(--tap-ink)" }}>{EUR(x.price)}</span>}
+              </div>
+            ))}
+          </Section>
+
+          <Section title="Payment method" action="+ Change" onAction={() => toast("Payment", "Use your saved card, miles, MB WAY, Apple Pay or PayPal at payment.")}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold" style={{ color: "var(--tap-ink)" }}>{u.card_brand} ···· {u.card_last4}</div>
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#E2F4EA", color: "#066B3C" }}>🔒 Encrypted</span>
+            </div>
+            <div className="mt-3 rounded-xl p-3 text-[12px] text-gray-500 flex items-center gap-2" style={{ background: "var(--tap-mist)" }}>
+              <span className="font-bold" style={{ color: "var(--tap-ink)" }}>3-D Secure 2.0</span> · bank verification appears here when required.
+            </div>
+          </Section>
+
+          <Section title="Contact details" action="Edit" onAction={() => go("manage")}>
+            <div className="text-sm" style={{ color: "var(--tap-ink)" }}>{u.email} · {u.phone}</div>
+            <div className="text-[12px] text-gray-400">Boarding pass, receipt and IROPS alerts go here.</div>
+          </Section>
+
+          <label className="flex items-start gap-2 text-sm text-gray-600 cursor-pointer px-1">
+            <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} className="mt-0.5 accent-[#46A41A]"/>
+            I've read and accept the <span className="font-semibold" style={{ color: "var(--tap-ink)" }}>fare conditions · baggage rules · privacy policy</span>.
+          </label>
         </div>
-      </Card>
-      <PrimaryBtn onClick={()=>go("manage")} className="w-full">Manage this booking <ArrowRight size={15}/></PrimaryBtn>
+
+        {/* Price summary */}
+        <div className="lg:sticky lg:top-20">
+          <Card className="p-5">
+            <h3 className="font-display font-extrabold text-base mb-3" style={{ color: "var(--tap-ink)" }}>Price summary</h3>
+            {[["Base fare · 1 adult", base], ["Taxes & fees", taxes], [`Seat ${seatOut} · extra legroom`, seatPrice], ["Checked bag 23kg", bagPrice], ["Carbon offset", carbon]].map(([k, v], i) => (
+              <div key={i} className="flex justify-between text-sm py-1 text-gray-600"><span>{k}</span><span style={{ color: "var(--tap-ink)" }}>{EUR(v)}</span></div>
+            ))}
+            <div className="h-px my-2" style={{ background: "var(--tap-line)" }}/>
+            <div className="flex justify-between items-center mb-3"><span className="font-bold" style={{ color: "var(--tap-ink)" }}>Total to pay</span><span className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(total)}</span></div>
+            <div className="rounded-xl px-3 py-2 text-[12px] font-semibold mb-3" style={{ background: "#E2F4EA", color: "#066B3C" }}>Earn {milesEarned.toLocaleString()} miles · or pay {milesForTrip.toLocaleString()} mi + {EUR(2)}</div>
+            <div className="rounded-xl px-3 py-2 text-[11px] mb-3 flex items-center gap-1.5" style={{ background: "#FCF1DD", color: "#8A5A06" }}>⏱ Price held · won't change if you pay now</div>
+            <button onClick={pay} disabled={!accept || paying}
+              className="w-full py-3.5 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition-transform active:scale-[.98] disabled:opacity-50"
+              style={{ background: "var(--tap-green)" }}>
+              {paying ? <><Loader2 className="animate-spin" size={16}/> Confirming…</> : <><Zap size={16}/> {useMiles ? `Pay ${milesForTrip.toLocaleString()} mi securely` : `Pay ${EUR(total)} securely`}</>}
+            </button>
+            <div className="flex items-center justify-center gap-3 mt-2 text-[12px] font-semibold">
+              <button onClick={() => setUseMiles(v => !v)} style={{ color: "var(--tap-green)" }}>{useMiles ? "Pay with card instead" : "Use miles instead"}</button>
+            </div>
+            <div className="text-[10px] text-gray-400 mt-2 text-center">Visa · Mastercard · Amex · MB WAY · Apple Pay · PayPal<br/>Free 24h cancel · 24/7 support</div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CONFIRMATION (Step 2 of 2) ── */
+function Confirmed({ profile, flight, receipt, go }) {
+  const u = profile.user;
+  const seat = receipt.seatOut || (profile.prefs?.seat || "").split(" ")[0] || "—";
+  const total = receipt.total || flight.price;
+  const milesEarned = receipt.milesEarned ?? Math.round(total * 11);
+  const statusMiles = receipt.statusMiles ?? Math.round(milesEarned * 0.2);
+  const tripsToNextTier = receipt.tripsToNextTier ?? 2;
+  const paidLabel = receipt.cardVal > 0 ? `${u.card_brand} ••${u.card_last4}` : (receipt.milesVal > 0 ? "Miles & Go" : "Voucher");
+  const base = Math.round(total * 0.79), taxes = total - base;
+  const useful = [
+    { tag: "EXPERIENCE", title: `${cityName(flight.dest)} food & wine tour`, sub: "3h · 5 stops · tastings included", price: 65 },
+    { tag: "DAY TRIP", title: `Sintra full-day from ${cityName(flight.origin)}`, sub: "Pena Palace, Regaleira & Cabo da Roca", price: 89 },
+    { tag: "TRANSFER", title: `Return transfer hotel → ${flight.origin}`, sub: "Private sedan · save 10% when paired", price: 25 },
+  ];
+  return (
+    <div className="max-w-5xl mx-auto px-4 pb-24 pt-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 slide-up" style={{ background: "#E2F4EA" }}><CheckCircle2 size={20} style={{ color: "var(--tap-green)" }}/></div>
+        <div>
+          <h1 className="font-display font-black text-3xl leading-none" style={{ color: "var(--tap-ink)" }}>Booking Confirmed</h1>
+          <div className="text-sm text-gray-500 mt-1">PNR <b>{receipt.pnr}</b> · receipt sent to {u.email}</div>
+        </div>
+      </div>
+      <div className="grid lg:grid-cols-[1fr_320px] gap-5 items-start">
+        <div className="space-y-5">
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-3"><span className="font-display font-extrabold text-base" style={{ color: "var(--tap-ink)" }}>Your itinerary</span><span className="text-[11px] font-bold text-white px-2 py-0.5 rounded-full" style={{ background: "var(--tap-red)" }}>PNR {receipt.pnr}</span></div>
+            <div className="rounded-2xl p-4" style={{ background: "#EAF7E1" }}>
+              <RouteRibbon from={`${flight.origin} ${flight.dep || ""}`} to={`${flight.dest} ${flight.arr || ""}`}/>
+              <div className="text-[12px] text-gray-500 text-center mt-2">{fmtDate(flight.flight_date)} · {flight.flight_no} · seat {seat} · gate info 90 min before</div>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3 text-[12px]">
+              {[`${u.first_name} · ${seat}`, "Carry-on ×1", "Standard seat", "Snack"].map((c, i) => (
+                <span key={i} className="px-2.5 py-1 rounded-full border" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>{c}</span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-4 mt-4 text-[13px] font-bold" style={{ color: "var(--tap-green)" }}>
+              <button onClick={() => go("manage")}>Add to Wallet</button>
+              <button onClick={() => go("manage")}>Add to Calendar</button>
+              <button onClick={() => go("manage")}>Download e-ticket</button>
+            </div>
+            <div className="text-[12px] text-gray-400 mt-2">Manage booking · check-in opens 24h before</div>
+          </Card>
+
+          <div>
+            <h2 className="font-display font-black text-xl" style={{ color: "var(--tap-ink)" }}>Useful for your trip</h2>
+            <p className="text-[12px] text-gray-400 mb-3">Limited · helpful · not pushy.</p>
+            <div className="grid sm:grid-cols-3 gap-3">
+              {useful.map((x, i) => (
+                <Card key={i} className="p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">{x.tag}</div>
+                  <div className="text-sm font-bold mb-0.5" style={{ color: "var(--tap-ink)" }}>{x.title}</div>
+                  <div className="text-[11px] text-gray-500 mb-2">{x.sub}</div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-display font-black" style={{ color: "var(--tap-ink)" }}>{EUR(x.price)}</span>
+                    <span className="text-[12px] font-bold px-3 py-1 rounded-full border" style={{ borderColor: "var(--tap-green)", color: "var(--tap-green)" }}>+ Add</span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Payment receipt */}
+        <div className="lg:sticky lg:top-20 space-y-4">
+          <Card className="p-5">
+            <h3 className="font-display font-extrabold text-base mb-3" style={{ color: "var(--tap-ink)" }}>Payment receipt</h3>
+            <div className="flex justify-between text-sm py-1 text-gray-600"><span>Fare</span><span style={{ color: "var(--tap-ink)" }}>{EUR(base)}</span></div>
+            <div className="flex justify-between text-sm py-1 text-gray-600"><span>Taxes &amp; fees</span><span style={{ color: "var(--tap-ink)" }}>{EUR(taxes)}</span></div>
+            <div className="h-px my-2" style={{ background: "var(--tap-line)" }}/>
+            <div className="flex justify-between items-center"><span className="text-sm text-gray-500">Paid · {paidLabel}</span><span className="font-display font-black text-2xl" style={{ color: "var(--tap-green)" }}>{EUR(total)}</span></div>
+            <div className="rounded-xl px-3 py-2.5 mt-3 text-[12px]" style={{ background: "#EAF7E1" }}>
+              <div className="font-bold" style={{ color: "#066B3C" }}>✦ You earned {milesEarned.toLocaleString()} miles</div>
+              <div className="text-gray-500">+ {statusMiles} status miles · {tripsToNextTier} trips to next tier</div>
+            </div>
+            <button onClick={() => go("manage")} className="w-full mt-3 py-2.5 rounded-xl font-bold text-sm border inline-flex items-center justify-center gap-2" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}>Download invoice (PDF) <ArrowRight size={14}/></button>
+          </Card>
+          <Card className="p-4 text-[12px] text-gray-500 space-y-1.5">
+            <div className="flex items-center gap-2"><CheckCircle2 size={13} style={{ color: "var(--tap-green)" }}/> Free 24h cancellation</div>
+            <div className="flex items-center gap-2"><Sparkles size={13} style={{ color: "var(--tap-green)" }}/> 24/7 TAP Care — chat anytime</div>
+          </Card>
+          <PrimaryBtn onClick={() => go("manage")} className="w-full">Manage this booking <ArrowRight size={15}/></PrimaryBtn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2230,7 +2410,7 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
               <input type="range" min={priceFloor} max={priceCeil} value={effMax} step={1}
                 onChange={(e) => setMaxPrice(+e.target.value)}
                 className="w-full dxp-range" style={{ accentColor: "var(--tap-green)" }}/>
-              <div className="flex justify-between text-[11px] mt-1" style={{ color: "var(--dxp-muted)" }}>
+              <div className="flex justify-between text-[11px] mt-1" style={{ color: "#6b7280" }}>
                 <span>{EUR(priceFloor)}</span>
                 <span>{hiddenCount > 0 ? `${hiddenCount} hidden above ${EUR(effMax)}` : "All flights shown"}</span>
                 <span>{EUR(priceCeil)}</span>
@@ -2240,7 +2420,7 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
 
           <div className="space-y-3">
             {visibleFlights.length === 0 && (
-              <Card className="p-5 text-sm" style={{ color: "var(--dxp-muted)" }}>No {cabin} flights under {EUR(effMax)}. Raise the bar to see more.</Card>
+              <Card className="p-5 text-sm" style={{ color: "#6b7280" }}>No {cabin} flights under {EUR(effMax)}. Raise the bar to see more.</Card>
             )}
             {visibleFlights.map((f) => (
               <Card key={f.flight_no} className="ticket-edge p-0 overflow-hidden" style={f.recommended ? { boxShadow: "0 0 0 2px var(--tap-green)" } : {}}>
@@ -2256,7 +2436,7 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
                       {f.seats_left < 15 && <Chip tone="red">{f.seats_left} seats left</Chip>}
                     </div>
                   </div>
-                  <div className="text-right"><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(f.cabinPrice)}</div>{cabinMult !== 1 && <div className="text-[11px]" style={{ color: "var(--dxp-muted)" }}>{cabin}</div>}</div>
+                  <div className="text-right"><div className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(f.cabinPrice)}</div>{cabinMult !== 1 && <div className="text-[11px]" style={{ color: "#6b7280" }}>{cabin}</div>}</div>
                   <PrimaryBtn onClick={() => selectFlight({ ...f, price: f.cabinPrice, cabin })} className="!py-2.5">Select <ChevronRight size={15}/></PrimaryBtn>
                 </div>
               </Card>
@@ -2451,12 +2631,12 @@ function CheckIn({ go, toast, profile }) {
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Travel document (passport / ID) *</label>
                 <input value={docId} onChange={(e) => setDocId(e.target.value)} placeholder="e.g. PT-CC-12345678"
-                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)" }}/>
+                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)", background: "var(--tap-mist)", color: "var(--tap-ink)" }}/>
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Nationality</label>
                 <input value={nationality} onChange={(e) => setNationality(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)" }}/>
+                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: "var(--tap-line)", background: "var(--tap-mist)", color: "var(--tap-ink)" }}/>
               </div>
             </div>
             <label className="flex items-start gap-2 text-sm text-gray-600 cursor-pointer">
@@ -2675,7 +2855,7 @@ function App() {
   const [seat, setSeat] = useState("");
 
   // ── Cross-channel journey: stage ↔ web screen, and save/restore helpers ──
-  const STAGE_SCREEN = { results: "search", seat: "seatmap", extras: "basket", review: "checkout" };
+  const STAGE_SCREEN = { results: "search", seat: "seatmap", extras: "basket", review: "express" };
   const STAGE_LABEL = { results: "Choosing a flight", seat: "Selecting a seat", extras: "Adding extras", review: "Reviewing & payment" };
   // Persist the current step to the shared journey (fire-and-forget).
   const saveJourney = (stage, extra = {}) => {
@@ -2723,7 +2903,7 @@ function App() {
   // Reactively persist the cross-channel journey as the user moves through the
   // web booking funnel, so any channel can resume at the exact step + selections.
   useEffect(() => {
-    const SCREEN_STAGE = { seatmap: "seat", basket: "extras", checkout: "review" };
+    const SCREEN_STAGE = { seatmap: "seat", basket: "extras", checkout: "review", express: "review" };
     const stage = SCREEN_STAGE[screen];
     if (stage && flight?.flight_no) {
       saveJourney(stage, { flight_no: flight.flight_no, origin: flight.origin, dest: flight.dest, seat: seat || undefined, items });
@@ -2768,6 +2948,36 @@ function App() {
     if (!usual) { toast("No usual flight found", `${cityName(o)} → ${cityName(dst)}`); return; }
     await selectFlight(usual);   // one-tap path: usual flight → seat map → extras → pay
   };
+  // "Trip Extras" nav → the Basket (extras) view. If a trip is already in progress,
+  // open its basket; otherwise spin up the traveller's usual flight so there's a
+  // trip to add extras to, and land directly on extras.
+  const openExtras = async () => {
+    if (flight) { go("basket"); return; }
+    const o = profile?.pattern?.origin || profile?.user?.home_airport || "OPO";
+    const dst = profile?.pattern?.dest || "LIS";
+    const f = await api.get(`/flights?dest=${dst}&origin=${o}`);
+    setFlights(f);
+    const usual = f.find(x => x.flight_no === (profile?.pattern?.topFlight)) || f.find(x => x.recommended) || f[0];
+    if (!usual) { toast("No trip to add extras to", "Search for a flight first."); go("search"); return; }
+    setFlight(usual);
+    await api.post("/basket", { flight_no: usual.flight_no, items });
+    go("basket");   // the journey-persist effect saves the "extras" stage automatically
+  };
+  // "Book your usual flight" → Express checkout (review & pay), everything pre-filled.
+  const openExpress = async () => {
+    const o = profile?.pattern?.origin || profile?.user?.home_airport || "OPO";
+    const dst = profile?.pattern?.dest || "LIS";
+    const f = await api.get(`/flights?dest=${dst}&origin=${o}`);
+    setFlights(f);
+    const usual = f.find(x => x.flight_no === (profile?.pattern?.topFlight)) || f.find(x => x.recommended) || f[0];
+    if (!usual) { toast("No usual flight found", `${cityName(o)} → ${cityName(dst)}`); go("search"); return; }
+    setFlight(usual);
+    const seatPref = (profile?.prefs?.seat || "").split(" ")[0] || "";
+    setSeat(seatPref);
+    await api.post("/basket", { flight_no: usual.flight_no, items });
+    saveJourney("review", { flight_no: usual.flight_no, origin: usual.origin, dest: usual.dest, seat: seatPref, items });
+    go("express");
+  };
   const toggleItem = async (code) => {
     const next = items.includes(code) ? items.filter(x => x !== code) : [...items, code];
     setItems(next);
@@ -2806,14 +3016,14 @@ function App() {
 
   const activeNav = NAV_ACTIVE[screen] || null;
 
-  const onHome = true;
+  const onHome = false;
   const isHome = screen === "home";
   return (
-    <div className="min-h-screen" style={{background: isHome ? "var(--tap-mist)" : "var(--dxp-bg)"}}>
+    <div className="min-h-screen" style={{background: "var(--tap-mist)"}}>
       <Fonts/>
-      {isHome && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual} resumeJourney={resumeJourney} startFresh={startFresh}/>}
+      {isHome && <Home profile={profile} destinations={destinations} go={go} openAssistant={()=>setAssistantOpen(true)} toast={toast} bookDestination={bookDestination} bookUsual={bookUsual} resumeJourney={resumeJourney} startFresh={startFresh} openExtras={openExtras} openExpress={openExpress}/>}
       {!isHome && (<>
-      <header className="sticky top-0 z-40 border-b" style={{background: "var(--dxp-bg)", borderColor: "var(--dxp-line)"}}>
+      <header className="sticky top-0 z-40 border-b" style={{background: "#fff", borderColor: "var(--tap-line)"}}>
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <button onClick={()=>go("home")}><TapLogo light={onHome}/></button>
           <nav className="hidden md:flex items-center gap-1">
@@ -2846,12 +3056,13 @@ function App() {
         </div>
       </header>
 
-      {/* Non-home screens keep the DXP dark theme */}
-      <div className="dxp-home">
+      {/* Inner screens now use the light TAP theme, matching Home */}
+      <div>
       {screen === "search" && <SearchScreen origin={searchOrigin} setOrigin={setSearchOrigin} dest={searchDest} setDest={setSearchDest} date={searchDate} setDate={setSearchDate} onSearch={runSearch} results={searchResults} searching={searching} selectFlight={selectFlight} routes={routes} suggested={suggested} prefilledReason={prefilledReason}/>}
       {screen === "flights" && <Flights flights={flights} pattern={profile.pattern} selectFlight={selectFlight} toast={toast}/>}
       {screen === "seatmap" && <SeatMap flight={flight} seat={seat} setSeat={setSeat} go={go} toast={toast} profile={profile}/>}
       {screen === "basket" && flight && <Basket flight={flight} ancillaries={ancillaries} items={items} toggleItem={toggleItem} go={go}/>}
+      {screen === "express" && flight && <ExpressCheckout profile={profile} flight={flight} ancillaries={ancillaries} items={items} seat={seat} onPaid={onPaid} toast={toast} go={go}/>}
       {screen === "checkout" && flight && <Checkout profile={profile} flight={flight} ancillaries={ancillaries} items={items} go={go} hold={hold} setHold={setHold} toast={toast}/>}
       {screen === "payment" && flight && <Payment profile={profile} flight={flight} ancillaries={ancillaries} items={items} seat={seat} onPaid={onPaid} toast={toast}/>}
       {screen === "confirmed" && receipt && <Confirmed profile={profile} flight={flight} receipt={receipt} go={go}/>}
@@ -2860,14 +3071,14 @@ function App() {
       {screen === "status" && <FlightStatus go={go}/>}
       {screen === "miles" && <MilesGo profile={profile} go={go}/>}
       {screen === "help" && <Help openAssistant={()=>setAssistantOpen(true)}/>}
-      {screen === "console" && <Console toast={toast}/>}
+      {screen === "console" && <div className="dxp-home"><Console toast={toast}/></div>}
       </div>
       </>)}
 
       <Assistant open={assistantOpen} onClose={()=>setAssistantOpen(false)} screen={screen} profile={profile} onCommand={handleAgentCommand} onSelectFlight={(no)=>handleAgentCommand({action:"select_flight",flight_no:no})}/>
       <Toasts list={toasts} dismiss={(id)=>setToasts(t=>t.filter(x=>x.id!==id))}/>
 
-      <footer className="border-t py-4 text-center text-[11px]" style={{borderColor: isHome ? "var(--tap-line)" : "var(--dxp-line)", color: isHome ? "#94a3a0" : "var(--dxp-muted)"}}>
+      <footer className="border-t py-4 text-center text-[11px]" style={{borderColor: "var(--tap-line)", color: "#94a3a0"}}>
         Demo · Reimagined pre-travel journey · personalized live per traveller · Frontend + Express API + SQLite + Email + AI
       </footer>
     </div>
