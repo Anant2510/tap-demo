@@ -193,6 +193,35 @@ const ctx = {};   // { "<bareNumber>": { origin, dest, date } }
 const getCtx = (to) => ctx[bareNumber(to)] || null;
 const setCtx = (to, c) => { ctx[bareNumber(to)] = { ...(ctx[bareNumber(to)] || {}), ...c }; };
 
+// Resolve a natural-language flight pick against the last shown list → flight_no | null.
+// Handles ordinals ("the second one", "3rd"), "option N" / "#N", an explicit "TPxxxx",
+// a departure time ("the 9:05", "7am"), and attributes ("cheapest", "earliest", "latest").
+// So the customer never has to reply with a bare menu number to choose a flight.
+function resolvePick(t, flights) {
+  if (!flights || !flights.length) return null;
+  const n = flights.length;
+  const WORDS = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, last: n };
+  let idx = null, m;
+  if ((m = t.match(/\b(?:option|number|flight|no\.?)\s*(\d{1,2})\b/)) || (m = t.match(/#\s*(\d{1,2})\b/))) idx = +m[1];
+  else { for (const w in WORDS) { if (new RegExp(`\\b${w}\\b`).test(t)) { idx = WORDS[w]; break; } } }
+  if (idx == null) { const mm = t.match(/\b(\d{1,2})(?:st|nd|rd|th)\b/); if (mm && /\b(one|option|flight|go (with|for)|take|pick|choose|select|book|that)\b/.test(t)) idx = +mm[1]; }
+  if (idx && idx >= 1 && idx <= n) return flights[idx - 1].flight_no;
+  const tp = (t.toUpperCase().match(/\bTP\s?(\d{2,4})\b/) || [])[1];
+  if (tp) { const f = flights.find(x => String(x.flight_no).replace(/\D/g, "") === tp); if (f) return f.flight_no; }
+  const tm = t.match(/\b(\d{1,2})[:.h](\d{2})\b/) || t.match(/\b(\d{1,2})\s?(am|pm)\b/);
+  if (tm) {
+    let hh = +tm[1]; const mer = (tm[2] || "").toLowerCase();
+    if (mer === "pm" && hh < 12) hh += 12; if (mer === "am" && hh === 12) hh = 0;
+    const f = flights.find(x => String(x.dep || "").startsWith(String(hh).padStart(2, "0")));
+    if (f) return f.flight_no;
+  }
+  const has = (...ws) => ws.some(w => t.includes(w));
+  if (has("cheapest", "lowest", "least expensive", "cheap one", "best price")) return flights.slice().sort((a, b) => a.price - b.price)[0].flight_no;
+  if (has("earliest", "first flight", "morning", "early one")) return flights.slice().sort((a, b) => String(a.dep).localeCompare(String(b.dep)))[0].flight_no;
+  if (has("latest", "last flight", "evening", "night", "later one")) return flights.slice().sort((a, b) => String(b.dep).localeCompare(String(a.dep)))[0].flight_no;
+  return null;
+}
+
 /* ── Conversation logic ──────────────────────────────────────── */
 async function sendMainMenu(to) {
   const u = db.prepare("SELECT first_name, miles, tier, affinity_label FROM users WHERE id=1").get();
@@ -740,6 +769,35 @@ async function handleIncoming({ from, text }) {
   if (/\b(extras|add.?ons?|ancillar|upgrade my)\b/.test(t)) return handleAction(from, "EXTRAS");
   if (/\b(miles|voucher|balance|points|wallet)\b/.test(t) && !/book|pay|use|redeem|fly|flight/.test(t)) return handleAction(from, "WALLET");
 
+  // 2-ctx) Natural-language progression of the in-flow journey — NO numbers needed.
+  //   Reads the CURRENT step's menu so free text maps to the right action: pick a flight
+  //   from the last list, keep/continue at the seat step, finish extras, or pay / hold.
+  //   The numbered options still work; this just lets the customer talk normally.
+  {
+    const menu = menuContext[bare] || {};
+    const vals = Object.values(menu);
+    const seatOpts = Object.keys(menu).filter(k => /^\d+$/.test(k) && String(menu[k]).startsWith("SEAT_")).sort((a, b) => +a - +b).map(k => menu[k]);
+
+    // (a) pick a flight from the last shown list ("the second one", "cheapest", "TP1927", "the 9:05")
+    if (vals.some(v => String(v).startsWith("PICK_"))) {
+      const c = getCtx(from);
+      const pick = c && c.flights && resolvePick(t, c.flights);
+      if (pick) return handleAction(from, `PICK_${pick}`);
+    }
+    // (b) SEAT step — keep/continue with the recommended seat, or a typed seat code
+    if (seatOpts.length) {
+      const code = (t.match(/\b(\d{1,2}[a-f])\b/) || [])[1];
+      if (code) { const match = seatOpts.find(s => s.toLowerCase() === `seat_${code}`); if (match) return handleAction(from, match); }
+      if (/\b(keep|usual|same|continue|carry on|that'?s fine|sounds good|leave it|default|proceed|next|go ahead)\b/.test(t) || /^(yes|yep|yeah|ok|okay|sure)[\s.!]*$/.test(t)) return handleAction(from, seatOpts[0]);
+    }
+    // (c) EXTRAS step — finish to review ("done", "nothing else", "continue", "pay")
+    if (vals.includes("XDONE") && (/\b(done|continue|next|review|checkout|check out|proceed|nothing( else)?|that'?s all|that is all|skip|pay|finish|good to go|all set|move on)\b/.test(t) || /^(no|nope)[\s.!]*$/.test(t))) return handleAction(from, "XDONE");
+    // (d) REVIEW / express — pay, hold, or confirm in words
+    if (vals.includes("DO_HOLD") && /\b(hold|fare ?lock|lock (it|the fare)|48 ?h|keep it for)\b/.test(t)) return handleAction(from, "DO_HOLD");
+    if (vals.includes("DO_PAY") && (/\b(pay|confirm|book it|complete|purchase|proceed|go ahead|do it|checkout|check out|settle)\b/.test(t) || /^(yes|yep|yeah|sure|ok|okay|confirm|pay)[\s.!]*$/.test(t))) return handleAction(from, "DO_PAY");
+    if (vals.includes("EXPRESS_PAY") && (/\b(pay|confirm|book it|complete|purchase|proceed|go ahead|do it|settle)\b/.test(t) || /^(yes|yep|yeah|sure|ok|okay|confirm|pay)[\s.!]*$/.test(t))) return handleAction(from, "EXPRESS_PAY");
+  }
+
   // 2a) Date-only follow-up on an active route — e.g. "how about day after
   //     tomorrow", "what about tomorrow", "and on Friday?". These re-run the
   //     SAME route for a new date. Checked BEFORE the question gate because
@@ -809,6 +867,7 @@ async function runAgent(to, text) {
       const map = { "0": "MENU" }; const lines = [];
       flights.forEach((f, i) => { const n = String(i + 1); map[n] = `PICK_${f.flight_no}`; lines.push(`${n}️⃣  ${f.flight_no} · ${f.dep}–${f.arr} · €${f.price}${f.recommended ? " ⭐" : ""}`); });
       setMenu(to, map);
+      setCtx(to, { origin: flightsCard.origin, dest: flightsCard.dest, date: flightsCard.date, flights: flights.map(f => ({ flight_no: f.flight_no, dep: f.dep, arr: f.arr, price: f.price })) });
       const head = r.reply ? r.reply + "\n\n" : "";
       const body = `${head}✈️ ${cityName(flightsCard.origin)} → ${cityName(flightsCard.dest)} · ${flightsCard.date}\nReply with a number:\n\n${lines.join("\n")}\n\n0 for menu`;
       // Record an assistant turn that names the flights, so a follow-up like
@@ -946,8 +1005,9 @@ async function searchRoute(to, origin, dest, date = searchToday(), userText) {
     lines.push(`${n}️⃣  ${f.flight_no} · ${f.dep}–${f.arr} · €${f.price}${f.recommended ? " ⭐" : ""}`);
   });
   setMenu(to, map);
-  // Remember the active route + date so a date-only follow-up re-runs the same route.
-  setCtx(to, { origin, dest, date });
+  // Remember the active route + date AND the shown flights, so a follow-up can pick by
+  // position/attribute ("the second one", "cheapest") or a date-only follow-up re-runs the route.
+  setCtx(to, { origin, dest, date, flights: flights.map(f => ({ flight_no: f.flight_no, dep: f.dep, arr: f.arr, price: f.price })) });
   // Record it in the conversation so the AI agent has context on any follow-up.
   pushConvo(to, "assistant", `Showed ${cityName(origin)}→${cityName(dest)} on ${date}: ` + flights.map(f => `${f.flight_no} ${f.dep}-${f.arr} €${f.price}`).join("; "));
   await sendText(to,

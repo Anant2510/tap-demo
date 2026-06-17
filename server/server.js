@@ -1226,6 +1226,18 @@ function deterministicAgent(text, session) {
       }
       if (explicit) return done(`I showed ${n} flights — pick a number from 1 to ${n}, or say the flight number (e.g. ${session.lastSearch.flights[0].flight_no}).`);
     }
+    // attribute / departure-time selection ("the cheapest", "earliest one", "the 9:05", "7am")
+    const fl = session.lastSearch.flights;
+    let pickNo = null;
+    const tm = q.match(/\b(\d{1,2})[:.h](\d{2})\b/) || q.match(/\b(\d{1,2})\s?(am|pm)\b/);
+    if (tm) { let hh = +tm[1]; const mer = (tm[2] || "").toLowerCase(); if (mer === "pm" && hh < 12) hh += 12; if (mer === "am" && hh === 12) hh = 0; const f = fl.find(x => String(x.dep || "").startsWith(String(hh).padStart(2, "0"))); if (f) pickNo = f.flight_no; }
+    if (!pickNo && has("cheapest", "lowest", "least expensive", "cheap one", "best price")) pickNo = fl.slice().sort((a, b) => a.price - b.price)[0].flight_no;
+    if (!pickNo && has("earliest", "first flight", "morning", "early one")) pickNo = fl.slice().sort((a, b) => String(a.dep).localeCompare(String(b.dep)))[0].flight_no;
+    if (!pickNo && has("latest", "last flight", "evening", "night", "later one")) pickNo = fl.slice().sort((a, b) => String(b.dep).localeCompare(String(a.dep)))[0].flight_no;
+    if (pickNo) {
+      const r = run("select_flight", { flight_no: pickNo });
+      if (r.ok) return done(`Added ${r.flight_no} (${r.route}, ${r.dep}–${r.arr}, €${r.price}) to your basket, seat ${r.seat}. Say "check out" to pay.`);
+    }
   }
   // checkout / pay — confirm payment for the queued flight (express, search, or usual)
   const queued = !!(session.selected || db.prepare("SELECT 1 FROM baskets WHERE user_id=1 AND status='open' LIMIT 1").get());
