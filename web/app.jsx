@@ -2256,7 +2256,7 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
   };
 
   if (!open) return null;
-  const chips = [`Best time to visit ${d1}`, `Flights under €500 to ${d2}`, "Stopover ideas for 2 days", `${d2} in October?`];
+  const chips = [`Best time to visit ${d1}`, `Flights under €500 to ${d2}`, `${d2} in October?`];
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-end p-0 sm:p-6" onClick={onClose}>
       <div className="w-full h-full sm:w-[390px] sm:h-[600px] sm:max-h-[82vh] bg-white sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden slide-up" onClick={(e) => e.stopPropagation()} style={{ border: "1px solid var(--tap-line)" }}>
