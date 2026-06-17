@@ -1206,6 +1206,27 @@ function deterministicAgent(text, session) {
     const r = run("get_flight_info", { flight_no: "TP" + fno });
     return done(r.ok ? `${r.flight_no} ${r.route} departs ${r.dep}, arrives ${r.arr}, €${r.price}. ${r.note}` : (r.message || "I don't have that flight yet."));
   }
+  // ordinal / positional pick from the last shown list ("3rd option", "the second one",
+  // "option 2", "I'll go with the third", "#1", "the last one"). Maps to the Nth flight in
+  // session.lastSearch — checked BEFORE date parsing so "3rd option" isn't read as "the 3rd".
+  if (session.lastSearch && session.lastSearch.flights && session.lastSearch.flights.length) {
+    const n = session.lastSearch.flights.length;
+    const ORD = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, last: n };
+    let idx = null, explicit = false, m;
+    if ((m = q.match(/\b(?:option|number|flight|no\.?)\s*(\d{1,2})\b/)) || (m = q.match(/#\s*(\d{1,2})\b/))) { idx = +m[1]; explicit = true; }
+    else if ((m = q.match(/\b(\d{1,2})(?:st|nd|rd|th)\b/))) idx = +m[1];          // "3rd", "2nd"
+    else { for (const w in ORD) { if (new RegExp(`\\b${w}\\b`).test(q)) { idx = ORD[w]; break; } } }
+    const pickCtx = has("option", "one", "flight", "go with", "go for", "i'll go", "ill go", "i will go", "take the", "take it", "pick", "choose", "select", "add it", "book it", "that one");
+    if (idx && (explicit || pickCtx)) {
+      if (idx >= 1 && idx <= n) {
+        const f = session.lastSearch.flights[idx - 1];
+        const r = run("select_flight", { flight_no: f.flight_no });
+        if (r.ok) return done(`Added ${r.flight_no} (${r.route}, ${r.dep}–${r.arr}, €${r.price}) to your basket, seat ${r.seat}. Say "check out" to pay.`);
+        return done(r.message || "Let me pull those flights up again.");
+      }
+      if (explicit) return done(`I showed ${n} flights — pick a number from 1 to ${n}, or say the flight number (e.g. ${session.lastSearch.flights[0].flight_no}).`);
+    }
+  }
   // checkout / pay — confirm payment for the queued flight (express, search, or usual)
   const queued = !!(session.selected || db.prepare("SELECT 1 FROM baskets WHERE user_id=1 AND status='open' LIMIT 1").get());
   const payConfirm = has("check out", "checkout", "pay now", "book it", "complete booking", "confirm booking", "purchase",
