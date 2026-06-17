@@ -927,7 +927,7 @@ function agentRunTool(name, input, session) {
       miles_value_eur: milesValue,
       miles_rate: "1,000 miles ≈ €3",
       voucher: v ? { code: v.code, amount: v.amount, status: v.status, expiry: v.expiry, available: v.status === "active" } : null,
-      card: `${u.card_brand} ••${u.card_last4}`,
+      card: "your saved card",
       note: "You can split any booking across voucher, miles and card on the payment page or right here in chat.",
     };
   }

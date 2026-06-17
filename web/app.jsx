@@ -37,6 +37,8 @@ const cityName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].city) || code
 // Earliest selectable date: the real "today", but never earlier than the demo anchor.
 const SEARCH_TODAY = (() => { const r = new Date().toISOString().slice(0, 10); return r > "2026-06-15" ? r : "2026-06-15"; })();
 const countryName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].country) || "";
+// Card details are never exposed in the UI (no brand, no real digits) — fully masked for every persona.
+const MASKED_PAN = "•••• •••• •••• ••••";
 
 /* ── Theme / primitives ── */
 const Fonts = () => (
@@ -839,7 +841,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
             <div className="flex items-center gap-2 mb-4">
               <Sparkles size={16} style={{ color: "var(--tap-green)" }}/>
               <h2 className="font-display font-black text-2xl tracking-tight" style={{ color: "var(--tap-ink)" }}>Made for you, {u.first_name}</h2>
-              <Why text={`Derived from your ${rec.card.product} (${rec.card.brand} ••${rec.card.last4}). ${rec.rationale} Bundles event ticket + hotel + return flight.`}/>
+              <Why text={`Derived from your TAP Miles&Go co-branded card spend pattern. ${rec.rationale} Bundles event ticket + hotel + return flight.`}/>
             </div>
             <div className="bg-white rounded-3xl overflow-hidden border grid md:grid-cols-2" style={{ borderColor: "var(--tap-line)" }}>
               <div className="relative min-h-[240px]">
@@ -1157,6 +1159,7 @@ function Checkout({ profile, flight, ancillaries, items, go, hold, setHold, toas
   const extras = items.reduce((s, id) => s + (ancillaries.find(a=>a.code===id)?.price || 0), 0);
   const total = flight.price + extras;
   const u = profile.user;
+  const lastName = (u.full_name || "").replace(u.first_name || "", "").trim() || "—";
   const doHold = async () => {
     if (hold) { setHold(false); return; }
     const r = await api.post("/hold", { flight_no: flight.flight_no, items, total });
@@ -1173,10 +1176,10 @@ function Checkout({ profile, flight, ancillaries, items, go, hold, setHold, toas
           <Chip tone="green"><Zap size={11}/> Auto-filled from users table · member {u.member_no}</Chip>
         </div>
         <div className="grid sm:grid-cols-2 gap-3 text-sm">
-          {[["Full name", u.full_name],["Document", u.doc_id],["Email", u.email],["Mobile", u.phone]].map(([k,v])=>(
+          {[["First name", u.first_name],["Last name", lastName],["Date of birth", u.dob],["Gender", u.gender],["Nationality", u.nationality],["Passport no.", u.doc_id],["Passport expiry", u.passport_exp],["Frequent flyer", `${u.member_no} · ${u.tier}`],["Email", u.email],["Mobile", u.phone]].map(([k,v])=>(
             <div key={k} className="p-3 rounded-xl" style={{background:"var(--tap-mist)"}}>
               <div className="text-[11px] text-gray-400 font-semibold uppercase tracking-wide">{k}</div>
-              <div className="font-semibold" style={{color:"var(--tap-deep)"}}>{v}</div>
+              <div className="font-semibold" style={{color:"var(--tap-deep)"}}>{v || "—"}</div>
             </div>
           ))}
         </div>
@@ -1275,7 +1278,7 @@ function Payment({ profile, flight, ancillaries, items, seat, onPaid, toast }) {
         <Card className="p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{background:"var(--tap-mist)"}}><CreditCard size={18} style={{color:"var(--tap-green)"}}/></div>
           <div className="flex-1">
-            <div className="text-sm font-bold" style={{color:"var(--tap-ink)"}}>{u.card_brand} •••• {u.card_last4}</div>
+            <div className="text-sm font-bold" style={{color:"var(--tap-ink)"}}>Saved card · {MASKED_PAN}</div>
             <div className="text-xs text-gray-500">Saved to your profile · 3-D Secure ready</div>
           </div>
           <div className="text-sm font-bold" style={{color:"var(--tap-ink)"}}>{EUR(cardVal)}</div>
@@ -1430,7 +1433,7 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
 
           <Section title="Payment method" action="+ Change" onAction={() => toast("Payment", "Use your saved card, miles, MB WAY, Apple Pay or PayPal at payment.")}>
             <div className="flex items-center justify-between">
-              <div className="text-sm font-bold" style={{ color: "var(--tap-ink)" }}>{u.card_brand} ···· {u.card_last4}</div>
+              <div className="text-sm font-bold" style={{ color: "var(--tap-ink)" }}>Saved card · {MASKED_PAN}</div>
               <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#E2F4EA", color: "#066B3C" }}>🔒 Encrypted</span>
             </div>
             <div className="mt-3 rounded-xl p-3 text-[12px] text-gray-500 flex items-center gap-2" style={{ background: "var(--tap-mist)" }}>
@@ -1483,7 +1486,7 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
             </div>
 
             <div className="flex justify-between items-center mb-3">
-              <span className="text-[13px] font-bold" style={{ color: "var(--tap-ink)" }}>Charge to {u.card_brand} ···· {u.card_last4}</span>
+              <span className="text-[13px] font-bold" style={{ color: "var(--tap-ink)" }}>Charge to saved card · {MASKED_PAN}</span>
               <span className="font-display font-black text-xl" style={{ color: "var(--tap-ink)" }}>{EUR(cardVal)}</span>
             </div>
 
@@ -1514,7 +1517,7 @@ function Confirmed({ profile, flight, receipt, go }) {
   const milesEarned = receipt.milesEarned ?? Math.round(total * 11);
   const statusMiles = receipt.statusMiles ?? Math.round(milesEarned * 0.2);
   const tripsToNextTier = receipt.tripsToNextTier ?? 2;
-  const paidLabel = receipt.cardVal > 0 ? `${u.card_brand} ••${u.card_last4}` : (receipt.milesVal > 0 ? "Miles & Go" : "Voucher");
+  const paidLabel = receipt.cardVal > 0 ? "your saved card" : (receipt.milesVal > 0 ? "Miles & Go" : "Voucher");
   const base = Math.round(total * 0.79), taxes = total - base;
   const useful = [
     { tag: "EXPERIENCE", title: `${f.dest ? cityName(f.dest) : "Your destination"} food & wine tour`, sub: "3h · 5 stops · tastings included", price: 65 },
@@ -1994,7 +1997,7 @@ function AffinityPanel() {
         {/* 1 — card + spend categories */}
         <div className="rounded-xl border p-4" style={{ borderColor: "var(--tap-line)", background: "var(--dxp-surface)" }}>
           <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">1 · Card spend (CDP traits)</div>
-          <div className="text-sm font-bold mb-3" style={{ color: "var(--tap-ink)" }}>{rec.card.product} <span className="text-gray-400 font-semibold">••{rec.card.last4}</span></div>
+          <div className="text-sm font-bold mb-3" style={{ color: "var(--tap-ink)" }}>TAP Miles&Go co-branded card <span className="text-gray-400 font-semibold">•••• ••••</span></div>
           <div className="space-y-2">
             {(rec.categories || []).map((c, i) => (
               <div key={i}>
@@ -2254,20 +2257,39 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
   const d1 = cityName(profile?.pattern?.dest || profile?.user?.home_airport || "LIS");
   const d2 = cityName((profile?.pattern?.searchedDests && profile.pattern.searchedDests[0]?.code) || profile?.user?.home_airport || "OPO");
   const pat = profile?.pattern || {};
-  const ssOpen = profile?.syncedSearch;
-  const inProgress = !!(ssOpen && ssOpen.dest);
   const usualRoute = `${cityName(pat.origin || profile?.user?.home_airport || "OPO")} → ${cityName(pat.dest || "LIS")}`;
-  const resumeRoute = inProgress ? `${cityName(ssOpen.origin)} → ${cityName(ssOpen.dest)}` : "";
   const recLabel = pat.recommendedLabel || "";
   const tier = profile?.user?.tier || "";
-  const greeting = `Hi ${firstName} ✈️ Tell me where you want to go and when — I'll plan the rest.`
-    + (inProgress ? `\n\n↩️ You have a search in progress (${resumeRoute}) — tap "Resume your search" below to finish it.` : "")
-    + `\n\n⚡ Or book your usual ${usualRoute}${recLabel ? ` for ${recLabel}` : ""} in two taps with Express checkout.`;
-  const [msgs, setMsgs] = useState([{ role: "assistant", content: greeting }]);
+  // The in-progress search is read LIVE from the server each time the chat opens, so the
+  // greeting + "Resume your search" always reflect the latest route — never a stale
+  // mount-time snapshot (it must not keep showing OPO→LIS after another route was searched).
+  const normJourney = (j) => (j && j.dest) ? { origin: j.origin, dest: j.dest, travel_date: j.date || j.travel_date, stage: j.stage, flight_no: j.flight_no, seat: j.seat, items: j.items, cabin: j.cabin } : null;
+  const [journey, setJourney] = useState(null);
+  const ss = journey || profile?.syncedSearch;
+  const inProgress = !!(ss && ss.dest);
+  const resumeRoute = inProgress ? `${cityName(ss.origin)} → ${cityName(ss.dest)}` : "";
+  const buildGreeting = (s) => {
+    const ip = !!(s && s.dest);
+    const rr = ip ? `${cityName(s.origin)} → ${cityName(s.dest)}` : "";
+    return `Hi ${firstName} ✈️ Tell me where you want to go and when — I'll plan the rest.`
+      + (ip ? `\n\n↩️ You have a search in progress (${rr}) — tap "Resume your search" below to finish it.` : "")
+      + `\n\n⚡ Or book your usual ${usualRoute}${recLabel ? ` for ${recLabel}` : ""} in two taps with Express checkout.`;
+  };
+  const [msgs, setMsgs] = useState([{ role: "assistant", content: buildGreeting(profile?.syncedSearch) }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, open]);
+  // Pull the current in-progress search from the server whenever the chat opens, so the
+  // greeting and Resume chip track the latest route (not the seeded/stale one).
+  useEffect(() => {
+    if (!open) return;
+    api.get("/journey").then(j => {
+      const live = (j && j.stage && j.dest) ? j : null;
+      setJourney(normJourney(live));
+      setMsgs(m => (m.length <= 1 ? [{ role: "assistant", content: buildGreeting(normJourney(live) || profile?.syncedSearch) }] : m));
+    }).catch(() => {});
+  }, [open]);
 
   const send = async (preset) => {
     const q = (preset || input).trim(); if (!q || busy) return;
@@ -2278,6 +2300,9 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
       const r = await api.post("/ai/agent", { messages: next, screen, sessionId: WEB_SESSION_ID });
       setMsgs(m => [...m, { role: "assistant", content: r.reply, cards: r.cards }]);
       if (r.command) onCommand?.(r.command);   // chat drives the main screen
+      // A search/select in chat advances the shared journey — re-read it so the
+      // Resume chip + greeting never lag behind the latest route within a session.
+      if (r.command) api.get("/journey").then(j => setJourney(normJourney((j && j.stage && j.dest) ? j : null))).catch(() => {});
     } catch {
       setMsgs(m => [...m, { role: "assistant", content: "Something went wrong reaching the agent — try again." }]);
     }
@@ -2319,7 +2344,7 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
             <div key={i} className="space-y-2">
               {m.content && <div className={`max-w-[88%] px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "ml-auto text-white rounded-br-md" : "rounded-bl-md"}`}
                 style={m.role === "user" ? { background: "var(--tap-green)" } : { background: "#EEF1EF", color: "var(--tap-ink)" }}>{m.content}</div>}
-              {m.cards && <ChatCards cards={m.cards} cardBrand={profile?.user?.card_brand || "card"} onSelectFlight={(no) => { onSelectFlight?.(no); setMsgs(mm => [...mm, { role: "assistant", content: `Selected ${no} — it's in your basket and on screen now. Say "check out" to pay with your voucher + miles.` }]); }}/>}
+              {m.cards && <ChatCards cards={m.cards} cardBrand="saved card" onSelectFlight={(no) => { onSelectFlight?.(no); setMsgs(mm => [...mm, { role: "assistant", content: `Selected ${no} — it's in your basket and on screen now. Say "check out" to pay with your voucher + miles.` }]); }}/>}
             </div>
           ))}
           {busy && <div className="px-4 py-2.5 rounded-2xl rounded-bl-md w-fit" style={{ background: "#EEF1EF" }}><Loader2 className="animate-spin" size={15} style={{ color: "var(--tap-green)" }}/></div>}
@@ -2817,7 +2842,7 @@ function MilesGo({ profile, go }) {
             <span className="text-sm text-gray-600">Travel voucher</span><span className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>€{voucher?.amount ?? 0}</span>
           </div>
           <div className="flex items-center justify-between py-1.5 border-b" style={{ borderColor: "var(--tap-line)" }}>
-            <span className="text-sm text-gray-600">Saved card</span><span className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>{u.card_brand} ••{u.card_last4}</span>
+            <span className="text-sm text-gray-600">Saved card</span><span className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>{MASKED_PAN}</span>
           </div>
           <div className="flex items-center justify-between py-1.5">
             <span className="text-sm text-gray-600">Miles value (approx)</span><span className="font-bold text-sm" style={{ color: "var(--tap-ink)" }}>€{Math.round(u.miles / 1000 * 3).toLocaleString()}</span>
@@ -2963,7 +2988,14 @@ function App() {
     }).catch(() => {});
   };
   // Restore selections from a saved journey and jump to the exact screen.
-  const resumeJourney = async (j) => {
+  const resumeJourney = async (jArg) => {
+    let j = jArg;
+    // The server is the source of truth — always resume the most recent in-progress
+    // search, even if the passed snapshot (e.g. mount-time profile) is stale.
+    try {
+      const live = await api.get("/journey");
+      if (live && live.stage && live.dest) j = { origin: live.origin, dest: live.dest, date: live.date, stage: live.stage, flight_no: live.flight_no, seat: live.seat, items: live.items, cabin: live.cabin };
+    } catch {}
     if (!j || !j.stage) return;
     const origin = j.origin, dest = j.dest;
     setSearchOrigin(origin); setSearchDest(dest); if (j.date) setSearchDate(j.date);

@@ -337,7 +337,7 @@ Seat ${d.seat} · cabin bag${extraNames.length ? " + " + extraNames.join(", ") :
 Total €${priced.gross.toFixed(2)}
  • Voucher −€${priced.voucher}
  • ${priced.miles_used.toLocaleString()} miles −€${priced.miles_amt}
- • ${card.card_brand || "Card"} ••${card.card_last4 || "0000"} €${priced.card.toFixed(2)}`,
+ • Saved card €${priced.card.toFixed(2)}`,
     [{ id: "DO_PAY", title: "Pay now" }, { id: "DO_HOLD", title: "Hold 48h free" }, { id: "MENU", title: "Back to menu" }],
     { "1": "DO_PAY", "2": "DO_HOLD", "3": "MENU", "0": "MENU" });
 }
@@ -361,7 +361,7 @@ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)}
 👤 ${u.full_name} · ${tier} · ${u.member_no}
 💺 Seat ${d.seat || "auto"} · 🧳 cabin bag + checked 23kg
 🎟️ Lounge + priority boarding FREE · ${tier}
-💳 ${u.card_brand || "Card"} ••${u.card_last4 || "0000"}
+💳 Saved card · •••• ••••
 
 *Total €${priced.gross.toFixed(2)}* · earn ${miles.toLocaleString()} miles
  • Voucher −€${priced.voucher} · ${priced.miles_used.toLocaleString()} mi −€${priced.miles_amt} · card €${priced.card.toFixed(2)}
@@ -450,7 +450,7 @@ async function handleAction(to, id) {
     const priced = priceDraft(d, f);
     const r = await apiCall("POST", "/pay", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross, voucher_amt: priced.voucher, miles_used: priced.miles_used, miles_amt: priced.miles_amt, card_amt: priced.card });
     const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
-    const cardStr = `${cardRow.card_brand || "Card"} ••${cardRow.card_last4 || "0000"}`;
+    const cardStr = "your saved card";
     const facts = { action: "checkout", state: "booked", pnr: r.pnr, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: f.flight_date, seat: d.seat, card: cardStr, extras: d.items.filter(c=>!["seat","bag","meal"].includes(c)), split: { voucher: priced.voucher, miles: priced.miles_used, miles_eur: priced.miles_amt, card: priced.card } };
     await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
       fallback: `✅ Booked! ${r.pnr} — ${f.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${f.flight_date}, seat ${d.seat}.\nPayment: voucher −€${priced.voucher} · ${priced.miles_used.toLocaleString()} miles −€${priced.miles_amt} · ${cardStr} €${priced.card.toFixed(2)}.\nConfirmation emailed. Auto check-in is ON.` }));
@@ -520,7 +520,7 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     const map = { "0": "MENU" }; const lines = [];
     anc.forEach((a, i) => { const n = String(i + 1); map[n] = `ANC_${a.code}`; lines.push(`${n}️⃣  ${a.name} — €${a.price}`); });
     setMenu(to, map);
-    const card = (db.prepare("SELECT card_brand FROM users WHERE id=1").get() || {}).card_brand || "card";
+    const card = "your saved card";
     await sendText(to, `Add to your trip — charged to your saved ${card}, instantly on your booking:\n\n${lines.join("\n")}\n\n0 for menu`);
     return;
   }
@@ -529,7 +529,7 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     const r = await apiCall("POST", "/bookings/ancillary", { code });
     if (r.ok) {
       const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
-      const card = `${cardRow.card_brand || "Card"} ••${cardRow.card_last4 || "0000"}`;
+      const card = "your saved card";
       const facts = { action: "add_extra", state: "added", item: r.name, price: r.price, pnr: r.pnr, card };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ Added ${r.name} (€${r.price}) to ${r.pnr} — charged to ${card}. Updated itinerary emailed.` }));
     } else {
@@ -600,10 +600,10 @@ Just tell me a seat (e.g. "change my seat to 12A") or a preference ("window in b
     const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=1").get();
     const v = db.prepare("SELECT code, amount, status, expiry FROM vouchers WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
     const milesVal = (u.miles * 0.003).toFixed(2);
-    const facts = { action: "wallet", miles: u.miles, miles_value_eur: +milesVal, voucher: v ? { code: v.code, amount: v.amount, available: v.status === "active", expiry: v.expiry } : null, card: `${u.card_brand} ••${u.card_last4}` };
+    const facts = { action: "wallet", miles: u.miles, miles_value_eur: +milesVal, voucher: v ? { code: v.code, amount: v.amount, available: v.status === "active", expiry: v.expiry } : null, card: "Saved card" };
     const vLine = v && v.status === "active" ? `🎟️ Voucher ${v.code}: €${v.amount} (expires ${v.expiry})` : "🎟️ No active voucher";
     await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
-      fallback: `💳 Your wallet\n✈️ Miles&Go: ${u.miles.toLocaleString()} miles (≈ €${milesVal})\n${vLine}\n💳 ${u.card_brand} ••${u.card_last4}\n\nYou can pay any trip with a mix of voucher, miles and card. Reply 1 to book your usual flight.` }));
+      fallback: `💳 Your wallet\n✈️ Miles&Go: ${u.miles.toLocaleString()} miles (≈ €${milesVal})\n${vLine}\n💳 Saved card · •••• ••••\n\nYou can pay any trip with a mix of voucher, miles and card. Reply 1 to book your usual flight.` }));
     setMenu(to, { "1": "BOOK_USUAL", "0": "MENU" });
     return;
   }
@@ -648,7 +648,7 @@ Reply:  1 to confirm cancel   ·   0 to keep my booking`);
     if (r.ok) {
       const facts = { action: "cancel", state: "cancelled", pnr: r.pnr, refund: r.refund || { note: "original payment split" } };
       const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
-      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ ${r.pnr} cancelled. Refund issued instantly: miles restored, voucher reactivated, card amount returned to ${cardRow.card_brand || "card"} ••${cardRow.card_last4 || "0000"}. Confirmation emailed — no forms, no queue.` }));
+      await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ ${r.pnr} cancelled. Refund issued instantly: miles restored, voucher reactivated, card amount returned to your saved card. Confirmation emailed — no forms, no queue.` }));
     } else {
       const facts = { action: "cancel", state: "no_booking", message: "No active booking was found to cancel." };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message }));

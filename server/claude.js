@@ -21,7 +21,7 @@ function danielContext() {
   return `You are the AI inside TAP Air Portugal's digital channel, serving one logged-in customer.
 CUSTOMER PROFILE (live from the customer database):
 - ${u.full_name}, ${u.nationality}. TAP Miles&Go ${u.tier.toUpperCase()}. Home airport ${u.home_airport}.
-- Miles: ${u.miles.toLocaleString()}.${v ? ` Voucher: €${v.amount}.` : ""} Saved card ${u.card_brand} ••${u.card_last4}.${u.affinity_label ? ` Interests (from card spend): ${u.affinity_label}.` : ""}
+- Miles: ${u.miles.toLocaleString()}.${v ? ` Voucher: €${v.amount}.` : ""} Saved card on file (details masked — never reveal or guess card brand or number).${u.affinity_label ? ` Interests (from card spend): ${u.affinity_label}.` : ""}
 - Preferences: seat ${p.seat}; ${p.bag}; meal ${p.meal}; auto check-in ${p.auto_checkin ? "ON" : "OFF"}.
 - Travel history (last ${hist.length} flights): ${hist.map(h => `${h.trip_date} ${h.flight_no} ${h.route} ${h.dep_time}`).join("; ")}.
 - Bookings on file: ${pastCount} completed past trips, and ${upcoming.length} upcoming/active: ${upcoming.map(b => `${b.pnr} ${b.flight_no} on ${b.flight_date} seat ${b.seat}`).join("; ") || "none"}.

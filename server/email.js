@@ -86,7 +86,7 @@ function me() {
     return {
       first: (u.full_name || "there").split(" ")[0],
       tier: u.tier || "Member",
-      card: `${u.card_brand || "card"} ••${u.card_last4 || "0000"}`,
+      card: "your saved card",
       seat: (pr.seat || "").split(" ")[0] || "your seat",
       voucher: v.amount || 0,
     };
@@ -101,7 +101,7 @@ const TEMPLATES = {
     try {
       const { db } = require("./db");
       const u = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get();
-      if (u) card = `${u.card_brand} ••${u.card_last4}`;
+      if (u) card = "your saved card";
       const pr = db.prepare("SELECT seat FROM preferences WHERE user_id=1").get();
       if (pr?.seat) seat = pr.seat.split(" ")[0];
     } catch {}
