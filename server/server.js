@@ -6,7 +6,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const { db, now, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA } = require("./db");
+const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA } = require("./db");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -42,6 +42,8 @@ const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?")
 // Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
 const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
 const boardingGroup = (tier) => `${(tier || "Gold") === "Silver" ? "B" : "A"} (${tier || "Gold"})`;
+// Add minutes to a HH:MM clock (wraps at midnight) — used for delay/arrival math.
+const addMins = (hhmm, mins) => { const [h, m] = String(hhmm || "00:00").split(":").map(Number); const t = (((h * 60 + m + mins) % 1440) + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
 
 // Persist generated flights so basket / pay / disrupt all keep working on real rows
 function persistFlights(list) {
@@ -119,7 +121,7 @@ app.get("/api/routes/suggested", (req, res) => {
 app.get("/api/search", (req, res) => {
   const origin = (req.query.origin || "OPO").toUpperCase();
   const dest = (req.query.dest || "LIS").toUpperCase();
-  const date = req.query.date || "2026-06-15";
+  const date = req.query.date || searchToday();
   const route = getRoute(origin, dest);
   if (!route) {
     log("search_no_route", { origin, dest });
@@ -344,7 +346,7 @@ app.get("/api/recommendation", (req, res) => {
 app.get("/api/flights", (req, res) => {
   const dest = (req.query.dest || "LIS").toUpperCase();
   const origin = (req.query.origin || "OPO").toUpperCase();
-  const date = req.query.date || "2026-06-15";
+  const date = req.query.date || searchToday();
   if (!getRoute(origin, dest)) { log("api_flights_noroute", { origin, dest }); return res.json([]); }
   const flights = generateFlights(origin, dest, date);
   persistFlights(flights);
@@ -380,6 +382,7 @@ app.get("/api/seat-recommendation", (req, res) => {
   });
 });
 app.get("/api/destinations", (req, res) => {
+  const home = (db.prepare("SELECT home_airport FROM users WHERE id=1").get() || {}).home_airport || "OPO";
   const dests = db.prepare("SELECT * FROM destinations").all();
   res.json(dests.map(d => {
     const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC").all(`%→${d.code}`);
@@ -401,7 +404,7 @@ app.get("/api/destinations", (req, res) => {
       reason = `You searched ${d.city} ${searched}× in the last week — still comparing options?`;
     else if (d.tag) reason = `Suggested because: ${d.tag.toLowerCase()}.`;
     else reason = `A popular route from your home airport.`;
-    return { ...d, origin: "OPO", flown, booked, searched, purposes, reason };
+    return { ...d, origin: home, flown, booked, searched, purposes, reason };
   }));
 });
 
@@ -478,14 +481,23 @@ app.post("/api/disrupt", async (req, res) => {
   // Default to the active persona's usual outbound flight, not a hardcoded one.
   const u = db.prepare("SELECT first_name, tier, home_airport FROM users WHERE id=1").get() || {};
   const usual = db.prepare("SELECT flight_no, route FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC LIMIT 1").get((u.home_airport || "OPO") + "→%");
-  const flight_no = req.body.flight_no || usual?.flight_no || "TP1927";
-  db.prepare("UPDATE flights SET status='delayed', new_dep='08:55', new_arr='09:50' WHERE flight_no=?").run(flight_no);
+  const flight_no = req.body.flight_no || usual?.flight_no || currentBooking()?.flight_no || "TP1927";
   let f = flightByNo(flight_no);
   // If that flight isn't in the flights table yet, synthesize a row from history/route.
-  if (!f) { const r = (usual?.route || `${u.home_airport||"OPO"}→LIS`).split("→"); f = { flight_no, origin: r[0], dest: r[1], dep: "07:05", new_dep: "08:55", new_arr: "09:50" }; }
+  if (!f) { const r = (usual?.route || `${u.home_airport||"OPO"}→LIS`).split("→"); f = { flight_no, origin: r[0], dest: r[1], dep: "07:05", arr: "08:00" }; }
+  // Delay (~1h50, late inbound aircraft) computed from the flight's REAL schedule — never hardcoded.
+  const DELAY = 110;
+  const newDep = addMins(f.dep, DELAY), newArr = addMins(f.arr || addMins(f.dep, 60), DELAY);
+  db.prepare("UPDATE flights SET status='delayed', new_dep=?, new_arr=? WHERE flight_no=?").run(newDep, newArr, flight_no);
+  f = { ...f, status: "delayed", new_dep: newDep, new_arr: newArr };
   const routeStr = `${cityName(f.origin)}→${cityName(f.dest)}`;
   // pick an alternative flight on the same route from the flights table
-  const alt = db.prepare("SELECT flight_no, dep, arr FROM flights WHERE origin=? AND dest=? AND flight_no!=? ORDER BY dep LIMIT 1").get(f.origin, f.dest, flight_no) || { flight_no: "TP1931", dep: "09:10", arr: "10:05" };
+  // Alternative on the SAME route — prefer a generated same-route flight (works for any
+  // network route, not just seeded ones), then the flights table, then a safe stub.
+  const sameRoute = (generateFlights(f.origin, f.dest, searchToday()) || []).filter(x => x.flight_no !== flight_no);
+  const alt = sameRoute[0]
+    || db.prepare("SELECT flight_no, dep, arr FROM flights WHERE origin=? AND dest=? AND flight_no!=? ORDER BY dep LIMIT 1").get(f.origin, f.dest, flight_no)
+    || { flight_no: "TP" + ((parseInt((flight_no || "TP100").replace(/\D/g, "")) || 100) + 4), dep: addMins(f.dep, 180), arr: addMins(f.arr || addMins(f.dep, 60), 180) };
   log("ops_disruption", { flight_no, cause: "late inbound aircraft", new_dep: f.new_dep });
 
   let recovery, ai = "live";
@@ -496,7 +508,20 @@ Write their proactive disruption notification. Return JSON exactly:
 {"headline": string, "message": string (2-3 sentences, personal, transparent about the cause, reassuring, no fluff), "options":[{"id":"${flight_no}","label": string,"detail": string},{"id":"${alt.flight_no}","label": string,"detail": string}], "compensation": string (one line, ${u.tier} + EU261 entitlements)}.
 Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${flight_no} lands ${f.new_arr}.` }],
       { json: true });
-  } catch { recovery = FALLBACKS.recovery; ai = "cached"; }
+  } catch {
+    // Deterministic, persona-and-flight-aware recovery (no key / offline) — real times,
+    // real tier, option ids that match the actual flights so one-tap rebook works.
+    recovery = {
+      headline: `Your flight is delayed — new departure ${f.new_dep}`,
+      message: `Your aircraft is arriving late, so ${flight_no} (${routeStr}) now departs ${f.new_dep} and lands ${f.new_arr}. Here are your realistic options — no queue needed.`,
+      options: [
+        { id: flight_no, label: `Keep ${flight_no} · lands ${f.new_arr}`, detail: "We'll fast-track you on arrival per your tier." },
+        { id: alt.flight_no, label: `Move to ${alt.flight_no} · departs ${alt.dep}`, detail: `Lands ${alt.arr} — guaranteed seat if your schedule can flex.` },
+      ],
+      compensation: `${u.tier || "Gold"} + EU261: lounge access now, meal voucher added to your wallet automatically.`,
+    };
+    ai = "cached";
+  }
 
   const email = await sendEmail("disruption", { f, recovery });
   const wa = await whatsapp.pushDisruption(f, recovery);   // proactive WhatsApp with one-tap rebook buttons
@@ -546,7 +571,7 @@ app.post("/api/whatsapp/webhook", async (req, res) => {
 
 app.post("/api/rebook", async (req, res) => {
   const { option } = req.body;
-  const bk = db.prepare("SELECT * FROM bookings WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+  const bk = currentBooking() || db.prepare("SELECT * FROM bookings WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
   const pnr = bk ? bk.pnr : "TPX9D4";
   if (bk && option.id !== bk.flight_no) db.prepare("UPDATE bookings SET flight_no=?, status='rebooked' WHERE id=?").run(option.id, bk.id);
   log("rebooked", { pnr, option });
@@ -712,7 +737,7 @@ function agentRunTool(name, input, session) {
     const dest = (input.dest || "").toUpperCase();
     // Never guess a destination — tell the agent to ask or list instead.
     if (!dest) return { ok: false, need: "destination", message: "No destination was given. Ask the customer where they want to go, or call list_destinations to show the options from their origin. Do not assume a destination." };
-    const date = input.date || "2026-06-15";
+    const date = input.date || searchToday();
     const route = getRoute(origin, dest);
     if (!route) {
       const dests = (db.prepare("SELECT dest FROM routes WHERE origin=?").all(origin) || []).map(r => r.dest);
@@ -1229,7 +1254,7 @@ function deterministicAgent(text, session) {
     let { origin, dest } = parseRoute(text, homeCode);
     const ls = session.lastSearch;
     if (!dest && ls && ls.dest) { origin = ls.origin; dest = ls.dest; } // keep active route when only the date changed
-    const date = whatsapp.parseDate(q) || "2026-06-15";
+    const date = whatsapp.parseDate(q) || searchToday();
     if (!dest) {
       const r = run("list_destinations", { origin });
       return done(r.ok ? `From ${r.originCity} you can fly to ${r.count} cities — ${r.destinations.slice(0, 6).map(d => d.city).join(", ")} and more. Which destination?` : "Where would you like to fly to?");

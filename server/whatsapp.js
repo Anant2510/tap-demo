@@ -14,7 +14,7 @@
      bookings, rebooking, ancillaries, cancellations all hit the same
      database and feed the same personalization.
    ────────────────────────────────────────────────────────────── */
-const { db, now, currentBooking } = require("./db");
+const { db, now, searchToday, currentBooking } = require("./db");
 const { AIRPORTS } = require("./routes-data");
 const { phraseFromFacts } = require("./claude");
 
@@ -356,7 +356,7 @@ async function handleAction(to, id) {
     if (j.stage === "results" || !f) {
       // Only a route was chosen → re-run the route search so they can pick a flight.
       const home = j.origin || "OPO";
-      return searchRoute(to, home, j.dest, j.date || "2026-06-15", "resume");
+      return searchRoute(to, home, j.dest, j.date || searchToday(), "resume");
     }
     await sendText(to, `↩️ Picking up where you left off — ${cityName(f.origin)} → ${cityName(f.dest)}, ${({seat:"choosing your seat",extras:"adding extras",review:"reviewing & payment"})[j.stage] || "your booking"}.`);
     if (j.stage === "seat") return startSeatStep(to, f);
@@ -411,7 +411,7 @@ async function handleAction(to, id) {
   }
   if (id === "XDONE") return startCheckoutReview(to);
   if (id === "OFFER") return showOffer(to);
-  if (id.startsWith("OFFERBOOK_")) { const p = id.split("_"); return searchRoute(to, p[1], p[2], "2026-06-15", "offer"); }
+  if (id.startsWith("OFFERBOOK_")) { const p = id.split("_"); return searchRoute(to, p[1], p[2], searchToday(), "offer"); }
 
   /* CHECKOUT → PAY / HOLD using the full draft */
   if (id === "DO_PAY" || id === "EXPRESS_PAY") {
@@ -491,7 +491,8 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     const map = { "0": "MENU" }; const lines = [];
     anc.forEach((a, i) => { const n = String(i + 1); map[n] = `ANC_${a.code}`; lines.push(`${n}️⃣  ${a.name} — €${a.price}`); });
     setMenu(to, map);
-    await sendText(to, `Add to your trip — charged to your saved Visa, instantly on your booking:\n\n${lines.join("\n")}\n\n0 for menu`);
+    const card = (db.prepare("SELECT card_brand FROM users WHERE id=1").get() || {}).card_brand || "card";
+    await sendText(to, `Add to your trip — charged to your saved ${card}, instantly on your booking:\n\n${lines.join("\n")}\n\n0 for menu`);
     return;
   }
   if (id.startsWith("ANC_")) {
@@ -542,7 +543,7 @@ _${cat ? "From your card: " + cat : "From your card spend"}_
   if (id.startsWith("SEARCHTO_")) {
     const code = id.slice(9);
     const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
-    return searchRoute(from, home, code, "2026-06-15", "package flight");
+    return searchRoute(from, home, code, searchToday(), "package flight");
   }
 
   if (id === "SEATMAP_INFO") {
@@ -722,7 +723,7 @@ async function handleIncoming({ from, text }) {
         await sendText(from, `${cityName(home)} is your home airport — tell me where you'd like to fly to from ${home}.`);
         return sendMainMenu(from);
       }
-      return searchRoute(from, home, destFromText, parsed || "2026-06-15", text);
+      return searchRoute(from, home, destFromText, parsed || searchToday(), text);
     }
     return handleAction(from, "BOOK_USUAL");
   }
@@ -780,7 +781,7 @@ async function handleIncoming({ from, text }) {
     // Only fire the deterministic search when we have a real destination.
     if (destCode && destCode !== originCode) {
       const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
-      return searchRoute(from, originCode || home, destCode, parsedDate || "2026-06-15", text);
+      return searchRoute(from, originCode || home, destCode, parsedDate || searchToday(), text);
     }
   }
 
@@ -854,15 +855,16 @@ function detectDest(t) {
   return null;
 }
 
-/* Parse a date phrase → YYYY-MM-DD. "Today" in the demo is 2026-06-15 — matching
-   the UI date picker, the search defaults and the seeded data. Handles today/tonight,
+/* Parse a date phrase → YYYY-MM-DD. "Today" is the demo anchor (2026-06-15) but
+   rolls forward to the real current date (see searchToday) so relative dates and
+   undated searches are never in the past. Handles today/tonight,
    tomorrow and day after tomorrow (incl. chat shorthand like "tomm" / "tmrw"), weekday
    names, this/next weekend, "in N days", next week, natural calendar dates ("20th june",
    "june 20", "20/06", "the 20th") with optional year, and an explicit YYYY-MM-DD. Returns
    null if no date phrase is present. Shared with the web AI agent (server.js) so both
    channels resolve dates identically. */
 function parseDate(t) {
-  const TODAY = new Date("2026-06-15T00:00:00Z");
+  const TODAY = new Date(searchToday() + "T00:00:00Z");
   const iso = (d) => d.toISOString().slice(0, 10);
   const add = (n) => { const d = new Date(TODAY); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
   // the many ways people write "tomorrow" in a chat box (no bare "tom" — that's a name)
@@ -927,7 +929,7 @@ function parseDate(t) {
 }
 
 /* Free-route search → numbered flight list (mirrors the web AI chat). */
-async function searchRoute(to, origin, dest, date = "2026-06-15", userText) {
+async function searchRoute(to, origin, dest, date = searchToday(), userText) {
   const r = await apiCall("GET", `/search?origin=${origin}&dest=${dest}&date=${date}`);
   if (userText) pushConvo(to, "user", userText);
   if (!r.ok || !r.flights?.length) {

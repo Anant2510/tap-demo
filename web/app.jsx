@@ -1658,10 +1658,10 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="text-xs font-bold text-gray-400">{b.pnr} · {b.flight_date} · {rebooked && isPrimary ? `rebooked to ${rebooked.id}` : b.flight_no}</div>
               <Chip tone={delayed ? "red" : "green"}>
-                <span className="pulse-dot">●</span> {delayed ? `Delayed · new dep ${f.new_dep || "08:55"}` : (b.status === "rebooked" ? "Rebooked" : "On time")}
+                <span className="pulse-dot">●</span> {delayed ? `Delayed · new dep ${f.new_dep || f.dep}` : (b.status === "rebooked" ? "Rebooked" : "On time")}
               </Chip>
             </div>
-            <RouteRibbon from={`${f.origin || "OPO"} ${delayed ? "08:55" : f.dep}`} to={`${f.dest || "LIS"} ${delayed ? "09:50" : f.arr}`}/>
+            <RouteRibbon from={`${f.origin || "OPO"} ${delayed ? (f.new_dep || f.dep) : f.dep}`} to={`${f.dest || "LIS"} ${delayed ? (f.new_arr || f.arr) : f.arr}`}/>
             <div className="text-xs text-gray-500 mt-2">Seat {b.seat} · {(b.items || []).join(" · ") || "no extras"} · {b.checked_in ? "Checked in ✓" : "Auto check-in 24h before"}</div>
             <div className="h-px my-4" style={{background:"var(--tap-line)"}}/>
             <div className="grid sm:grid-cols-3 gap-2">
@@ -2088,7 +2088,7 @@ function Console({ toast }) {
 
 /* ── ASSISTANT — TAP AI concierge via backend ── */
 /* ── Inline cards rendered inside the chat by the agent ── */
-function ChatCards({ cards, onSelectFlight }) {
+function ChatCards({ cards, onSelectFlight, cardBrand = "card" }) {
   if (!cards || !cards.length) return null;
   return (
     <div className="space-y-2">
@@ -2125,7 +2125,7 @@ function ChatCards({ cards, onSelectFlight }) {
             <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-white/70"><BadgeCheck size={13}/> Booked</div>
             <div className="font-extrabold text-base mt-0.5">{c.pnr}</div>
             <div className="text-xs text-white/80 mt-1">{c.route} · {c.dep} · {EUR(c.total)}</div>
-            <div className="text-[11px] text-white/60 mt-1">Voucher −{EUR(c.split.voucher)} · {c.split.miles.toLocaleString()} miles −{EUR(c.split.miles_eur)} · Visa {EUR(c.split.card)}</div>
+            <div className="text-[11px] text-white/60 mt-1">Voucher −{EUR(c.split.voucher)} · {c.split.miles.toLocaleString()} miles −{EUR(c.split.miles_eur)} · {cardBrand} {EUR(c.split.card)}</div>
           </div>
         );
         if (c.type === "suggestions") return (
@@ -2182,7 +2182,7 @@ function ChatCards({ cards, onSelectFlight }) {
           <div key={i} className="bg-white border rounded-2xl p-3" style={{borderColor:"#fecaca"}}>
             <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-red-600"><X size={13}/> Cancelled · instant refund</div>
             <div className="font-bold text-sm mt-0.5" style={{color:"var(--tap-ink)"}}>{c.pnr}</div>
-            <div className="text-xs text-gray-500 mt-0.5">Refunded: {c.refund.miles?.toLocaleString?.()||c.refund.miles} miles · voucher reactivated · {EUR(c.refund.card||0)} to Visa</div>
+            <div className="text-xs text-gray-500 mt-0.5">Refunded: {c.refund.miles?.toLocaleString?.()||c.refund.miles} miles · voucher reactivated · {EUR(c.refund.card||0)} to {cardBrand}</div>
           </div>
         );
         if (c.type === "wallet") return (
@@ -2277,7 +2277,7 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
             <div key={i} className="space-y-2">
               {m.content && <div className={`max-w-[88%] px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "ml-auto text-white rounded-br-md" : "rounded-bl-md"}`}
                 style={m.role === "user" ? { background: "var(--tap-green)" } : { background: "#EEF1EF", color: "var(--tap-ink)" }}>{m.content}</div>}
-              {m.cards && <ChatCards cards={m.cards} onSelectFlight={(no) => { onSelectFlight?.(no); setMsgs(mm => [...mm, { role: "assistant", content: `Selected ${no} — it's in your basket and on screen now. Say "check out" to pay with your voucher + miles.` }]); }}/>}
+              {m.cards && <ChatCards cards={m.cards} cardBrand={profile?.user?.card_brand || "card"} onSelectFlight={(no) => { onSelectFlight?.(no); setMsgs(mm => [...mm, { role: "assistant", content: `Selected ${no} — it's in your basket and on screen now. Say "check out" to pay with your voucher + miles.` }]); }}/>}
             </div>
           ))}
           {busy && <div className="px-4 py-2.5 rounded-2xl rounded-bl-md w-fit" style={{ background: "#EEF1EF" }}><Loader2 className="animate-spin" size={15} style={{ color: "var(--tap-green)" }}/></div>}
@@ -2614,7 +2614,7 @@ function CheckIn({ go, toast, profile }) {
     const rows = await api.get("/bookings");
     const active = (rows || []).find(b => b.status === "confirmed");
     setBooking(active || null);
-    if (active?.checked_in) setDone({ state: "already_checked_in", pnr: active.pnr, seat: active.seat, group: `A (${profile?.user?.tier || "Gold"})` });
+    if (active?.checked_in) setDone({ state: "already_checked_in", pnr: active.pnr, seat: active.seat, group: `${profile?.user?.tier === "Silver" ? "B" : "A"} (${profile?.user?.tier || "Gold"})` });
   })(); }, []);
 
   const canSubmit = docId.trim().length >= 5 && ackBags && !busy;
@@ -2645,7 +2645,7 @@ function CheckIn({ go, toast, profile }) {
         <Card className="p-6 text-center">
           <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "var(--tap-mist)" }}><BadgeCheck size={22} style={{ color: "var(--tap-green)" }}/></div>
           <div className="font-display font-extrabold text-xl mb-1" style={{ color: "var(--tap-ink)" }}>You're already checked in</div>
-          <div className="text-sm text-gray-600 mb-4">{booking.pnr} · {booking.flight?.flight_no} {cityName(booking.flight?.origin)}→{cityName(booking.flight?.dest)} · boarding group A ({profile?.user?.tier || "Gold"}), seat {booking.seat}. Nothing more to do.</div>
+          <div className="text-sm text-gray-600 mb-4">{booking.pnr} · {booking.flight?.flight_no} {cityName(booking.flight?.origin)}→{cityName(booking.flight?.dest)} · boarding group {profile?.user?.tier === "Silver" ? "B" : "A"} ({profile?.user?.tier || "Gold"}), seat {booking.seat}. Nothing more to do.</div>
           <PrimaryBtn onClick={() => go("manage")} className="!py-2.5"><QrCode size={15}/> View boarding pass</PrimaryBtn>
         </Card>
       )}
@@ -2845,7 +2845,7 @@ function App() {
   const [suggested, setSuggested] = useState(null);
   const [searchOrigin, setSearchOrigin] = useState("OPO");
   const [searchDest, setSearchDest] = useState("LIS");
-  const [searchDate, setSearchDate] = useState("2026-06-15");
+  const [searchDate, setSearchDate] = useState(() => { const r = new Date().toISOString().slice(0, 10); return r > "2026-06-15" ? r : "2026-06-15"; });
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const [prefilledReason, setPrefilledReason] = useState(null);

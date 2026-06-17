@@ -101,6 +101,10 @@ const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
 // Canonical "today" for the demo (everything is anchored to this date).
 const TODAY = "2026-06-15";
+// Default date for an UNDATED flight search. Anchored to the demo's "today" but
+// never in the past: it rolls forward to the real current date, so "next flight"
+// and undated searches always return upcoming flights, even months after launch.
+const searchToday = () => { const r = new Date().toISOString().slice(0, 10); return r > TODAY ? r : TODAY; };
 // The customer's CURRENT trip = soonest confirmed booking on/after today,
 // otherwise the most recent past confirmed booking. This mirrors the home
 // screen's logic so every channel (web, AI chat, WhatsApp) shows the SAME trip.
@@ -396,4 +400,4 @@ function seedPersonaData(personaId) {
 }
 seed();
 
-module.exports = { db, now, TODAY, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA };
+module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA };
