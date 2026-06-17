@@ -42,6 +42,19 @@ const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?")
 // Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
 const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
 const boardingGroup = (tier) => `${(tier || "Gold") === "Silver" ? "B" : "A"} (${tier || "Gold"})`;
+// Card identity is never exposed anywhere — UI, DB inspector, API payloads, AI prompts, emails.
+// (No card network brand, no last-4, no expiry.) Spend categories remain for personalization.
+const BRAND_RE = /\b(visa|mastercard|master\s?card|amex|american\s?express)\b/ig;
+const maskCardProduct = (p) => p ? String(p).replace(BRAND_RE, "••••") : p;
+const maskUserCard = (u) => {
+  if (!u || typeof u !== "object") return u;
+  const r = { ...u };
+  if ("card_brand" in r) r.card_brand = "••••";
+  if ("card_last4" in r) r.card_last4 = "••••";
+  if ("card_exp" in r) r.card_exp = "••/••";
+  if ("card_product" in r) r.card_product = maskCardProduct(r.card_product);
+  return r;
+};
 // Add minutes to a HH:MM clock (wraps at midnight) — used for delay/arrival math.
 const addMins = (hhmm, mins) => { const [h, m] = String(hhmm || "00:00").split(":").map(Number); const t = (((h * 60 + m + mins) % 1440) + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
 // The server is the single source of truth for "today" and any countdown. The UI must
@@ -261,7 +274,7 @@ app.get("/api/profile", (req, res) => {
     searchedDests,
   };
   log("api_profile_fetch", { source: "users, preferences, vouchers, travel_history, searches", topRoute, topFlight });
-  res.json({ user, prefs, vouchers, history, pattern, syncedSearch: search ? { ...search, days_to_go: daysToGo(search.travel_date) } : search, recentSearches, today: todayISO() });
+  res.json({ user: maskUserCard(user), prefs, vouchers, history, pattern, syncedSearch: search ? { ...search, days_to_go: daysToGo(search.travel_date) } : search, recentSearches, today: todayISO() });
 });
 
 /* ── Cross-channel journey state ───────────────────────────────────────────
@@ -338,12 +351,12 @@ app.get("/api/recommendation", (req, res) => {
   res.json({
     affinity: user.affinity,
     affinity_label: user.affinity_label,
-    card: { product: user.card_product, brand: user.card_brand, last4: user.card_last4 },
+    card: { product: maskCardProduct(user.card_product), brand: "••••", last4: "••••" },
     categories,
     // a short explanation of the derivation, for the UI + Demo Console
     rationale: topCategory
-      ? `Your ${user.card_product} shows ${categories[0].share}% of spend in ${topCategory} — so VOYAGER.AI flags you as a ${user.affinity_label}.`
-      : `Derived from your ${user.card_product} spend profile.`,
+      ? `Your co-branded card shows ${categories[0].share}% of spend in ${topCategory} — so VOYAGER.AI flags you as a ${user.affinity_label}.`
+      : `Derived from your co-branded card spend profile.`,
     package: pkg,
   });
 });
@@ -607,6 +620,7 @@ app.post("/api/bookings/checkin", (req, res) => {
 app.post("/api/ai/plan", async (req, res) => {
   const q = (req.body.prompt || "").slice(0, 500);
   const u = db.prepare("SELECT first_name, home_airport, affinity, affinity_label, card_product FROM users WHERE id=1").get() || {};
+  if (u.card_product) u.card_product = maskCardProduct(u.card_product);
   let categories = []; try { categories = JSON.parse((db.prepare("SELECT card_categories FROM users WHERE id=1").get()||{}).card_categories || "[]"); } catch {}
   const pkg = packageFor(u.affinity, u.home_airport);
   log("ai_planner_query", { q, affinity: u.affinity });
@@ -938,7 +952,7 @@ function agentRunTool(name, input, session) {
     const top = categories[0];
     return { ok: true,
       affinity: u.affinity, affinity_label: u.affinity_label,
-      card: `${u.card_product} (${u.card_brand} ••${u.card_last4})`,
+      card: maskCardProduct(u.card_product),
       derived_from: top ? `${top.share}% of card spend in ${top.name}` : null,
       package: pkg ? {
         event: pkg.event, venue: pkg.venue, city: pkg.city, date: pkg.date, badge: pkg.badge,
@@ -1467,7 +1481,7 @@ app.get("/api/admin/db", (req, res) => {
   for (const t of SHOW_TABLES) {
     const cap = (t === "routes" || t === "airports") ? 200 : 40;
     const rows = db.prepare(`SELECT * FROM ${t} ORDER BY rowid DESC LIMIT ${cap}`).all();
-    out[t] = rows.map(r => { const { html, ...rest } = r; return rest; });
+    out[t] = rows.map(r => { const { html, ...rest } = r; return t === "users" ? maskUserCard(rest) : rest; });
   }
   res.json({ dbPath: DB_PATH, tables: out });
 });
