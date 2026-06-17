@@ -1320,19 +1320,27 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
   const statusMiles = Math.round(milesEarned * 0.2);
   const milesForTrip = Math.round(total / MILES_RATE);
   const tripsToNextTier = { Silver: 4, Gold: 2, Platinum: 1 }[u.tier] || 2;
+  const voucher = profile.vouchers && profile.vouchers[0];
   const [accept, setAccept] = useState(false);
-  const [useMiles, setUseMiles] = useState(false);
+  const [useVoucher, setUseVoucher] = useState(!!voucher);
+  const [milesUsed, setMilesUsed] = useState(0);
   const [paying, setPaying] = useState(false);
+  // Split payment — voucher + miles reduce the cash charged to card, live (same as the normal flow).
+  const voucherVal = useVoucher && voucher ? Math.min(voucher.amount, total) : 0;
+  const milesVal = Math.min(milesUsed * MILES_RATE, Math.max(0, total - voucherVal));
+  const cardVal = Math.max(0, total - voucherVal - milesVal);
+  const maxMiles = Math.min(u.miles, Math.ceil((total - voucherVal) / MILES_RATE));
+  const milesSpent = milesVal > 0 ? Math.min(milesUsed, maxMiles) : 0;
 
   const pay = async () => {
     if (!accept) return;
     setPaying(true);
     try {
       const r = await api.post("/pay", { flight_no: out.flight_no, items, seat: seatOut, total, date: out.flight_date,
-        voucher_amt: 0, miles_used: useMiles ? milesForTrip : 0, miles_amt: useMiles ? total : 0, card_amt: useMiles ? 0 : total });
+        voucher_amt: voucherVal, miles_used: milesSpent, miles_amt: milesVal, card_amt: cardVal });
       if (!r || !r.ok) { toast("Couldn't complete payment", (r && r.error) || "Please try again."); setPaying(false); return; }
       toast("Booking confirmed", `${r.pnr} · itinerary emailed to ${u.email}`);
-      onPaid({ pnr: r.pnr, total, voucherVal: 0, milesVal: useMiles ? total : 0, cardVal: useMiles ? 0 : total,
+      onPaid({ pnr: r.pnr, total, voucherVal, milesVal, cardVal,
         express: true, milesEarned, statusMiles, tripsToNextTier, ret, retDate, seatOut, seatRet, flight: out });
     } catch (e) {
       toast("Couldn't complete payment", "Please try again."); setPaying(false);
@@ -1449,17 +1457,43 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
               <div key={i} className="flex justify-between text-sm py-1 text-gray-600"><span>{k}</span><span style={{ color: "var(--tap-ink)" }}>{EUR(v)}</span></div>
             ))}
             <div className="h-px my-2" style={{ background: "var(--tap-line)" }}/>
-            <div className="flex justify-between items-center mb-3"><span className="font-bold" style={{ color: "var(--tap-ink)" }}>Total to pay</span><span className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(total)}</span></div>
-            <div className="rounded-xl px-3 py-2 text-[12px] font-semibold mb-3" style={{ background: "#E2F4EA", color: "#066B3C" }}>Earn {milesEarned.toLocaleString()} miles · or pay {milesForTrip.toLocaleString()} mi + {EUR(2)}</div>
+            <div className="flex justify-between items-center mb-3"><span className="font-bold" style={{ color: "var(--tap-ink)" }}>Trip total</span><span className="font-display font-black text-2xl" style={{ color: "var(--tap-ink)" }}>{EUR(total)}</span></div>
+
+            {voucher && (
+              <div className="flex items-center justify-between rounded-xl px-3 py-2 mb-2" style={{ background: "var(--tap-mist)" }}>
+                <div className="min-w-0 mr-2">
+                  <div className="text-[12px] font-bold truncate" style={{ color: "var(--tap-ink)" }}>Voucher {voucher.code} · {EUR(voucher.amount)}</div>
+                  <div className="text-[10px] text-gray-500">{useVoucher ? `−${EUR(voucherVal)} applied` : "tap to apply"}</div>
+                </div>
+                <button onClick={() => setUseVoucher(v => !v)} role="switch" aria-checked={useVoucher}
+                  className="w-11 h-6 rounded-full relative transition-colors shrink-0" style={{ background: useVoucher ? "var(--tap-green)" : "#D6DEDA" }}>
+                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${useVoucher ? "left-[22px]" : "left-0.5"}`}/>
+                </button>
+              </div>
+            )}
+
+            <div className="rounded-xl px-3 py-2 mb-3" style={{ background: "var(--tap-mist)" }}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[12px] font-bold" style={{ color: "var(--tap-ink)" }}>Use miles ✦ <span className="text-[10px] font-medium text-gray-500">({u.miles.toLocaleString()} available)</span></div>
+                <div className="text-[12px] font-bold" style={{ color: "var(--tap-green)" }}>−{EUR(milesVal)}</div>
+              </div>
+              <input type="range" min={0} max={maxMiles} step={500} value={milesSpent}
+                onChange={(e) => setMilesUsed(+e.target.value)} className="w-full accent-[#00A357]"/>
+              <div className="flex justify-between text-[10px] text-gray-400 font-medium"><span>0</span><span>{milesSpent.toLocaleString()} mi</span><span>{maxMiles.toLocaleString()}</span></div>
+            </div>
+
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-[13px] font-bold" style={{ color: "var(--tap-ink)" }}>Charge to {u.card_brand} ···· {u.card_last4}</span>
+              <span className="font-display font-black text-xl" style={{ color: "var(--tap-ink)" }}>{EUR(cardVal)}</span>
+            </div>
+
             <div className="rounded-xl px-3 py-2 text-[11px] mb-3 flex items-center gap-1.5" style={{ background: "#FCF1DD", color: "#8A5A06" }}>⏱ Price held · won't change if you pay now</div>
             <button onClick={pay} disabled={!accept || paying}
               className="w-full py-3.5 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition-transform active:scale-[.98] disabled:opacity-50"
               style={{ background: "var(--tap-green)" }}>
-              {paying ? <><Loader2 className="animate-spin" size={16}/> Confirming…</> : <><Zap size={16}/> {useMiles ? `Pay ${milesForTrip.toLocaleString()} mi securely` : `Pay ${EUR(total)} securely`}</>}
+              {paying ? <><Loader2 className="animate-spin" size={16}/> Confirming…</> : <><Zap size={16}/> {cardVal > 0 ? `Pay ${EUR(cardVal)} securely` : "Confirm — covered by voucher & miles"}</>}
             </button>
-            <div className="flex items-center justify-center gap-3 mt-2 text-[12px] font-semibold">
-              <button onClick={() => setUseMiles(v => !v)} style={{ color: "var(--tap-green)" }}>{useMiles ? "Pay with card instead" : "Use miles instead"}</button>
-            </div>
+            <div className="text-[11px] text-center mt-2 font-semibold" style={{ color: "var(--tap-green)" }}>Earn {milesEarned.toLocaleString()} miles on this trip</div>
             <div className="text-[10px] text-gray-400 mt-2 text-center">Visa · Mastercard · Amex · MB WAY · Apple Pay · PayPal<br/>Free 24h cancel · 24/7 support</div>
           </Card>
         </div>
