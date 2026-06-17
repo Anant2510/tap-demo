@@ -232,7 +232,7 @@ app.get("/api/profile", (req, res) => {
   const MONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   let recommendedDate = null, recommendedLabel = "";
   {
-    const TODAY = new Date("2026-06-15T00:00:00Z");
+    const TODAY = new Date(searchToday() + "T00:00:00Z");
     const dow = topOut ? new Date(topOut.trip_date).getUTCDay() : NaN;
     const d = new Date(TODAY);
     if (Number.isNaN(dow)) d.setUTCDate(d.getUTCDate() + 7);
@@ -628,11 +628,11 @@ app.post("/api/ai/chat", async (req, res) => {
    `cards` render inline in the chat; `command` tells the main screen
    what to do (chat is primary, screen follows). ─────────────────── */
 const AGENT_TOOLS = [
-  { name: "search_flights", description: "Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is 2026-06-15).",
+  { name: "search_flights", description: `Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is ${searchToday()}).`,
     input_schema: { type: "object", properties: {
       origin: { type: "string", description: "Origin IATA code, e.g. OPO. If the customer didn't specify an origin, use the customer's home airport." },
       dest: { type: "string", description: "Destination IATA code, e.g. LIS, MAD, CDG. REQUIRED — never guess this. If unknown, call list_destinations instead." },
-      date: { type: "string", description: "Travel date YYYY-MM-DD. Use 2026-06-15 (next Monday) only if the customer gave no date." },
+      date: { type: "string", description: `Travel date YYYY-MM-DD. Defaults to today (${searchToday()}) if the customer gave no date.` },
     }, required: ["origin", "dest"] } },
   { name: "list_destinations", description: "List the real cities TAP flies to FROM a given origin airport. Use this whenever the customer asks where they can fly from a city, asks for 'options from <city>' without naming a destination, or asks a factual question like 'do we only fly to X from Y?'. Returns the actual route network from the database.",
     input_schema: { type: "object", properties: {
@@ -645,7 +645,7 @@ const AGENT_TOOLS = [
   { name: "get_flight_info", description: "Look up details and seat availability for a SPECIFIC flight number the customer mentions (e.g. 'does TP1481 have availability tomorrow', 'tell me about TP501'). Use this instead of asking the customer which destination — the flight number already identifies the route. Returns the flight's route, times, price, cabin classes and seat availability.",
     input_schema: { type: "object", properties: {
       flight_no: { type: "string", description: "The flight number, e.g. TP1481." },
-      date: { type: "string", description: "Optional travel date YYYY-MM-DD; 'tomorrow' relative to today (2026-06-15) is 2026-06-16." },
+      date: { type: "string", description: `Optional travel date YYYY-MM-DD; defaults to today (${searchToday()}) if omitted.` },
     }, required: ["flight_no"] } },
   { name: "add_extras", description: "Add ancillary extras to the current basket/booking by their codes (e.g. wifi, meal, lounge, xbag, transfer). Returns the updated item list AND the recomputed basket total.",
     input_schema: { type: "object", properties: { codes: { type: "array", items: { type: "string" } } }, required: ["codes"] } },
@@ -983,7 +983,7 @@ function agentRunTool(name, input, session) {
     const topRoute = row?.route || `${home}→LIS`;
     const [o, dst] = topRoute.split("→");
     const fr = db.prepare("SELECT flight_no, trip_date FROM travel_history WHERE user_id=1 AND route=? GROUP BY flight_no ORDER BY COUNT(*) DESC LIMIT 1").get(topRoute);
-    const TODAY = new Date("2026-06-15T00:00:00Z");
+    const TODAY = new Date(searchToday() + "T00:00:00Z");
     const dow = fr?.trip_date ? new Date(fr.trip_date).getUTCDay() : NaN;
     const d = new Date(TODAY);
     if (Number.isNaN(dow)) d.setUTCDate(d.getUTCDate() + 7);

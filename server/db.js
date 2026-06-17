@@ -99,12 +99,24 @@ try { db.exec("ALTER TABLE users ADD COLUMN wa_id TEXT"); } catch {}
 
 const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
-// Canonical "today" for the demo (everything is anchored to this date).
-const TODAY = "2026-06-15";
-// Default date for an UNDATED flight search. Anchored to the demo's "today" but
-// never in the past: it rolls forward to the real current date, so "next flight"
-// and undated searches always return upcoming flights, even months after launch.
-const searchToday = () => { const r = new Date().toISOString().slice(0, 10); return r > TODAY ? r : TODAY; };
+// Original reference day the demo data was authored around (kept for narrative copy).
+const ANCHOR = "2026-06-15";
+// Canonical "today" for the demo: the REAL current date, but never before the anchor.
+// Everything (upcoming trip, currentBooking, undated searches) keys off this, so the
+// demo stays evergreen — the "next trip" is always relative to whenever it's shown.
+const TODAY = (() => { const r = new Date().toISOString().slice(0, 10); return r > ANCHOR ? r : ANCHOR; })();
+const isoAdd = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const isoDiff = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400e3);
+// Default date for an UNDATED flight search — never in the past (rolls to real today).
+const searchToday = () => { const r = new Date().toISOString().slice(0, 10); return r > ANCHOR ? r : ANCHOR; };
+// How many days to shift a persona's FUTURE (confirmed) dates so their soonest upcoming
+// booking always lands on TOMORROW relative to real today. Past/completed trips are left
+// untouched. This is what keeps a live, checkable "upcoming trip" in the demo every day.
+const personaShift = (P) => {
+  const conf = (P.bookings || []).filter(b => b[9] === "confirmed").map(b => b[7]).sort();
+  if (!conf.length) return 0;
+  return isoDiff(conf[0], isoAdd(TODAY, 1));
+};
 // The customer's CURRENT trip = soonest confirmed booking on/after today,
 // otherwise the most recent past confirmed booking. This mirrors the home
 // screen's logic so every channel (web, AI chat, WhatsApp) shows the SAME trip.
@@ -295,14 +307,17 @@ function seedBookings(persona) {
     VALUES (?,1,?,?,?,?,?,?,?)`);
   const insP = db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`);
+  const shift = personaShift(P);
   B.forEach(([pnr,fno,o,d,dep,arr,price,date,seat,status,ci,items]) => {
+    // Upcoming (confirmed) trips roll forward so the soonest is ~tomorrow; past trips stay put.
+    const bdate = status === "confirmed" ? isoAdd(date, shift) : date;
     if (!seenFlights.has(fno)) {
       const dur = d === "FNC" ? "1h30" : (d === "MAD" ? "2h15" : "0h55");
-      insF.run(fno, o, d, dep, arr, dur, "A320neo", price, 9, date, fno === "TP1927" ? 1 : 0);
+      insF.run(fno, o, d, dep, arr, dur, "A320neo", price, 9, bdate, fno === "TP1927" ? 1 : 0);
       seenFlights.add(fno);
     }
     const createdAt = date + " 08:30:00";
-    const r = insB.run(pnr, fno, date, seat, status, ci, JSON.stringify(items), createdAt);
+    const r = insB.run(pnr, fno, bdate, seat, status, ci, JSON.stringify(items), createdAt);
     insP.run(Number(r.lastInsertRowid), price, 0, 0, 0, +price.toFixed(2), createdAt);
   });
 }
@@ -359,9 +374,10 @@ function seedPersonaData(personaId) {
 
   // The live "continue your last search" banner — now carries a journey STAGE + selections
   const s = P.synced;
+  const sDate = isoAdd(s.date, personaShift(P));   // keep the resume journey aligned with the upcoming trip
   db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at,stage,flight_no,seat,items_json,cabin,updated_at)
     VALUES (1,?,?,?,1,?,?,?,?,?,?,?,?)`).run(
-      s.origin, s.dest, s.date, s.device, now(),
+      s.origin, s.dest, sDate, s.device, now(),
       s.stage || "results",            // where the customer left off
       s.flight_no || null,             // selected flight (if past results)
       s.seat || null,                  // chosen seat (if past seat step)
@@ -383,7 +399,7 @@ function seedPersonaData(personaId) {
     const durLbl = durMin >= 60 ? `${Math.floor(durMin / 60)}h${durMin % 60 ? p2(durMin % 60) : ""}` : `${durMin}m`;
     db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,status)
       VALUES (?,?,?,?,?,?,?,?,?,?,0,0,'scheduled')`)
-      .run(s.flight_no, s.origin, s.dest, hhmm(depMin), hhmm(arrMin), durLbl, "A320neo", (r && r.base_fare) || 100, 22, s.date);
+      .run(s.flight_no, s.origin, s.dest, hhmm(depMin), hhmm(arrMin), durLbl, "A320neo", (r && r.base_fare) || 100, 22, sDate);
   }
 
   // Ancillary catalog (personalized per persona)

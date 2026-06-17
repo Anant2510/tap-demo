@@ -34,6 +34,8 @@ const fmtDate = (iso, withYear = true) => {
 const MILES_RATE = 0.003;
 const AIRPORT_MAP = {};   // code → {city,country,region}, filled at load from /api/airports
 const cityName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].city) || code;
+// Earliest selectable date: the real "today", but never earlier than the demo anchor.
+const SEARCH_TODAY = (() => { const r = new Date().toISOString().slice(0, 10); return r > "2026-06-15" ? r : "2026-06-15"; })();
 const countryName = (code) => (AIRPORT_MAP[code] && AIRPORT_MAP[code].country) || "";
 
 /* ── Theme / primitives ── */
@@ -492,7 +494,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const [upcoming, setUpcoming] = useState(null);
   useEffect(() => { (async () => { try {
     const bk = await api.get("/bookings");
-    const t0 = new Date("2026-06-15T00:00:00Z");
+    const t0 = new Date(SEARCH_TODAY + "T00:00:00Z");
     const conf = (bk || []).filter(b => b.status === "confirmed" && b.flight && b.flight_date);
     const up = conf.filter(b => new Date(b.flight_date) >= t0).sort((a, b) => new Date(a.flight_date) - new Date(b.flight_date))[0]
       || conf.sort((a, b) => new Date(b.flight_date) - new Date(a.flight_date))[0];
@@ -524,7 +526,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
   const readyPct = READY[jStage] || 25;
   const essentials = Math.max(1, 4 - (STAGE_STEP[jStage] || 1));
   const bundleSave = +(essentials * 14.5).toFixed(2);
-  const today = new Date("2026-06-15T00:00:00Z");
+  const today = new Date(SEARCH_TODAY + "T00:00:00Z");
   const daysTo = (() => { try { const n = Math.round((new Date(ss.travel_date) - today) / 86400e3); return n >= 0 ? n : null; } catch { return null; } })();
   const daysPhrase =
     daysTo == null ? "" :
@@ -755,7 +757,7 @@ function Home({ profile, destinations, go, openAssistant, toast, bookDestination
               <AirportInput label="To" value={toCode} onChange={setToCode} icon={<MapPin size={12} className="text-gray-400"/>}/>
               <div className="flex-1 min-w-[150px]">
                 <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1"><Calendar size={12}/> Depart</label>
-                <input type="date" value={depDate || ""} min="2026-06-15" onChange={(e) => setDepDate(e.target.value)}
+                <input type="date" value={depDate || ""} min={SEARCH_TODAY} onChange={(e) => setDepDate(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none font-semibold" style={{ borderColor: "var(--tap-line)", color: "var(--tap-ink)" }}/>
               </div>
               <button onClick={doWidgetSearch} className="rounded-xl px-6 py-2.5 font-bold text-white inline-flex items-center justify-center gap-2 shadow-lg shrink-0" style={{ background: "var(--tap-green)" }}><Search size={17}/> Search</button>
@@ -2372,13 +2374,17 @@ function SearchScreen({ origin, setOrigin, dest, setDest, date, setDate, onSearc
   const effMax = maxPrice == null ? priceCeil : maxPrice;
   const visibleFlights = priced.filter(f => f.cabinPrice <= effMax);
   const hiddenCount = priced.length - visibleFlights.length;
-  const DATES = [
-    { v: "2026-06-15", label: "Mon 15 Jun 2026" },
-    { v: "2026-06-16", label: "Tue 16 Jun 2026" },
-    { v: "2026-06-18", label: "Thu 18 Jun 2026" },
-    { v: "2026-06-22", label: "Mon 22 Jun 2026" },
-    { v: "2026-06-29", label: "Mon 29 Jun 2026" },
-  ];
+  // Date options are generated from "today" (rolls forward; never a past date) and always
+  // include whatever date is currently selected — so a chat-driven date (e.g. today) shows
+  // correctly instead of silently falling back to the first hardcoded option.
+  const _WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const _MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const _isoLabel = (iso) => { const d = new Date(iso + "T00:00:00Z"); return `${_WD[d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, "0")} ${_MO[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+  const _addDays = (iso, n) => { const x = new Date(iso + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const _today = (() => { const r = new Date().toISOString().slice(0, 10); return r > "2026-06-15" ? r : "2026-06-15"; })();
+  const DATES = Array.from(new Set([_today, _addDays(_today, 1), _addDays(_today, 2), _addDays(_today, 7), _addDays(_today, 14), date].filter(Boolean)))
+    .sort()
+    .map(v => ({ v, label: _isoLabel(v) }));
 
   // Personalized first (scored from real history/searches/bookings), then network filler
   const personalized = suggested?.personalized || [];
