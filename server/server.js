@@ -6,7 +6,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const { db, now, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA } = require("./db");
+const { db, now, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA } = require("./db");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -446,12 +446,13 @@ app.post("/api/hold", async (req, res) => {
 
 /* ── Payment → booking + confirmation email ──────────────────── */
 app.post("/api/pay", async (req, res) => {
-  const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt, seat } = req.body;
+  const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt, seat, date } = req.body;
   const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
   const f = flightByNo(flight_no);
   if (!f) { log("pay_unknown_flight", { flight_no }); return res.status(400).json({ ok: false, error: "unknown flight — search the route first" }); }
+  const bookDate = date || f.flight_date;   // honor the date the customer is booking (e.g. express recommended date)
   const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at)
-    VALUES (?,1,?,?,?,?,?)`).run(pnr, flight_no, f.flight_date, seat || "4C", JSON.stringify(items || []), now());
+    VALUES (?,1,?,?,?,?,?)`).run(pnr, flight_no, bookDate, seat || "4C", JSON.stringify(items || []), now());
   db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), total, voucher_amt, miles_used, miles_amt, card_amt, now());
   if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
@@ -461,9 +462,9 @@ app.post("/api/pay", async (req, res) => {
   db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
   // Feed the booking back into travel history → future recommendations learn from it
   db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
-    VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
-  log("payment_captured", { pnr, total, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
-  const email = await sendEmail("booking_confirmation", { f, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
+    VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
+  log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
+  const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
   res.json({ ok: true, pnr, email });
 });
 
@@ -505,7 +506,7 @@ Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${fl
 /* ── Booking management (used by portal + WhatsApp) ──────────── */
 app.post("/api/bookings/ancillary", async (req, res) => {
   const { code } = req.body;
-  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+  const b = currentBooking();
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
   if (!b || !a) return res.json({ ok: false });
   const items = JSON.parse(b.items_json || "[]");
@@ -516,7 +517,7 @@ app.post("/api/bookings/ancillary", async (req, res) => {
 });
 
 app.post("/api/bookings/cancel", async (req, res) => {
-  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+  const b = currentBooking();
   if (!b) return res.json({ ok: false });
   db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
   // Instant refund: restore miles + voucher from the payment record
@@ -562,7 +563,7 @@ app.post("/api/checkin", (req, res) => {
 
 /* Check in the current active booking (issues boarding pass). Verifies real state. */
 app.post("/api/bookings/checkin", (req, res) => {
-  const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+  const b = currentBooking();
   if (!b) return res.json({ ok: false, state: "no_booking", message: "No upcoming flight to check in for." });
   const f = flightByNo(b.flight_no) || {};
   if (b.checked_in) return res.json({ ok: true, state: "already_checked_in", pnr: b.pnr, seat: b.seat, group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
@@ -689,14 +690,14 @@ function basketTotal(sel) {
 }
 function firstFreeSeat(pref, tier) {
   // pref: 'window'(A/F), 'aisle'(C/D), 'business', 'premium', 'extra legroom'/'front'
-  let cabins = SEAT_CABINS;
+  let cabins;
   if (/business/.test(pref)) cabins = SEAT_CABINS.filter(c => c.id === "business");
   else if (/premium/.test(pref)) cabins = SEAT_CABINS.filter(c => c.id === "premium");
+  else if (/front|legroom/.test(pref)) cabins = SEAT_CABINS;            // best available, front-of-cabin first
+  else cabins = SEAT_CABINS.filter(c => c.id === "economy");            // plain window/aisle → stay in economy (no surprise upsell)
   const wantCols = /window/.test(pref) ? ["A", "F"] : /aisle/.test(pref) ? ["C", "D"] : null;
-  const frontFirst = /front|legroom/.test(pref);
   for (const c of cabins) {
-    const rows = frontFirst ? c.rows : c.rows;
-    for (const row of rows) {
+    for (const row of c.rows) {
       const cols = wantCols ? c.cols.filter(x => wantCols.includes(x)) : c.cols;
       for (const col of cols) { const s = `${row}${col}`; if (!OCCUPIED.includes(s)) return s; }
     }
@@ -837,7 +838,7 @@ function agentRunTool(name, input, session) {
     const oldPrice = seatPrice(cur, tier), newPrice = seatPrice(target, tier), diff = +(newPrice - oldPrice).toFixed(2);
     // Persist: update the basket seat (pre-purchase) and/or the active booking seat.
     if (session.selected) session.selected.seat = target;
-    db.prepare("UPDATE bookings SET seat=? WHERE user_id=1 AND status='confirmed'").run(target);
+    else { const cb = currentBooking(); if (cb) db.prepare("UPDATE bookings SET seat=? WHERE id=?").run(target, cb.id); }
     if (session.selected) { const cf = flightByNo(session.selected.flight_no) || {}; saveJourney({ origin: cf.origin, dest: cf.dest, date: cf.flight_date, device: "Chat agent", stage: "extras", flight_no: session.selected.flight_no, seat: target, items: session.selected.items }); }
     log("agent_change_seat", { from: cur, to: target, cabin: seatCabinLabel(target), diff });
     return { ok: true, from: cur, seat: target, cabin: seatCabinLabel(target),
@@ -871,8 +872,9 @@ function agentRunTool(name, input, session) {
     const miles_amt = miles_used / 1000 * 3;  // 6000 miles ≈ €18
     const card_amt = Math.max(0, +(gross - voucher_amt - miles_amt).toFixed(2));
     const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const bookDate = sel.date || f.flight_date;   // express queues the recommended date
     const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at) VALUES (?,1,?,?,?,?,?)`)
-      .run(pnr, f.flight_no, f.flight_date, seat, JSON.stringify(sel.items), now());
+      .run(pnr, f.flight_no, bookDate, seat, JSON.stringify(sel.items), now());
     db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)`)
       .run(Number(b.lastInsertRowid), gross, voucher_amt, miles_used, miles_amt, card_amt, now());
     if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
@@ -880,11 +882,11 @@ function agentRunTool(name, input, session) {
     db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
     db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
     db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,'Business')`)
-      .run(f.flight_no, `${f.origin}→${f.dest}`, f.flight_date, f.dep);
-    log("agent_checkout", { pnr, gross, split: { voucher_amt, miles_used, card_amt } });
-    sendEmail("booking_confirmation", { f, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
+      .run(f.flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
+    log("agent_checkout", { pnr, gross, date: bookDate, split: { voucher_amt, miles_used, card_amt } });
+    sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
     session.selected = null;
-    return { ok: true, pnr, total: gross, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
+    return { ok: true, pnr, total: gross, date: bookDate, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
   }
   if (name === "get_wallet") {
     const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=1").get();
@@ -941,7 +943,7 @@ function agentRunTool(name, input, session) {
       note: `Resume HERE — do not restart. ${stageNext[j.stage] || "Continue from where they left off."}${f ? " I've reloaded their selection into context." : ""}` };
   }
   if (name === "get_booking") {
-    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+    const b = currentBooking();
     if (!b) return { ok: true, booking: null };
     const f = flightByNo(b.flight_no) || {};
     return { ok: true, booking: { pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, seat: b.seat, status: f.status, checked_in: !!b.checked_in } };
@@ -971,12 +973,12 @@ function agentRunTool(name, input, session) {
       const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code);
       db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
       db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)").run(uf.flight_no, JSON.stringify(auto), now());
-      session.selected = { flight_no: uf.flight_no, items: auto, seat: prefSeat() };
+      session.selected = { flight_no: uf.flight_no, items: auto, seat: prefSeat(), date: recommendedDate };
     }
     return { ok: true, route: `${cityName(o)}→${cityName(dst)}`, origin: o, dest: dst, flight_no: fr?.flight_no || "", recommendedDate, recommendedLabel };
   }
   if (name === "check_in") {
-    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+    const b = currentBooking();
     if (!b) return { ok: false, state: "no_booking", message: "You have no upcoming flight to check in for." };
     const f = flightByNo(b.flight_no) || {};
     if (b.checked_in) return { ok: true, state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat, group: boardingGroup(userTier()), message: "You're already checked in for this flight." };
@@ -986,7 +988,7 @@ function agentRunTool(name, input, session) {
     return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "4C", group: boardingGroup(userTier()) };
   }
   if (name === "cancel_booking") {
-    const b = db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+    const b = currentBooking();
     if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to cancel." };
     const f = flightByNo(b.flight_no) || {};
     if (input.confirm !== true) return { ok: false, state: "needs_confirm", pnr: b.pnr, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, message: `Confirm before cancelling ${b.pnr} (${b.flight_no} ${cityName(f.origin)}→${cityName(f.dest)}, ${b.flight_date}). Ask the customer to confirm.` };
@@ -1047,6 +1049,8 @@ function buildUI(toolCalls) {
       command = { action: "navigate", screen: "manage" };
     } else if (tc.name === "express_usual" && tc.result?.ok) {
       command = { action: "express" };   // opens the 2-step Express Checkout on the web screen
+    } else if (tc.name === "get_journey" && tc.result?.ok && tc.result.in_progress) {
+      command = { action: "resume" };    // reopen the in-progress search/booking at the saved step
     }
   }
   return { cards, command };
@@ -1106,9 +1110,9 @@ function deterministicAgent(text, session) {
 
   // resume / continue an unfinished booking
   if (has("where was i", "resume", "pick up", "continue my", "where did i", "left off", "in progress")) {
-    const j = run("get_journey");
-    if (j.in_progress) { if (j.flight_no) run("select_flight", { flight_no: j.flight_no });
-      return done(`You left off at the "${j.stage}" step on ${j.route} (${j.date}). I've reloaded your selections — want to keep going from there?`); }
+    const j = run("get_journey");   // get_journey hydrates the session AND drives the resume command (buildUI)
+    if (j.in_progress)
+      return done(`You left off at the "${j.stage}" step on ${j.route} (${j.date}). I've reopened it on screen — want to keep going from there?`);
     return done("You don't have an unfinished booking right now. Tell me where you'd like to fly and I'll search.");
   }
   // express checkout of the USUAL flight — "book my usual", "express checkout my usual",
@@ -1128,7 +1132,7 @@ function deterministicAgent(text, session) {
     return done(r.message || "There's nothing to cancel.");
   }
   // check in
-  if (has("check in", "check-in", "checkin", "boarding pass")) {
+  if (has("check in", "check-in", "checkin", "boarding pass", "check me in") || /\bcheck\s+(me|us|myself|him|her|them|in)\b.*\bin\b|\bcheck\s+(me|us|myself|him|her|them)\s+in\b/.test(q)) {
     const r = run("check_in");
     if (r.state === "checked_in_now") return done(`Checked in ✅ ${r.route}, seat ${r.seat}, boarding group ${r.group}. PNR ${r.pnr}.`);
     if (r.state === "already_checked_in") return done(`You're already checked in for ${r.route} — seat ${r.seat}, group ${r.group}.`);
@@ -1159,7 +1163,7 @@ function deterministicAgent(text, session) {
   // my booking / status
   if (has("my booking", "my flight", "am i checked", "on time", "my trip", "my reservation", "booking status")) {
     const r = run("get_booking");
-    if (r.booking) return done(`Your booking ${r.booking.pnr}: ${r.booking.route}, seat ${r.booking.seat}, ${r.booking.checked_in ? "checked in" : "not checked in yet"}.`);
+    if (r.booking) return done(`Your booking ${r.booking.pnr}: ${r.booking.route}, seat ${r.booking.seat} — ${r.booking.status === "delayed" ? "⚠️ delayed" : "on time"}, ${r.booking.checked_in ? "checked in" : "not checked in yet"}.`);
     return done("You don't have an active booking yet. Want to book your usual flight or search a route?");
   }
   // specific flight number (info or select)

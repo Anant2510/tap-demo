@@ -99,6 +99,15 @@ try { db.exec("ALTER TABLE users ADD COLUMN wa_id TEXT"); } catch {}
 
 const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
+// Canonical "today" for the demo (everything is anchored to this date).
+const TODAY = "2026-06-15";
+// The customer's CURRENT trip = soonest confirmed booking on/after today,
+// otherwise the most recent past confirmed booking. This mirrors the home
+// screen's logic so every channel (web, AI chat, WhatsApp) shows the SAME trip.
+const currentBooking = () =>
+  db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' AND flight_date >= ? ORDER BY flight_date ASC, id ASC LIMIT 1").get(TODAY)
+  || db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY flight_date DESC, id DESC LIMIT 1").get();
+
 // Seeded recent searches — reused by initial seed AND by reset, so the demo
 // always starts with realistic behavioural signals.
 function seedSearches(persona) {
@@ -324,6 +333,17 @@ function seedPersonaData(personaId) {
       ir.run(o, d, dur, fare, region);
     }
   }
+  // Keep route timings/fares in sync with the source-of-truth ROUTES on every boot,
+  // so corrected durations apply on deploy without needing a full DB reset.
+  {
+    const ins = db.prepare("INSERT OR IGNORE INTO routes (origin,dest,duration_min,base_fare,region) VALUES (?,?,?,?,?)");
+    const upd = db.prepare("UPDATE routes SET duration_min=?, base_fare=? WHERE origin=? AND dest=?");
+    for (const [o, d, dur, fare] of ROUTES) {
+      const region = AIRPORTS[o] && AIRPORTS[d] && AIRPORTS[o].region === "Europe" && AIRPORTS[d].region === "Europe" ? "Europe" : "Intercontinental";
+      ins.run(o, d, dur, fare, region);
+      upd.run(dur, fare, o, d);
+    }
+  }
 
   // Travel history (drives "Picked for you" reasons)
   const ih = db.prepare("INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,?)");
@@ -376,4 +396,4 @@ function seedPersonaData(personaId) {
 }
 seed();
 
-module.exports = { db, now, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA };
+module.exports = { db, now, TODAY, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA };

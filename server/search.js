@@ -36,10 +36,10 @@ const PINNED = {
   ],
   // Sofia's leisure commute (Lisbon ⇄ Madeira) — her usual is TP1696
   "LIS-FNC": [
-    { flight_no: "TP1690", dep: "07:30", arr: "09:00", aircraft: "A320neo", price: 52, seats_left: 41, lowest: 1 },
-    { flight_no: "TP1696", dep: "10:20", arr: "11:50", aircraft: "A321neo", price: 58, seats_left: 23, recommended: 1 },
-    { flight_no: "TP1698", dep: "15:10", arr: "16:40", aircraft: "A319",    price: 66, seats_left: 38 },
-    { flight_no: "TP1702", dep: "19:25", arr: "20:55", aircraft: "A320neo", price: 61, seats_left: 29 },
+    { flight_no: "TP1690", dep: "07:30", arr: "09:10", aircraft: "A320neo", price: 52, seats_left: 41, lowest: 1 },
+    { flight_no: "TP1696", dep: "10:20", arr: "12:00", aircraft: "A321neo", price: 58, seats_left: 23, recommended: 1 },
+    { flight_no: "TP1698", dep: "15:10", arr: "16:50", aircraft: "A319",    price: 66, seats_left: 38 },
+    { flight_no: "TP1702", dep: "19:25", arr: "21:05", aircraft: "A320neo", price: 61, seats_left: 29 },
   ],
   // Sofia's in-progress search (Lisbon → Barcelona) — her saved journey is on TP1042
   "LIS-BCN": [
@@ -78,12 +78,17 @@ function generateFlights(origin, dest, date) {
   const long = route.duration_min >= 240;
   const rand = rng(`${origin}-${dest}-${date}`);
   const count = long ? 2 + Math.floor(rand() * 2) : 4 + Math.floor(rand() * 3); // long-haul 2-3, short 4-6
-  const firstDep = long ? 7 * 60 + Math.floor(rand() * 180) : 6 * 60 + Math.floor(rand() * 60);
-  const gap = long ? 240 + Math.floor(rand() * 240) : 120 + Math.floor(rand() * 120);
+  // Spread departures across a realistic daytime window. Short-haul stays same-day
+  // (last departure early enough that arrival doesn't spill past midnight); long-haul
+  // may legitimately arrive overnight (red-eye), which hhmm() wraps correctly.
+  const depStart = long ? 8 * 60 : 6 * 60;
+  const depEnd   = long ? 22 * 60 : Math.min(21 * 60, 23 * 60 + 30 - route.duration_min);
+  const span = Math.max(60, depEnd - depStart);
 
   const flights = [];
   for (let i = 0; i < count; i++) {
-    const depMin = firstDep + i * gap + Math.floor(rand() * 25);
+    const base = count > 1 ? depStart + Math.round((span / (count - 1)) * i) : depStart + Math.floor(span / 2);
+    const depMin = Math.min(depEnd, Math.max(depStart, base + Math.floor((rand() - 0.5) * 30))); // ±15m jitter, clamped to the window
     const arrMin = depMin + route.duration_min;
     const priceJitter = 0.8 + rand() * 0.6;          // ±
     const price = Math.round(route.base_fare * priceJitter);

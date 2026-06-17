@@ -1320,7 +1320,7 @@ function ExpressCheckout({ profile, flight, ancillaries, items, seat, onPaid, to
     if (!accept) return;
     setPaying(true);
     try {
-      const r = await api.post("/pay", { flight_no: out.flight_no, items, seat: seatOut, total,
+      const r = await api.post("/pay", { flight_no: out.flight_no, items, seat: seatOut, total, date: out.flight_date,
         voucher_amt: 0, miles_used: useMiles ? milesForTrip : 0, miles_amt: useMiles ? total : 0, card_amt: useMiles ? 0 : total });
       if (!r || !r.ok) { toast("Couldn't complete payment", (r && r.error) || "Please try again."); setPaying(false); return; }
       toast("Booking confirmed", `${r.pnr} · itinerary emailed to ${u.email}`);
@@ -3013,8 +3013,9 @@ function App() {
   const openExpress = async () => {
     const o = profile?.pattern?.origin || profile?.user?.home_airport || "OPO";
     const dst = profile?.pattern?.dest || "LIS";
+    const recDate = profile?.pattern?.recommendedDate;
     let f = [];
-    try { f = await api.get(`/flights?dest=${dst}&origin=${o}`); } catch { f = []; }
+    try { f = await api.get(`/flights?dest=${dst}&origin=${o}${recDate ? `&date=${recDate}` : ""}`); } catch { f = []; }
     if (!Array.isArray(f) || !f.length) { toast("Couldn't open express checkout", `${cityName(o)} → ${cityName(dst)} — try search instead.`); go("search"); return; }
     setFlights(f);
     const usual = f.find(x => x.flight_no === (profile?.pattern?.topFlight)) || f.find(x => x.recommended) || f[0];
@@ -3031,7 +3032,7 @@ function App() {
     setItems(next);
     await api.post("/basket", { flight_no: flight.flight_no, items: next });
   };
-  const onPaid = (r) => { setReceipt(r); refreshProfile(); go("confirmed"); };
+  const onPaid = (r) => { setReceipt(r); setAssistantOpen(false); refreshProfile(); go("confirmed"); };
 
   // ── Agent command bridge: the chat is primary; the main screen follows ──
   const handleAgentCommand = async (cmd) => {
@@ -3048,14 +3049,13 @@ function App() {
       if (!picked) { const all = await api.get(`/search?origin=${searchOrigin}&dest=${searchDest}&date=${searchDate}`); picked = (all.flights||[]).find(x=>x.flight_no===cmd.flight_no); }
       if (picked) { setFlight(picked); await api.post("/basket", { flight_no: picked.flight_no, items }); go("basket"); }
     } else if (cmd.action === "show_confirmation") {
+      setAssistantOpen(false);
       await refreshProfile();
-      const bookings = await api.get("/bookings");
-      const latest = bookings?.[0];
-      if (latest) {
-        setFlight(latest.flight);
-        setReceipt({ pnr: cmd.pnr, flight: latest.flight });
-        go("confirmed");
-      }
+      let latest = null;
+      try { const bookings = await api.get("/bookings"); latest = (bookings || []).find(b => b.pnr === cmd.pnr) || (bookings || [])[0] || null; } catch {}
+      if (latest?.flight) setFlight(latest.flight);
+      setReceipt({ pnr: cmd.pnr, flight: latest?.flight, total: latest?.total, seatOut: latest?.seat });
+      go("confirmed");
     } else if (cmd.action === "express") {
       // chat → open the 2-step Express Checkout for the usual flight
       setAssistantOpen(false);

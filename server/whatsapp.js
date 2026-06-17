@@ -14,7 +14,7 @@
      bookings, rebooking, ancillaries, cancellations all hit the same
      database and feed the same personalization.
    ────────────────────────────────────────────────────────────── */
-const { db, now } = require("./db");
+const { db, now, currentBooking } = require("./db");
 const { AIRPORTS } = require("./routes-data");
 const { phraseFromFacts } = require("./claude");
 
@@ -137,8 +137,7 @@ const apiCall = (method, p, body) =>
     body: body ? JSON.stringify(body) : undefined,
   }).then(r => r.json());
 
-const latestBooking = () =>
-  db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+const latestBooking = () => currentBooking();   // shared "soonest upcoming" trip (same as web + home)
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 // Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
 const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
@@ -167,7 +166,7 @@ function setMenu(to, map) { menuContext[bareNumber(to)] = map; }
 function resolveChoice(to, text) {
   const map = menuContext[bareNumber(to)] || {};
   const key = (text || "").trim();
-  return map[key] || null;
+  return map[key] || map[key.toLowerCase()] || null;
 }
 
 // Per-sender booking draft, carries flight + seat + extras through the WhatsApp flow
@@ -209,23 +208,25 @@ async function sendMainMenu(to) {
   const STAGE_WORD = { results: "choosing a flight", seat: "seat selection", extras: "extras", review: "review & pay" };
   const rows = [];
   const map = { "0": "MENU" };
-  if (j && j.stage && j.dest) {
-    rows.push({ id: "RESUME", title: "↩️ Resume your search", description: `${cityName(j.origin)}→${cityName(j.dest)} · ${STAGE_WORD[j.stage] || "in progress"}` });
-  }
+  // Core options FIRST, at stable numbers (1-8) regardless of journey state.
   rows.push(
     { id: "BOOK_USUAL", title: "⚡ Express · my usual flight", description: usualDesc },
     { id: "MADE_FOR_YOU", title: "Made for you", description: u.affinity_label ? `${u.affinity_label} package` : "A package picked for you" },
     { id: "OFFER", title: "💎 Offer of the week", description: "Your personalized deal" },
-    { id: "STOPOVER", title: "🇵🇹 Portugal stopover", description: "Free stop in Lisbon/Porto" },
     { id: "MY_BOOKING", title: "My booking", description: "View your current trip" },
     { id: "EXTRAS", title: "Add extras", description: "Bags, seats, meals, wifi" },
     { id: "STATUS", title: "Flight status", description: "Is my flight on time?" },
     { id: "CHECKIN", title: "Check in", description: "Get your boarding pass" },
     { id: "CANCEL", title: "Cancel booking", description: "Instant refund" },
   );
+  // Resume appended LAST (only when a journey exists) so it never shifts the core numbers.
+  if (j && j.stage && j.dest) {
+    rows.push({ id: "RESUME", title: "↩️ Resume your search", description: `${cityName(j.origin)}→${cityName(j.dest)} · ${STAGE_WORD[j.stage] || "in progress"}` });
+  }
   rows.forEach((r, i) => { map[String(i + 1)] = r.id; });
-  const greeting = (j && j.stage && j.dest)
-    ? `Olá ${u.first_name} 👋 You have a booking in progress (${cityName(j.origin)}→${cityName(j.dest)}). Tap Resume to continue where you left off, or pick another option.`
+  const resumeNo = (j && j.stage && j.dest) ? rows.length : null;
+  const greeting = resumeNo
+    ? `Olá ${u.first_name} 👋 You have a trip in progress (${cityName(j.origin)}→${cityName(j.dest)}). Reply ${resumeNo} (or "resume") to continue, or pick another option.`
     : `Olá ${u.first_name} 👋 Linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles). Tap an option below, or just type where you want to go (e.g. "flights to Madrid").`;
   await sendList(to, `TAP AI · ${u.first_name}`, greeting, "Main menu", rows.slice(0, 10), map);
 }
@@ -410,7 +411,6 @@ async function handleAction(to, id) {
   }
   if (id === "XDONE") return startCheckoutReview(to);
   if (id === "OFFER") return showOffer(to);
-  if (id === "STOPOVER") return showStopover(to);
   if (id.startsWith("OFFERBOOK_")) { const p = id.split("_"); return searchRoute(to, p[1], p[2], "2026-06-15", "offer"); }
 
   /* CHECKOUT → PAY / HOLD using the full draft */
@@ -674,24 +674,7 @@ ${o.reason}
 Reply 1 to book this offer · 0 for menu`);
 }
 
-// Portugal Stopover — the same personalized story the home screen tells.
-async function showStopover(to) {
-  const s = await apiCall("GET", "/stopover").catch(() => null);
-  if (!s) { await sendText(to, "Stopover info isn't available right now — reply \"menu\"."); return sendMainMenu(to); }
-  const exp = s.experiences.map((x, i) => `${i === 0 ? "⭐" : "•"} ${x.title} — €${x.price}`).join("\n");
-  setMenu(to, { "1": "BOOK_USUAL", "0": "MENU" });
-  await sendText(to,
-`🇵🇹 *Portugal Stopover* — ${s.headline}
-${s.subline}
 
-🏨 ${s.hotel.name} · ${s.hotel.area}
-   €${s.hotel.price}/night · ${s.hotel.nights} nights${s.affinityLabel ? `\n\n✨ For a ${s.affinityLabel.toLowerCase()}:` : ""}
-${exp}
-
-Stay from €${s.fromPrice}. ${s.airfareNote}
-
-Reply 1 to book your usual flight with this stopover · 0 for menu`);
-}
 
 async function handleIncoming({ from, text }) {
   if (!from) return;
@@ -749,7 +732,6 @@ async function handleIncoming({ from, text }) {
   if (/^check.?in\b/.test(t)) return handleAction(from, "CHECKIN");
   if (/^(status|delay)\b/.test(t)) return handleAction(from, "STATUS");
   if (/\b(my booking|my flight|my trip|booking details|view booking|show booking)\b/.test(t) || /^booking\b/.test(t)) return handleAction(from, "MY_BOOKING");
-  if (/\b(stop ?over|portugal stop|layover|stop in portugal)\b/.test(t)) return showStopover(from);
   if (/\b(offer|offers|deal|deals|special|promo|discount)\b/.test(t) && !/book|cancel|status|check.?in/.test(t)) return showOffer(from);
   if (/\b(packages?|made for me|made for you|recommend|suggestions?|what should i do|things to do|anything fun|what'?s on|whats on|events?|concerts?|matches?|tournaments?|golf|football|music)\b/.test(t) && !/book|cancel|status|check.?in/.test(t)) return handleAction(from, "MADE_FOR_YOU");
   if (/\b(seat options|seating options|available seats|seat map|what seats|which seats)\b/.test(t)) return handleAction(from, "SEATMAP_INFO");
