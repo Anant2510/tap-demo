@@ -20,25 +20,50 @@ const NAT2CC = { Portuguese: "PT", German: "DE", Spanish: "ES", French: "FR", Br
 function toISODate(d) { const t = Date.parse(d); return isNaN(t) ? undefined : new Date(t).toISOString().slice(0, 10); }
 const lastName = (u) => (u.full_name || "").replace(u.first_name || "", "").trim();
 
-// Persona → XDM Individual Profile record for ingestion.
+// Persona → XDM Individual Profile record, mapped to the TAP Traveller Profile schema
+// (confirmed via GET /api/admin/cdp/schema). Custom traits live under _aeppsemea.*.
 function personaToXDM(P, c) {
   const u = P.user;
+  const pr = P.prefs || {};
+  const vc = P.voucher || {};
   let cats = []; try { cats = JSON.parse(u.card_categories || "[]"); } catch {}
-  const identityMap = { Email: [{ id: u.email, primary: !c.loyaltyNs }] };
-  if (c.loyaltyNs) identityMap[c.loyaltyNs] = [{ id: u.member_no, primary: true }];
-  const t = c.tenantNs;   // e.g. "_aeppsemea"
+  const top = cats[0] || {};
+  // Identity graph: when a loyalty namespace is configured, use loyaltyId as the SOLE
+  // identity so personas stay distinct. (The demo shares one email via DEMO_EMAIL_TO, so
+  // adding it as an identity would stitch all personas into one merged profile.) The email
+  // is still written as a plain attribute (personalEmail.address) — attributes don't stitch.
+  const identityMap = c.loyaltyNs
+    ? { [c.loyaltyNs]: [{ id: u.member_no, primary: true }] }
+    : { Email: [{ id: u.email, primary: true }] };
   return {
     identityMap,
-    person: { name: { firstName: u.first_name, lastName: lastName(u) }, gender: (u.gender || "").toLowerCase(), birthDate: toISODate(u.dob) },
+    person: { name: { firstName: u.first_name, lastName: lastName(u), fullName: u.full_name } },
     personalEmail: { address: u.email },
     mobilePhone: { number: u.phone },
-    homeAddress: { countryCode: NAT2CC[u.nationality] },
-    // ↓ custom/tenant fields — CONFIRM these paths against your schema (GET /api/admin/cdp/schema)
-    [t]: {
-      loyalty: { memberId: u.member_no, tier: u.tier, miles: u.miles, homeAirport: u.home_airport },
-      affinity: { code: u.affinity, label: u.affinity_label },
-      cardSpend: cats,
-      travelDocument: { type: "passport", number: u.doc_id, expiry: u.passport_exp },
+    homeAddress: { country: NAT2CC[u.nationality] || u.nationality },
+    _aeppsemea: {
+      loyalty: {
+        memberId: u.member_no, tier: u.tier, tierLevel: u.tier,
+        milesBalance: u.miles, homeAirport: u.home_airport,
+      },
+      traveller: {
+        affinity: u.affinity, affinityLabel: u.affinity_label, archetype: u.affinity_label,
+        nationality: u.nationality,
+        seatPreference: pr.seat, baggagePreference: pr.bag, mealPreference: pr.meal,
+        autoCheckin: !!pr.auto_checkin,
+      },
+      card: {
+        // Card identity is masked in the demo UI, but these are the real trait fields used
+        // for affinity/decisioning. Brand/last4/expiry kept here for completeness.
+        brand: u.card_brand, last4: u.card_last4, expiry: u.card_exp, product: u.card_product,
+        spendCategories: cats.map(x => ({ category: x.name, sharePct: x.share })),
+        topSpendCategory: top.name, topSpendSharePct: top.share,
+      },
+      wallet: vc.code ? {
+        voucherCode: vc.code, voucherAmount: vc.amount, voucherCurrency: "EUR",
+        voucherReason: vc.reason, voucherExpiry: vc.expiry,
+      } : undefined,
+      consents: { marketing: { collect: { val: "y" } }, personalize: { content: { val: "y" } } },
     },
   };
 }

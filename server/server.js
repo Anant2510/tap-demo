@@ -8,6 +8,7 @@ const cors = require("cors");
 const path = require("path");
 const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile } = require("./db");
 const cdp = require("./cdp");
+const cdpIngest = require("./cdp-ingest");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -1722,6 +1723,24 @@ app.get("/api/admin/cdp/test", async (req, res) => {
         : `Credentials present but the live read fell back. ${provenance.liveError || "Check the namespace symbol, that the identity exists in this sandbox, and the credential's scopes/product profiles."}`,
     });
   } catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
+});
+
+// Introspect the profile schema's field paths — confirm the ingestion mapping.
+app.get("/api/admin/cdp/schema", async (req, res) => {
+  try { res.json(await cdpIngest.schemaPaths()); }
+  catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
+});
+// List identity namespaces — find the loyalty-id SYMBOL for ADOBE_LOYALTY_NS.
+app.get("/api/admin/cdp/namespaces", async (req, res) => {
+  try { res.json(await cdpIngest.namespaces()); }
+  catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
+});
+// Ingest the personas into the TAP Traveller Profile dataset. ?dryRun=1 previews the
+// XDM payload without sending it (works even before credentials are configured).
+app.post("/api/admin/cdp/ingest", async (req, res) => {
+  const dryRun = req.query.dryRun === "1" || !!(req.body && req.body.dryRun);
+  try { res.json(await cdpIngest.ingest(Object.keys(PERSONAS), { dryRun })); }
+  catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
 });
 
 app.get("/{*splat}", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "index.html")));

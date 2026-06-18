@@ -42,7 +42,14 @@ function rawConfig() {
     eventSchemaId: process.env.ADOBE_EVENT_SCHEMA_ID || "",
     profileDatasetId: process.env.ADOBE_PROFILE_DATASET_ID || "",
     eventDatasetId: process.env.ADOBE_EVENT_DATASET_ID || "",
+    // Ingestion-direction config (writing profiles INTO CDP):
+    loyaltyNs: process.env.ADOBE_LOYALTY_NS || "",
+    ingestApi: process.env.ADOBE_INGEST_API || "https://platform.adobe.io/data/foundation/import",
+    schemaRegistryApi: process.env.ADOBE_SCHEMA_API || "https://platform.adobe.io/data/foundation/schemaregistry",
+    idNamespaceApi: process.env.ADOBE_IDNS_API || "https://platform.adobe.io/data/core/idnamespace",
   };
+  // tenant namespace for custom XDM fields (e.g. "_aeppsemea"), derived from the schema URL
+  c.tenantNs = process.env.ADOBE_TENANT_NS || (() => { const m = String(c.profileSchemaId).match(/ns\.adobe\.com\/([^/]+)\//); return m ? "_" + m[1] : "_tenant"; })();
   if (!c.lookupAttr) c.lookupAttr = /loyalty|crm|member/i.test(c.identityNamespace) ? "loyalty" : "email";
   c.configured = !!(c.enabled && c.clientId && c.clientSecret && c.imsOrg);
   return c;
@@ -181,4 +188,4 @@ async function getProfileFromCdp(personaId) {
   };
 }
 
-module.exports = { cdpConfig, getProfileFromCdp, toXDM, audiences, identityMap, consent };
+module.exports = { cdpConfig, getProfileFromCdp, toXDM, audiences, identityMap, consent, imsToken, rawConfig };
