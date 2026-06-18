@@ -6,7 +6,8 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA } = require("./db");
+const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile } = require("./db");
+const cdp = require("./cdp");
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -274,7 +275,7 @@ app.get("/api/profile", (req, res) => {
     searchedDests,
   };
   log("api_profile_fetch", { source: "users, preferences, vouchers, travel_history, searches", topRoute, topFlight });
-  res.json({ user: maskUserCard(user), prefs, vouchers, history, pattern, syncedSearch: search ? { ...search, days_to_go: daysToGo(search.travel_date) } : search, recentSearches, today: todayISO() });
+  res.json({ user: maskUserCard(user), prefs, vouchers, history, pattern, syncedSearch: search ? { ...search, days_to_go: daysToGo(search.travel_date) } : search, recentSearches, today: todayISO(), source: getDataSource(), cdp: cdpSummary() });
 });
 
 /* ── Cross-channel journey state ───────────────────────────────────────────
@@ -1517,6 +1518,9 @@ app.get("/api/admin/cdp", (req, res) => {
   ];
 
   res.json({
+    source: getDataSource(),
+    adobe: cdp.cdpConfig(),
+    provenance: getDataSource() === "adobe" ? _cdpProvenance : null,
     db: { path: DB_PATH, engine: "SQLite (node:sqlite)", writeMode: "live — every action commits a row" },
     counts,
     totalRows: Object.values(counts).reduce((a, b) => a + b, 0),
@@ -1635,15 +1639,89 @@ app.post("/api/persona", (req, res) => {
   const id = (req.body && req.body.persona) || DEFAULT_PERSONA;
   if (!PERSONAS[id]) return res.status(400).json({ ok: false, error: "unknown persona" });
   reseedPersona(id);
+  // If profiles are sourced from Adobe RT-CDP, re-hydrate this persona's profile
+  // from CDP so the active source stays consistent across persona changes.
+  hydrateActiveSource(id).catch(() => {});
   const u = db.prepare("SELECT first_name, full_name, tier, miles FROM users WHERE id=1").get();
-  res.json({ ok: true, persona: id, user: u });
+  res.json({ ok: true, persona: id, source: getDataSource(), user: u });
+});
+
+/* ── Profile data source: SQLite ⇄ Adobe Real-Time CDP ─────────────────
+   Hydrates the live profile (users/preferences/vouchers) from the chosen
+   source. Operational tables are untouched, so all personalization across
+   web portal + web AI chat + WhatsApp re-points the instant you switch. */
+let _cdpProvenance = null;   // cached provenance for the active (adobe) persona
+async function hydrateActiveSource(personaId) {
+  const id = personaId || currentPersona();
+  if (getDataSource() === "adobe") {
+    const { profile, provenance } = await cdp.getProfileFromCdp(id);
+    applyProfile(profile);
+    _cdpProvenance = { ...provenance, persona: id, at: new Date().toISOString() };
+    log("cdp_profile_hydrated", { persona: id, mode: provenance.mode, audiences: provenance.audiences.length });
+  } else {
+    applyProfile(localProfile(id));   // restore the local SQLite profile (profile-only; keeps bookings)
+    _cdpProvenance = null;
+  }
+  return _cdpProvenance;
+}
+function cdpSummary() {
+  if (getDataSource() !== "adobe" || !_cdpProvenance) return null;
+  const p = _cdpProvenance;
+  return { mode: p.mode, sandbox: p.sandbox, identityMap: p.identityMap, audiences: p.audiences, consent: p.consent, ingestedAt: p.ingestedAt, persona: p.persona };
+}
+
+app.get("/api/datasource", (req, res) => {
+  res.json({
+    source: getDataSource(),
+    persona: currentPersona(),
+    cdp: cdp.cdpConfig(),
+    provenance: getDataSource() === "adobe" ? (_cdpProvenance || null) : null,
+    sources: [
+      { id: "sqlite", label: "SQLite (local)", desc: "Profiles & traits read from the bundled SQLite customer record." },
+      { id: "adobe", label: "Adobe Real-Time CDP", desc: "Unified profile, identity graph, real-time audiences & consent from Adobe Experience Platform." },
+    ],
+  });
+});
+
+app.post("/api/datasource", async (req, res) => {
+  const s = (req.body && req.body.source) === "adobe" ? "adobe" : "sqlite";
+  try {
+    setDataSource(s);
+    const provenance = await hydrateActiveSource(currentPersona());
+    log("datasource_switched", { source: s });
+    const u = db.prepare("SELECT first_name, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get();
+    res.json({ ok: true, source: s, persona: currentPersona(), user: u, provenance, cdp: cdp.cdpConfig() });
+  } catch (e) {
+    res.status(500).json({ ok: false, source: getDataSource(), error: String((e && e.message) || e) });
+  }
 });
 
 app.post("/api/admin/reset", (req, res) => {
   // Reset restores the CURRENT persona's pristine data (or one named in the body).
   const id = (req.body && req.body.persona) || currentPersona();
   reseedPersona(id);
-  res.json({ ok: true, persona: id });
+  hydrateActiveSource(id).catch(() => {});
+  res.json({ ok: true, persona: id, source: getDataSource() });
+});
+
+// Validate the live Adobe RT-CDP connection (IMS token + a profile lookup) without
+// ever returning the secret. Run this on the deployment that holds the credentials.
+app.get("/api/admin/cdp/test", async (req, res) => {
+  const cfg = cdp.cdpConfig();
+  if (!cfg.configured) return res.json({ ok: false, configured: false, message: "Adobe credentials not detected — set ADOBE_CDP_ENABLED + ADOBE_IMS_ORG + ADOBE_CLIENT_ID + ADOBE_CLIENT_SECRET. Provider stays in simulated mode until then." });
+  try {
+    const { provenance } = await cdp.getProfileFromCdp(currentPersona());
+    res.json({
+      ok: provenance.mode === "live",
+      mode: provenance.mode,
+      sandbox: provenance.sandbox,
+      lookup: `${cfg.identityNamespace} (${cfg.lookupAttr})`,
+      liveError: provenance.liveError || null,
+      message: provenance.mode === "live"
+        ? "Connected — a live profile was returned from Adobe RT-CDP."
+        : `Credentials present but the live read fell back. ${provenance.liveError || "Check the namespace symbol, that the identity exists in this sandbox, and the credential's scopes/product profiles."}`,
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
 });
 
 app.get("/{*splat}", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "index.html")));
@@ -1657,5 +1735,8 @@ app.listen(PORT, HOST, () => {
   console.log(`   Network: http://0.0.0.0:${PORT}${suffix}  (reachable via the VM's public host if the firewall/NSG allow ${PORT})`);
   console.log(`   DB:      ${DB_PATH}`);
   console.log(`   SMTP:    ${SMTP_READY ? "configured — emails will really send" : "not configured — emails stored in DB outbox"}`);
-  console.log(`   AI:      ${hasKey() ? "live (API key found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}\n`);
+  console.log(`   AI:      ${hasKey() ? "live (API key found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}`);
+  const src = getDataSource();
+  console.log(`   Profiles: ${src === "adobe" ? "Adobe Real-Time CDP" + (cdp.cdpConfig().configured ? " (live tenant)" : " (simulated — no IMS credentials set)") : "SQLite (local)"}\n`);
+  if (src === "adobe") hydrateActiveSource().catch((e) => console.log("   [cdp] hydrate on boot failed:", String(e && e.message || e)));
 });

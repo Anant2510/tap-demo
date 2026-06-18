@@ -5,7 +5,7 @@ import {
   AlertTriangle, RefreshCw, Luggage, Armchair, Coffee, Wifi, Car, ChevronRight,
   X, Send, Bell, QrCode, CalendarClock, Laptop, Zap, ShieldCheck, ArrowRight, ArrowUpRight,
   Repeat, BadgeCheck, MessageCircle, Loader2, TimerReset, Database, Mail, Eye, EyeOff, RotateCcw,
-  Search, MapPin, Globe, ArrowLeftRight, Calendar, Info, Clock
+  Search, MapPin, Globe, ArrowLeftRight, Calendar, Info, Clock, Cloud, Layers
 } from "lucide-react";
 
 /* ── API client — every byte of personalization comes from the backend ──
@@ -1794,6 +1794,83 @@ function Manage({ profile, flight, openAssistant, toast, go }) {
 }
 
 /* ── DEMO CONSOLE — live DB inspector + email center ── */
+// Toggle the profile data source (SQLite ⇄ Adobe Real-Time CDP) and show the
+// CDP proof (identity graph, real-time audiences, consent, XDM) when CDP is on.
+function DataSourceSwitch({ onChanged }) {
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [showXdm, setShowXdm] = useState(false);
+  const load = async () => { try { setD(await api.get("/datasource")); } catch {} };
+  useEffect(() => { load(); }, []);
+  const pick = async (id) => {
+    if (busy || !d || d.source === id) return;
+    setBusy(true);
+    try { await api.post("/datasource", { source: id }); await load(); onChanged && onChanged(); } finally { setBusy(false); }
+  };
+  if (!d) return null;
+  const adobe = d.source === "adobe";
+  const prov = d.provenance;
+  const SrcBtn = ({ id, label, sub, icon }) => {
+    const on = d.source === id;
+    return (
+      <button onClick={() => pick(id)} disabled={busy} className="flex-1 text-left rounded-2xl border-2 p-3 transition disabled:opacity-60"
+        style={{ borderColor: on ? (id === "adobe" ? "#FA0F00" : "var(--tap-green)") : "var(--tap-line)", background: on ? (id === "adobe" ? "#FFF1F0" : "#E2F4EA") : "#fff" }}>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: on ? (id === "adobe" ? "#FA0F00" : "var(--tap-green)") : "var(--tap-mist)", color: on ? "#fff" : "var(--tap-ink)" }}>{icon}</div>
+          <div className="min-w-0">
+            <div className="font-bold text-sm truncate" style={{ color: "var(--tap-ink)" }}>{label}</div>
+            <div className="text-[10px] text-gray-500 truncate">{sub}</div>
+          </div>
+          {on && <CheckCircle2 size={16} className="ml-auto shrink-0" style={{ color: id === "adobe" ? "#FA0F00" : "var(--tap-green)" }}/>}
+        </div>
+      </button>
+    );
+  };
+  return (
+    <Card className="p-4 mb-5" style={{ borderColor: adobe ? "#FA0F00" : "var(--tap-green)" }}>
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+        <div className="font-display font-extrabold text-sm flex items-center gap-2" style={{ color: "var(--tap-ink)" }}>
+          <Layers size={16} style={{ color: adobe ? "#FA0F00" : "var(--tap-green)" }}/> Personalization data source
+        </div>
+        <Chip tone={adobe ? "red" : "green"}>{adobe ? "Adobe Real-Time CDP" : "SQLite (local)"}{adobe && prov ? ` · ${prov.mode === "live" ? "LIVE tenant" : "simulated"}` : ""}</Chip>
+      </div>
+      <div className="text-[11px] text-gray-500 mb-3">One switch re-points <b>every</b> channel — web portal, web AI chat and WhatsApp all personalize from the selected source. Bookings &amp; transactions always stay in SQLite.</div>
+      <div className="flex gap-2">
+        <SrcBtn id="sqlite" label="SQLite (local)" sub="Bundled customer record" icon={<Database size={15}/>}/>
+        <SrcBtn id="adobe" label="Adobe Real-Time CDP" sub="Experience Platform profile" icon={<Cloud size={15}/>}/>
+      </div>
+      {busy && <div className="text-[11px] text-gray-400 mt-2 flex items-center gap-1"><Loader2 size={12} className="animate-spin"/> Re-hydrating profile from {d.source === "adobe" ? "SQLite" : "Adobe RT-CDP"}…</div>}
+
+      {adobe && prov && (
+        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "#F3C9C5", background: "#FFF7F6" }}>
+          {prov.mode !== "live" && <div className="text-[10px] text-gray-500 mb-2">No IMS credentials detected — running a <b>simulated</b> RT-CDP profile (the same unified profile, identity graph, audiences &amp; consent a live tenant returns). Set the <span className="font-mono">ADOBE_*</span> env vars to connect a real sandbox.</div>}
+          <div className="text-[10px] text-gray-500 mb-2">Sandbox <b>{prov.sandbox}</b> · IMS Org <span className="font-mono">{prov.imsOrg}</span> · unified from {prov.unifiedFrom.length} sources</div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Identity graph (stitched)</div>
+              {Object.entries(prov.identityMap).filter(([k]) => k !== "primary").map(([k, v]) => (
+                <div key={k} className="flex justify-between text-[11px] py-0.5 gap-2"><span className="text-gray-500">{k}</span><span className="font-mono truncate" style={{ color: "var(--tap-ink)", maxWidth: 170 }}>{String(v)}</span></div>
+              ))}
+              <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mt-2 mb-1 flex items-center gap-1"><ShieldCheck size={11}/> Consent &amp; governance</div>
+              <div className="text-[11px]" style={{ color: "var(--tap-ink)" }}>Collect ✓ · Marketing ✓ · Personalize ✓ · Share ✓</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Real-time audiences ({prov.audiences.length})</div>
+              <div className="flex flex-wrap gap-1">
+                {prov.audiences.map(a => <span key={a.id} title={a.source} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "#FDE5E3", color: "#B11209" }}>{a.name}</span>)}
+              </div>
+              <div className="text-[9px] text-gray-400 mt-1.5">These segments trigger the packages, offers &amp; nudges across all channels.</div>
+            </div>
+          </div>
+          <button onClick={() => setShowXdm(v => !v)} className="text-[11px] font-semibold mt-3" style={{ color: "#B11209" }}>{showXdm ? "▾ Hide" : "▸ Show"} XDM individual profile (Profile API)</button>
+          {showXdm && <pre className="mt-2 text-[10px] rounded-lg p-3 overflow-auto max-h-72" style={{ background: "#1b1b1b", color: "#e6e6e6" }}>{JSON.stringify(prov.xdm, null, 2)}</pre>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ── DEMO CONSOLE — live DB inspector + email center ── */
 function CdpProof() {
   const [d, setD] = useState(null);
   const [flash, setFlash] = useState(false);
@@ -1820,6 +1897,8 @@ function CdpProof() {
   const prettyEvent = (t) => t.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 
   return (
+    <>
+    <DataSourceSwitch onChanged={refresh}/>
     <Card className="p-4 mb-5" style={{ borderColor: "var(--tap-green)" }}>
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div className="flex items-center gap-2.5">
@@ -1916,6 +1995,7 @@ function CdpProof() {
       </div>
       <div className="text-[10px] text-gray-400 mt-3">Every action on the site, WhatsApp and AI chat commits a real row here. The same event schema streams 1:1 into a production CDP for identity resolution, audiences and journeys — no re-instrumentation.</div>
     </Card>
+    </>
   );
 }
 
@@ -2273,7 +2353,8 @@ function Assistant({ open, onClose, screen, profile, onCommand, onSelectFlight }
     const rr = ip ? `${cityName(s.origin)} → ${cityName(s.dest)}` : "";
     return `Hi ${firstName} ✈️ Tell me where you want to go and when — I'll plan the rest.`
       + (ip ? `\n\n↩️ You have a search in progress (${rr}) — tap "Resume your search" below to finish it.` : "")
-      + `\n\n⚡ Or book your usual ${usualRoute}${recLabel ? ` for ${recLabel}` : ""} in two taps with Express checkout.`;
+      + `\n\n⚡ Or book your usual ${usualRoute}${recLabel ? ` for ${recLabel}` : ""} in two taps with Express checkout.`
+      + (profile?.source === "adobe" ? `\n\n🔗 Personalizing from your Adobe Real-Time CDP profile.` : "");
   };
   const [msgs, setMsgs] = useState([{ role: "assistant", content: buildGreeting(profile?.syncedSearch) }]);
   const [input, setInput] = useState("");

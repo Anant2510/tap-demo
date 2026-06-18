@@ -417,4 +417,39 @@ function seedPersonaData(personaId) {
 }
 seed();
 
-module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA };
+/* ── Data-source toggle: SQLite (local) vs Adobe Real-Time CDP ──────────
+   The active source decides where the customer PROFILE + traits are hydrated
+   from (identity, loyalty, affinity, card-spend traits, preferences, wallet).
+   Operational/transactional tables (bookings, searches, payments, flights…)
+   always remain in SQLite — RT-CDP is a profile/traits store, not a booking
+   engine — which is exactly how a real deployment is wired. Because every
+   channel reads the `users`/`preferences` rows, swapping the source re-points
+   ALL personalization (web portal + web AI chat + WhatsApp) at once. */
+function getDataSource() {
+  const r = db.prepare("SELECT v FROM app_state WHERE k='datasource'").get();
+  return (r && r.v) || (process.env.PROFILE_SOURCE === "adobe" ? "adobe" : "sqlite");
+}
+function setDataSource(s) {
+  const v = s === "adobe" ? "adobe" : "sqlite";
+  db.prepare("INSERT INTO app_state (k,v) VALUES ('datasource',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(v);
+  return v;
+}
+// Overwrite the live PROFILE (users + preferences + vouchers) from a normalized
+// { user, prefs, voucher } object — used to hydrate traits from either the local
+// persona (SQLite) or Adobe RT-CDP. Leaves all operational tables untouched, so
+// switching source never wipes bookings/searches/history.
+function applyProfile(profile) {
+  if (!profile || !profile.user) return;
+  const u = profile.user;
+  db.prepare(`UPDATE users SET member_no=?, first_name=?, full_name=?, email=?, phone=?, tier=?, miles=?, nationality=?, doc_id=?, home_airport=?, card_brand=?, card_last4=?, card_exp=?, card_product=?, card_categories=?, affinity=?, affinity_label=?, dob=?, gender=?, passport_exp=? WHERE id=1`)
+    .run(u.member_no, u.first_name, u.full_name, process.env.DEMO_EMAIL_TO || u.email, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
+  if (profile.prefs) { db.exec("DELETE FROM preferences"); const p = profile.prefs; db.prepare(`INSERT INTO preferences VALUES (1,?,?,?,?,?)`).run(p.seat, p.seat_note, p.bag, p.meal, p.auto_checkin); }
+  if (profile.voucher) { db.exec("DELETE FROM vouchers"); const v = profile.voucher; db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry) VALUES (1,?,?,?,?)`).run(v.code, v.amount, v.reason, v.expiry); }
+}
+// The normalized profile for a persona straight from the local SQLite seed.
+function localProfile(personaId) {
+  const P = PERSONAS[personaId] || PERSONAS[DEFAULT_PERSONA];
+  return { user: { ...P.user }, prefs: { ...P.prefs }, voucher: { ...P.voucher } };
+}
+
+module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile };

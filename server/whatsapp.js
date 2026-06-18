@@ -14,7 +14,7 @@
      bookings, rebooking, ancillaries, cancellations all hit the same
      database and feed the same personalization.
    ────────────────────────────────────────────────────────────── */
-const { db, now, searchToday, currentBooking } = require("./db");
+const { db, now, searchToday, currentBooking, getDataSource } = require("./db");
 const { AIRPORTS } = require("./routes-data");
 const { phraseFromFacts } = require("./claude");
 
@@ -254,9 +254,10 @@ async function sendMainMenu(to) {
   }
   rows.forEach((r, i) => { map[String(i + 1)] = r.id; });
   const resumeNo = (j && j.stage && j.dest) ? rows.length : null;
-  const greeting = resumeNo
+  const greeting = (resumeNo
     ? `Olá ${u.first_name} 👋 You have a trip in progress (${cityName(j.origin)}→${cityName(j.dest)}). Reply ${resumeNo} (or "resume") to continue, or pick another option.`
-    : `Olá ${u.first_name} 👋 Linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles). Tap an option below, or just type where you want to go (e.g. "flights to Madrid").`;
+    : `Olá ${u.first_name} 👋 Linked to your Miles&Go account (${u.tier}, ${u.miles.toLocaleString()} miles). Tap an option below, or just type where you want to go (e.g. "flights to Madrid").`)
+    + (getDataSource() === "adobe" ? `\n\n🔗 Profile via Adobe Real-Time CDP.` : "");
   await sendList(to, `TAP AI · ${u.first_name}`, greeting, "Main menu", rows.slice(0, 10), map);
 }
 
