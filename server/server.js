@@ -9,6 +9,9 @@ const path = require("path");
 const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile } = require("./db");
 const cdp = require("./cdp");
 const cdpIngest = require("./cdp-ingest");
+const cdpEvents = require("./cdp-events");
+// Identity for streamed events — loyaltyId (primary) from the live customer record.
+function liveIdentity() { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; return { loyaltyId: u.member_no, email: u.email }; }
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -162,6 +165,7 @@ app.get("/api/search", (req, res) => {
   // follows shortly, an offer email goes out too. (Demo timings are compressed.)
   scheduleSearchFollowup(origin, dest, date, stored);
   log("flight_search", { origin, dest, date, results: stored.length });
+  cdpEvents.emit("results", liveIdentity(), { origin, destination: dest, travelDate: date, cabin: "Economy", channel: "Web app", abandoned: false });
   res.json({ ok: true, origin, dest, date, route, flights: stored });
 });
 
@@ -488,6 +492,7 @@ app.post("/api/pay", async (req, res) => {
     VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
   log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
   const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
+  cdpEvents.emit("booked", liveIdentity(), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
   res.json({ ok: true, pnr, email });
 });
 
@@ -615,6 +620,7 @@ app.post("/api/bookings/checkin", (req, res) => {
   db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
   db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('checkin',?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web", doc: req.body?.doc_id || null }), now());
   log("booking_checkin", { pnr: b.pnr });
+  cdpEvents.emit("checkin", liveIdentity(), { origin: f.origin, destination: f.dest, travelDate: b.flight_date, flightNumber: b.flight_no, seat: b.seat || "4C", cabin: "Economy", channel: "web" });
   res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
 });
 
@@ -1735,7 +1741,14 @@ app.get("/api/admin/cdp/namespaces", async (req, res) => {
   try { res.json(await cdpIngest.namespaces()); }
   catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
 });
-// Ingest the personas into the TAP Traveller Profile dataset. ?dryRun=1 previews the
+// Live counter + recent log of events streamed to the CDP inlet (for the bridge panel).
+app.get("/api/admin/cdp/events", (req, res) => { res.json(cdpEvents.eventsState()); });
+// Fire one test event (current persona) at the streaming inlet — verifies the pipe live.
+app.post("/api/admin/cdp/event/test", async (req, res) => {
+  const stage = (req.body && req.body.stage) || "results";
+  const r = await cdpEvents.streamEvent(stage, liveIdentity(), { origin: "OPO", destination: "LIS", travelDate: searchToday(), cabin: "Economy", channel: "Demo test", abandoned: false });
+  res.json(r);
+});
 // XDM payload without sending it (works even before credentials are configured).
 app.post("/api/admin/cdp/ingest", async (req, res) => {
   const dryRun = req.query.dryRun === "1" || !!(req.body && req.body.dryRun);

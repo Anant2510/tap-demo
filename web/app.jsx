@@ -1873,6 +1873,7 @@ function DataSourceSwitch({ onChanged }) {
 /* ── DEMO CONSOLE — live DB inspector + email center ── */
 function CdpProof() {
   const [d, setD] = useState(null);
+  const [ev, setEv] = useState(null);
   const [flash, setFlash] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
 
@@ -1882,6 +1883,7 @@ function CdpProof() {
       if (prev && r.totalRows !== prev.totalRows) { setFlash(true); setTimeout(() => setFlash(false), 900); }
       return r;
     });
+    try { const e = await api.get("/admin/cdp/events"); setEv(e); } catch { /* events endpoint optional */ }
   };
   useEffect(() => { refresh(); const t = setInterval(refresh, 3000); return () => clearInterval(t); }, []);
 
@@ -1908,7 +1910,10 @@ function CdpProof() {
             <div className="text-[11px] text-gray-500 font-mono truncate">{d.db.engine} · {d.db.path}</div>
           </div>
         </div>
-        <Chip tone="green"><span className={flash ? "pulse-dot" : ""}>●</span> {d.totalRows.toLocaleString()} rows · writing live</Chip>
+        <div className="flex items-center gap-2">
+          <Chip tone="green"><span className={flash ? "pulse-dot" : ""}>●</span> {d.totalRows.toLocaleString()} rows · writing live</Chip>
+          {ev && ev.configured && <Chip tone="ink"><Zap size={12}/> {ev.sent.toLocaleString()} events → Adobe CDP{ev.failed ? ` · ${ev.failed} failed` : ""}</Chip>}
+        </div>
       </div>
 
       {/* live row counts */}
@@ -1920,6 +1925,23 @@ function CdpProof() {
           </div>
         ))}
       </div>
+
+      {ev && ev.configured && ev.recent && ev.recent.length > 0 && (
+        <div className="rounded-xl border p-3 mb-4" style={{ borderColor: "var(--tap-green)", background: "#FBFDFC" }}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">Streaming live to Adobe RT-CDP — {ev.sent} sent{ev.failed ? `, ${ev.failed} failed` : ""}{ev.syncValidation ? " · validated" : ""}</div>
+          <div className="flex flex-col gap-1">
+            {ev.recent.slice(0, 6).map((e, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 text-[10px]">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="px-1.5 py-0.5 rounded-full font-semibold shrink-0" style={{ background: e.ok ? "#E2F4EA" : "#FDE5E3", color: e.ok ? "var(--tap-deep)" : "#B11209" }}>{e.eventType || e.stage}</span>
+                  <span className="text-gray-400 font-mono truncate">{e.loyaltyId}</span>
+                </div>
+                <span className="text-gray-400 shrink-0">{e.ok ? `✓ ${e.status || "sent"}` : `✗ ${e.error ? e.error.slice(0, 36) : "failed"}`}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* architecture data-flow diagram */}
       <div className="rounded-xl border p-3 mb-4 overflow-x-auto" style={{ borderColor: "var(--tap-line)", background: "#FBFDFC" }}>

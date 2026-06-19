@@ -42,6 +42,10 @@ function rawConfig() {
     eventSchemaId: process.env.ADOBE_EVENT_SCHEMA_ID || "",
     profileDatasetId: process.env.ADOBE_PROFILE_DATASET_ID || "",
     eventDatasetId: process.env.ADOBE_EVENT_DATASET_ID || "",
+    // Event STREAMING (DCS inlet) — real-time events into the event dataset:
+    streamingUrl: process.env.ADOBE_STREAMING_URL || "",
+    eventFlowId: process.env.ADOBE_EVENT_FLOW_ID || "",
+    eventSyncValidation: /^(1|true|yes)$/i.test(process.env.ADOBE_EVENT_SYNC_VALIDATION || "1"),
     // Ingestion-direction config (writing profiles INTO CDP):
     loyaltyNs: process.env.ADOBE_LOYALTY_NS || "",
     ingestApi: process.env.ADOBE_INGEST_API || "https://platform.adobe.io/data/foundation/import",
@@ -61,6 +65,7 @@ function cdpConfig() {
     configured: c.configured, enabled: c.enabled, sandbox: c.sandbox,
     imsOrg: c.imsOrg || "(not set)", profileApi: c.profileApi,
     identityNamespace: c.identityNamespace, lookupAttr: c.lookupAttr, profileView: c.profileView,
+    streaming: { configured: !!c.streamingUrl, syncValidation: c.eventSyncValidation, eventDatasetId: c.eventDatasetId || "(not set)" },
     ingestion: {
       profileSchemaId: c.profileSchemaId || "(not set)", eventSchemaId: c.eventSchemaId || "(not set)",
       profileDatasetId: c.profileDatasetId || "(not set)", eventDatasetId: c.eventDatasetId || "(not set)",
