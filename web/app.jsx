@@ -3100,6 +3100,7 @@ function App() {
       if (live && live.stage && live.dest) j = { origin: live.origin, dest: live.dest, date: live.date, stage: live.stage, flight_no: live.flight_no, seat: live.seat, items: live.items, cabin: live.cabin };
     } catch {}
     if (!j || !j.stage) return;
+    api.post("/journey/resume", { device: "Web app" }).catch(() => {});   // stream a distinct searchResumed event to CDP
     const origin = j.origin, dest = j.dest;
     setSearchOrigin(origin); setSearchDest(dest); if (j.date) setSearchDate(j.date);
     setPrefilledReason(`Resuming where you left off — ${STAGE_LABEL[j.stage] || "your search"}.`);

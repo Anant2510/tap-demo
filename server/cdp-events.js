@@ -15,6 +15,7 @@ const cdp = require("./cdp");
 const STAGE_EVENTTYPE = {
   search:   "search",
   results:  "searchResults",
+  resumed:  "searchResumed",
   selected: "flightSelected",
   booked:   "booking",
   checkin:  "checkIn",

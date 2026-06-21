@@ -10,6 +10,7 @@ const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBooking
 const cdp = require("./cdp");
 const cdpIngest = require("./cdp-ingest");
 const cdpEvents = require("./cdp-events");
+const aem = require("./aem");
 // Identity for streamed events — loyaltyId (primary) from the live customer record.
 function liveIdentity() { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; return { loyaltyId: u.member_no, email: u.email }; }
 const { sendEmail, SMTP_READY } = require("./email");
@@ -343,6 +344,17 @@ app.post("/api/journey/clear", (req, res) => {
   res.json({ ok: true });
 });
 
+// Customer RESUMED an abandoned search — a distinct re-engagement signal. Streams a
+// 'searchResumed' event (separate from the original 'searchResults') to the CDP.
+app.post("/api/journey/resume", (req, res) => {
+  const j = getJourney();
+  if (!j || !j.dest) return res.json({ ok: false, state: "nothing_to_resume" });
+  const device = (req.body && req.body.device) || j.device || "Web app";
+  log("journey_resumed", { stage: j.stage, route: `${j.origin}→${j.dest}` });
+  cdpEvents.emit("resumed", liveIdentity(), { origin: j.origin, destination: j.dest, travelDate: j.date, flightNumber: j.flight_no, seat: j.seat, cabin: j.cabin || "Economy", channel: device, abandoned: false });
+  res.json({ ok: true, journey: j });
+});
+
 /* Affinity-driven package recommendation. We read the persona's co-branded card
    spend categories from the customer DB, derive the dominant interest, and return
    a matching event+hotel+flight bundle. This mirrors how a CDP turns card-spend
@@ -405,9 +417,13 @@ app.get("/api/seat-recommendation", (req, res) => {
     reason: top ? `Your usual — seat ${top.seat} on ${top.c} of your trips` : "Front aisle, quick exit",
   });
 });
-app.get("/api/destinations", (req, res) => {
+app.get("/api/destinations", async (req, res) => {
   const home = (db.prepare("SELECT home_airport FROM users WHERE id=1").get() || {}).home_airport || "OPO";
-  const dests = db.prepare("SELECT * FROM destinations").all();
+  // CONTENT from AEM (headless) when configured; otherwise local SQLite. Personalization is overlaid below.
+  let base = null;
+  try { base = await aem.getDestinations(); } catch (e) { /* AEM unavailable → fall back to local content */ }
+  const fromAem = !!(base && base.length);
+  const dests = fromAem ? base : db.prepare("SELECT * FROM destinations").all();
   res.json(dests.map(d => {
     const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC").all(`%→${d.code}`);
     const flown = flownRows.length;
@@ -428,9 +444,12 @@ app.get("/api/destinations", (req, res) => {
       reason = `You searched ${d.city} ${searched}× in the last week — still comparing options?`;
     else if (d.tag) reason = `Suggested because: ${d.tag.toLowerCase()}.`;
     else reason = `A popular route from your home airport.`;
-    return { ...d, origin: home, flown, booked, searched, purposes, reason };
+    return { ...d, origin: home, flown, booked, searched, purposes, reason, contentSource: fromAem ? "aem" : "local" };
   }));
 });
+
+/* ── AEM headless content source ─────────────────────────────── */
+app.get("/api/aem/status", (req, res) => { res.json(aem.status()); });
 
 /* ── Persistent basket ───────────────────────────────────────── */
 app.get("/api/basket", (req, res) => {
@@ -1163,8 +1182,11 @@ function deterministicAgent(text, session) {
   // resume / continue an unfinished booking
   if (has("where was i", "resume", "pick up", "continue my", "where did i", "left off", "in progress")) {
     const j = run("get_journey");   // get_journey hydrates the session AND drives the resume command (buildUI)
-    if (j.in_progress)
+    if (j.in_progress) {
+      const jj = getJourney();
+      if (jj && jj.dest) cdpEvents.emit("resumed", liveIdentity(), { origin: jj.origin, destination: jj.dest, travelDate: jj.date, flightNumber: jj.flight_no, seat: jj.seat, cabin: jj.cabin || "Economy", channel: "AI assistant", abandoned: false });
       return done(`You left off at the "${j.stage}" step on ${j.route} (${j.date}). I've reopened it on screen — want to keep going from there?`);
+    }
     return done("You don't have an unfinished booking right now. Tell me where you'd like to fly and I'll search.");
   }
   // express checkout of the USUAL flight — "book my usual", "express checkout my usual",
