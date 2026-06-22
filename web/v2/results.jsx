@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { api, EUR, miles, fmtDate } from "./lib.js";
 import { Btn, Card, Pill, Icon, cx } from "./ui.jsx";
+import { trip, setLeg } from "./trip.js";
 
 const roundTo = (n, s) => Math.round(n / s) * s;
 
@@ -34,8 +35,7 @@ function meta(f) {
   return { partner, stops, airline, features, hub: partner ? "SCQ" : null };
 }
 
-// outbound/inbound selection persists across SPA navigation within the session
-const tripSel = { outbound: null, inbound: null };
+// outbound/inbound selection lives in the shared trip state (web/v2/trip.js)
 
 export function Results({ shared, params, go }) {
   const type = params.type || "round";
@@ -50,7 +50,7 @@ export function Results({ shared, params, go }) {
   const [week, setWeek] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [sort, setSort] = useState("Best");
-  const [sel, setSel] = useState(tripSel[leg]);
+  const [sel, setSel] = useState(trip[leg]);
   const [showAll, setShowAll] = useState(false);
   const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 9999, wifi: false, useMiles: false });
 
@@ -112,7 +112,8 @@ export function Results({ shared, params, go }) {
 
   function pickFare(f, fare) {
     const choice = { flight: f, fare: fare.key, price: fare.price, leg, origin, dest, date };
-    tripSel[leg] = choice; setSel(choice);
+    setLeg(leg, choice); setSel(choice);
+    Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret });
     api.post("/journey", { origin, dest, date, stage: "seat", flight_no: f.flight_no, cabin: fare.key === "Executive" ? "Business" : "Economy", device: "Web app" }).catch(() => {});
   }
   function advance() {
@@ -232,7 +233,7 @@ export function Results({ shared, params, go }) {
                 <div className="text-[13px] font-semibold">{sel.flight.flight_no} · {fmtDate(date).replace(/ \d{4}/, "")} · {sel.flight.dep} → {sel.flight.arr} · {EUR(sel.price)}</div>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                <Btn variant="ghost" size="sm" className="text-white hover:bg-white/10" onClick={() => { tripSel[leg] = null; setSel(null); }}>Change</Btn>
+                <Btn variant="ghost" size="sm" className="text-white hover:bg-white/10" onClick={() => { setLeg(leg, null); setSel(null); }}>Change</Btn>
                 <Btn variant="lime" onClick={advance}>{type === "round" && leg === "outbound" ? "Pick inbound" : "Continue to cart"} <Icon name="arrow" size={14} /></Btn>
               </div>
             </div>

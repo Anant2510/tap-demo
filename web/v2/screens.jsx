@@ -6,6 +6,7 @@ import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, TierBadge, Field, Input, Icon, Divider, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
+import { Cart, Passenger, Payment, Confirmation } from "./checkout.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
 
@@ -368,10 +369,10 @@ export const ROUTES = {
   home: { title: "Home", comp: Home },
   homepage: { title: "Homepage", comp: Homepage },
   results: { title: "Search results", comp: Results },
-  cart: { title: "View & customize cart", phase: 1, plan: "Trip extras with live re-pricing; ancillary recommendations from history.", reuses: "/api/basket, /api/ancillaries" },
-  passenger: { title: "Passenger details", phase: 1, plan: "Auto-filled from the profile; editable per traveller.", reuses: "/api/profile, /api/hold" },
-  payment: { title: "Payment", phase: 1, plan: "Split voucher + miles + saved card; per-passenger split (A17).", reuses: "/api/pay" },
-  confirmation: { title: "Confirmation", phase: 1, plan: "Confirmation with personalized recommendations (A14).", reuses: "/api/pay, /api/recommendation" },
+  cart: { title: "View & customize cart", comp: Cart },
+  passenger: { title: "Passenger details", comp: Passenger },
+  payment: { title: "Payment", comp: Payment },
+  confirmation: { title: "Booking confirmed", comp: Confirmation },
   basket: { title: "My Trip Basket (manage)", phase: 1, plan: "Active trip, boarding pass, check-in; manage-my-booking entry.", reuses: "/api/bookings, /api/checkin" },
   express: { title: "Express Checkout", phase: 2, plan: "Book-your-usual in the fewest clicks (B4).", reuses: "express_usual, /api/pay" },
   hold: { title: "Hold My Fare", phase: 2, plan: "Free 48h fare hold for tier members (A8).", reuses: "/api/fare-lock, /api/hold" },
