@@ -30,6 +30,7 @@ export const Pill = ({ tone = "lime", className = "", children }) => {
     dark: "bg-surface-dark text-white border-transparent",
     slate: "bg-surface-mute text-ink-slate border-line",
     red: "bg-tap-red/10 text-tap-red border-tap-red/20",
+    gold: "bg-gradient-to-br from-[#E8C75A] to-[#C9A227] text-ink border-transparent",
   };
   return <span className={cx("inline-flex items-center gap-1 text-[10px] font-bold tracking-wide uppercase px-2 py-1 rounded-full border", tones[tone], className)}>{children}</span>;
 };
@@ -73,6 +74,13 @@ export const Icon = ({ name, size = 16, className = "" }) => {
     cart: "M3 4h2l2 12h11l2-8H7M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm9 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
     check: "M5 12l5 5L20 7",
     chevR: "M9 6l6 6-6 6",
+    lock: "M6 11V8a6 6 0 0 1 12 0v3M5 11h14v10H5V11Z",
+    mail: "M3 6h18v12H3V6Zm0 1 9 6 9-6",
+    doc: "M6 2h8l4 4v16H6V2Zm8 0v4h4",
+    info: "M12 16v-4M12 8h.01M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18Z",
+    refresh: "M21 12a9 9 0 1 1-3-6.7M21 4v4h-4",
+    user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9a7 7 0 0 1 14 0",
+    x: "M6 6l12 12M18 6 6 18",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
