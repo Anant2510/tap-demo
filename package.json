@@ -7,6 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server/server.js",
     "build": "esbuild web/app.jsx --bundle --jsx=automatic --minify --outfile=public/app.js",
+    "build:v2": "esbuild web/v2/main.jsx --bundle --jsx=automatic --minify --outfile=public/v2/app.js",
+    "build:all": "npm run build && npm run build:v2",
     "dev": "npm run build && node server/server.js"
   },
   "keywords": [],
