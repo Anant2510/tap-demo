@@ -23,6 +23,7 @@ const NAV = [
 export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
   const basketCount = (trip.outbound ? 1 : 0) + (trip.extras?.length || 0);   // live items in the trip basket
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
@@ -39,13 +40,13 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
         </nav>
         <div className="ml-auto flex items-center gap-1">
           <button onClick={() => go("results")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="Search"><Icon name="search" /></button>
-          <button className="hidden sm:inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute">PT · EUR</button>
-          <button onClick={() => go("wishlist")} className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="Wishlist"><Icon name="heart" size={16} /> Wishlist</button>
+          <button className="hidden lg:inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute">PT · EUR</button>
+          <button onClick={() => go("wishlist")} className="hidden lg:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="Wishlist"><Icon name="heart" size={16} /> Wishlist</button>
           <button onClick={() => go("basket")} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="My Trip Basket">
-            <Icon name="cart" size={16} /><span className="hidden md:inline">My Trip Basket</span>
+            <Icon name="cart" size={16} /><span className="hidden lg:inline">My Trip Basket</span>
             {basketCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-tap-red text-white text-[10px] font-bold inline-flex items-center justify-center">{basketCount}</span>}
           </button>
-          <button onClick={() => go("console")} className="hidden sm:inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute border border-line" title="Demo-only: live backend view"><Icon name="db" size={14} /> Demo</button>
+          <button onClick={() => go("console")} className="hidden lg:inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute border border-line" title="Demo-only: live backend view"><Icon name="db" size={14} /> Demo</button>
           {loggedIn && user
             ? <div className="relative">
                 <button onClick={() => setMenu(m => !m)} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-surface-mute">
@@ -64,8 +65,24 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
                 )}
               </div>
             : <Btn size="sm" variant="dark" onClick={() => onLogin?.()}>Login or Sign up</Btn>}
+          <button onClick={() => setMobileMenu(m => !m)} className="lg:hidden p-2 rounded-lg text-ink-muted hover:bg-surface-mute" aria-label="Menu" aria-expanded={mobileMenu}><Icon name={mobileMenu ? "x" : "menu"} /></button>
         </div>
       </div>
+      {mobileMenu && (
+        <div className="lg:hidden border-t border-line bg-surface">
+          <div className="mx-auto max-w-page px-4 py-2">
+            {NAV.map(n => (
+              <button key={n.key} onClick={() => { setMobileMenu(false); go(n.key); }}
+                className={cx("w-full text-left px-3 py-2.5 rounded-lg text-[14px] font-medium", route === n.key ? "text-ink bg-surface-mute" : "text-ink-muted hover:text-ink hover:bg-surface-mute")}>{n.label}</button>
+            ))}
+            <div className="h-px bg-line my-1.5" />
+            <button onClick={() => { setMobileMenu(false); go("wishlist"); }} className="w-full text-left px-3 py-2.5 rounded-lg text-[14px] text-ink-muted hover:bg-surface-mute flex items-center gap-2"><Icon name="heart" size={15} /> Wishlist</button>
+            <button onClick={() => { setMobileMenu(false); go("basket"); }} className="w-full text-left px-3 py-2.5 rounded-lg text-[14px] text-ink-muted hover:bg-surface-mute flex items-center gap-2"><Icon name="cart" size={15} /> My Trip Basket{basketCount > 0 && <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-tap-red text-white text-[10px] font-bold inline-flex items-center justify-center">{basketCount}</span>}</button>
+            <button onClick={() => { setMobileMenu(false); go("console"); }} className="w-full text-left px-3 py-2.5 rounded-lg text-[14px] text-ink-muted hover:bg-surface-mute flex items-center gap-2"><Icon name="db" size={15} /> Demo console</button>
+            <div className="px-3 py-2 text-[12px] text-ink-faint">PT · EUR</div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

@@ -3,7 +3,7 @@
 // screens are scaffolded as a navigable map of the full program.
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
-import { Btn, Card, Pill, Eyebrow, TierBadge, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
 import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
@@ -40,12 +40,12 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
           <button key={k} onClick={() => setType(k)} className={cx("pb-1 border-b-2", type === k ? "border-tap-green text-ink" : "border-transparent")}>{l}</button>
         ))}
       </div>
-      <div className="grid md:grid-cols-12 gap-3">
-        <Field label="From" className="md:col-span-3"><Input list="ap" value={from} onChange={e => setFrom(e.target.value.toUpperCase())} placeholder="OPO" /></Field>
-        <Field label="To" className="md:col-span-3"><Input list="ap" value={to} onChange={e => setTo(e.target.value.toUpperCase())} placeholder="Where to?" /></Field>
-        <Field label="Depart" className="md:col-span-2"><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
-        {type === "round" && <Field label="Return" className="md:col-span-2"><Input type="date" value={ret} onChange={e => setRet(e.target.value)} /></Field>}
-        <Field label="Travellers" className="md:col-span-2">
+      <div className="grid lg:grid-cols-12 gap-3">
+        <Field label="From" className="lg:col-span-3"><Input list="ap" value={from} onChange={e => setFrom(e.target.value.toUpperCase())} placeholder="OPO" /></Field>
+        <Field label="To" className="lg:col-span-3"><Input list="ap" value={to} onChange={e => setTo(e.target.value.toUpperCase())} placeholder="Where to?" /></Field>
+        <Field label="Depart" className="lg:col-span-2"><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+        {type === "round" && <Field label="Return" className="lg:col-span-2"><Input type="date" value={ret} onChange={e => setRet(e.target.value)} /></Field>}
+        <Field label="Travellers" className="lg:col-span-2">
           <select value={pax} onChange={e => setPax(+e.target.value)} className="w-full bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px]">{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} {n === 1 ? "traveller" : "travellers"}</option>)}</select>
         </Field>
       </div>
@@ -125,16 +125,16 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
   const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
   const swap = () => { setFrom(to); setTo(from); };
   const go2 = () => go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
-  const cell = "rounded-xl border border-line p-3";
+  const cell = "rounded-xl border border-line p-3 min-w-0";
   const lbl = "text-[9px] font-bold uppercase tracking-wide text-ink-faint";
-  const bare = "w-full bg-transparent text-[15px] font-bold outline-none";
+  const bare = "w-full min-w-0 bg-transparent text-[15px] font-bold outline-none";
 
   return (
     <Card className="mt-5 p-4 sm:p-5">
       <div className="flex gap-4 overflow-x-auto v2-track text-[13px] font-semibold pb-3 border-b border-line">
         {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 pb-2 -mb-3 border-b-2", i === 0 ? "border-tap-green text-ink" : "border-transparent text-ink-muted hover:text-ink")}>{t}</button>)}
       </div>
-      <div className="flex items-center justify-between mt-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 mt-3">
         <div className="flex gap-4 text-[12px] font-semibold">
           {[["round", "Round trip"], ["oneway", "One way"], ["multi", "Multi-city"]].map(([k, l]) => (
             <button key={k} onClick={() => setType(k)} className={cx("pb-0.5 border-b-2", type === k ? "border-tap-green text-ink" : "border-transparent text-ink-muted")}>{l}</button>
@@ -143,27 +143,27 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
         <button onClick={() => setPayMiles(v => !v)} className="flex items-center gap-2 text-[12px] font-semibold text-ink-muted">Pay with Miles <Icon name="spark" size={13} className={payMiles ? "text-tap-green" : "text-ink-faint"} /><span className={cx("w-9 h-5 rounded-full relative transition-colors", payMiles ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", payMiles ? "right-0.5" : "left-0.5")} /></span></button>
       </div>
 
-      <div className="grid md:grid-cols-12 gap-3 mt-3">
-        <div className={cx(cell, "md:col-span-3 relative")}>
+      <div className="grid lg:grid-cols-12 gap-3 mt-3">
+        <div className={cx(cell, "lg:col-span-3 relative")}>
           <div className={lbl}>Frequent route · editable</div>
           <div className="flex items-center gap-2 mt-1"><select value={from} onChange={e => setFrom(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select><button onClick={swap} className="text-tap-green shrink-0" title="Swap"><Icon name="arrow" size={14} /></button><select value={to} onChange={e => setTo(e.target.value)} className={cx(bare, "appearance-none cursor-pointer text-right")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
           <div className="text-[10px] text-ink-faint mt-0.5">{cityOf(from)} → {cityOf(to)}</div>
         </div>
-        <div className={cx(cell, type === "oneway" ? "md:col-span-3" : "md:col-span-3")}>
+        <div className={cx(cell, "lg:col-span-3")}>
           <div className={lbl}>{type === "oneway" ? "Depart" : "Depart · Return"}</div>
           <div className="flex items-center gap-2 mt-1"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={cx(bare, "text-[13px]")} />{type !== "oneway" && <input type="date" value={ret} onChange={e => setRet(e.target.value)} className={cx(bare, "text-[13px]")} />}</div>
           <div className="text-[10px] text-ink-faint mt-0.5">± 3 days flexibility on</div>
         </div>
-        <div className={cx(cell, "md:col-span-2")}><div className={lbl}>Passenger</div><select value={pax} onChange={e => setPax(+e.target.value)} className={cx(bare, "mt-1")}>{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Adult{n > 1 ? "s" : ""}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">{u.first_name} · saved</div></div>
-        <div className={cx(cell, "md:col-span-2")}><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">Preferred</div></div>
-        <div className="md:col-span-2 flex"><Btn size="lg" className="w-full h-full" onClick={go2}>Search flight</Btn></div>
+        <div className={cx(cell, "lg:col-span-2")}><div className={lbl}>Passenger</div><select value={pax} onChange={e => setPax(+e.target.value)} className={cx(bare, "mt-1")}>{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Adult{n > 1 ? "s" : ""}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">{u.first_name} · saved</div></div>
+        <div className={cx(cell, "lg:col-span-2")}><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">Preferred</div></div>
+        <div className="lg:col-span-2 flex"><Btn size="lg" className="w-full h-full" onClick={go2}>Search flight</Btn></div>
       </div>
       {type === "multi" && (
-        <div className="grid md:grid-cols-12 gap-3 mt-3">
-          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
-          <div className="md:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
+        <div className="grid lg:grid-cols-12 gap-3 mt-3">
+          <div className={cx(cell, "lg:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+          <div className={cx(cell, "lg:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+          <div className={cx(cell, "lg:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
+          <div className="lg:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
         </div>
       )}
 
@@ -206,7 +206,7 @@ export function Home({ shared, go }) {
         <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
           <div className="rounded-3xl bg-surface shadow-pop p-6 sm:p-8">
             <div className="flex items-start justify-between">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-tap-green"><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Personalized for you</span>
+              <PersonalizedTag />
               <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-ink-muted text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
             </div>
             <div className="text-ink-muted text-[14px] mt-3">Bom dia, {u.first_name}.</div>

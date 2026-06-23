@@ -71,6 +71,13 @@ export function TierBadge({ tier = "Gold", className = "" }) {
 export const Eyebrow = ({ children, className = "" }) =>
   <div className={cx("text-[10px] font-bold tracking-[0.14em] uppercase text-ink-slate", className)}>{children}</div>;
 
+// Highlighted "Personalized for you" pill — soft green background, padding, rounded-full,
+// dot + bold uppercase label. Reusable so the personalization badge is consistent everywhere.
+export const PersonalizedTag = ({ children = "Personalized for you", className = "" }) =>
+  <span className={cx("inline-flex items-center gap-1.5 rounded-full bg-lime-tint px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-tap-greenDeep", className)}>
+    <span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> {children}
+  </span>;
+
 export const Avatar = ({ initials = "D", className = "" }) =>
   <span className={cx("inline-flex items-center justify-center w-8 h-8 rounded-full bg-surface-dark text-white text-[12px] font-bold", className)}>{initials}</span>;
 
@@ -113,6 +120,7 @@ export const Icon = ({ name, size = 16, className = "" }) => {
     send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z",
     db: "M12 3c4.4 0 8 1.2 8 2.7S16.4 8.4 12 8.4 4 7.2 4 5.7 7.6 3 12 3Zm8 2.7v6c0 1.5-3.6 2.7-8 2.7s-8-1.2-8-2.7v-6m16 6v6c0 1.5-3.6 2.7-8 2.7s-8-1.2-8-2.7v-6",
     grid: "M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z",
+    menu: "M4 6h16M4 12h16M4 18h16",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
