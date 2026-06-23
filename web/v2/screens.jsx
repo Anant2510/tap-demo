@@ -230,7 +230,7 @@ export function Home({ shared, go }) {
           <div ref={tplRef} className="flex gap-4 overflow-x-auto v2-track snap-x pb-2 -mx-1 px-1">
             {buildTemplates(profile, cityOf).map((t, i) => (
               <Card key={i} className="overflow-hidden shrink-0 w-[260px] snap-start">
-                <div className="h-20 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
+                <div className="h-28 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
                 <div className="p-3.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">{t.label}</span>
@@ -254,30 +254,34 @@ export function Home({ shared, go }) {
       </div>
 
       {/* MILES & GO JOURNEY (dark full-bleed) */}
-      <section className="bg-surface-dark text-white" style={{ background: "radial-gradient(120% 100% at 50% 0%, #16331f, #0a0a0a 70%)" }}>
+      <section className="bg-surface-dark text-white" style={{ background: "radial-gradient(55% 70% at 95% 42%, rgba(38,116,58,0.55), transparent 62%), radial-gradient(50% 55% at 100% 100%, rgba(28,86,43,0.5), transparent 58%), radial-gradient(130% 105% at 50% -5%, #17381f, transparent 60%), #0a130e" }}>
         <div className="mx-auto max-w-content px-6 py-14 text-center">
           <span className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-widest uppercase px-3 py-1 rounded-full bg-gradient-to-br from-[#E8C75A] to-[#C9A227] text-ink"><Icon name="spark" size={11} /> Your Miles&Go journey · {u.tier} member</span>
           <h2 className="text-[44px] font-black leading-tight mt-5">{prog.next ? <>You're {miles(prog.toGo)} miles<br />from {prog.next}, {u.first_name}.</> : <>You're at the top tier, {u.first_name}.</>}</h2>
           <p className="text-white/60 text-[14px] mt-3 max-w-2xl mx-auto">One Lisbon stopover + one European return gets you there — and unlocks free upgrades and lounge access for two.</p>
           <div className="mt-8 rounded-2xl border border-white/10 bg-black/40 p-5 text-left">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div><div className="text-[10px] uppercase tracking-wide text-white/50">Current balance</div><div className="text-[34px] font-black v2-num">{miles(u.miles)} <span className="text-[14px] font-medium text-white/50">tap.miles</span></div><div className="text-[11px] mt-1"><TierBadge tier={u.tier} /> {prog.next && <span className="text-white/50 ml-1">You · {miles(prog.toGo)} mi to {prog.next}</span>}</div></div>
+            <div className="flex flex-wrap items-center justify-center gap-8 text-center">
+              <div><div className="text-[10px] uppercase tracking-wide text-white/50">Current balance</div><div className="text-[34px] font-black v2-num">{miles(u.miles)} <span className="text-[14px] font-medium text-white/50">tap.miles</span></div><div className="text-[11px] mt-1"><TierBadge tier={u.tier} /> {prog.next && <span className="text-white/50 ml-1">You · {miles(prog.toGo)} mi to <span className="text-lime font-bold uppercase">{prog.next}</span></span>}</div></div>
               {prog.next && <div className="rounded-xl bg-black/40 border border-white/10 p-4 min-w-[220px] text-center"><div className="text-[40px] font-black text-lime leading-none v2-num">{prog.pct}%</div><div className="text-[10px] uppercase tracking-wide text-white/50 mt-1">Progress to {prog.next}</div><div className="h-2 rounded-full bg-white/15 mt-2 overflow-hidden"><div className="h-full rounded-full" style={{ width: prog.pct + "%", background: "linear-gradient(90deg,#9efd38,#8b5cf6)" }} /></div></div>}
             </div>
             <div className="grid sm:grid-cols-3 gap-3 mt-5">
-              {[["🏠", "Because you're " + u.tier, "Use miles to discount your Lisbon hotel", "Apply 8,000 mi to any 3-night stay · save up to €80 instantly.", "8,000 mi", "Apply"],
-                ["✈", "Limited · next trip", "Upgrade " + cityOf(pat.origin || "LIS") + "–" + cityOf(pat.dest || "OPO") + " to Business with miles", "20% mileage discount when upgrading on your existing booking.", "42,000 mi", "Upgrade"],
-                ["⊕", "Partner offer · Nov", "Earn 3× miles at Memmo Príncipe Real", "Triple miles when booking your favourite hotel through voa stay.", "3× MI", "Activate"]].map((o, i) => (
-                <div key={i} className="rounded-xl bg-black/30 border border-white/10 p-4 flex flex-col">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-tap-green flex items-center gap-1.5"><span>{o[0]}</span> + {o[1]}</div>
-                  <div className="text-[14px] font-bold mt-2">{o[2]}</div>
+              {[["home", "Because you're " + u.tier, "Use miles to discount your Lisbon hotel", "Apply 8,000 mi to any 3-night stay · save up to €80 instantly.", "8,000 mi", "Apply"],
+                ["plane", "Limited · next trip", "Upgrade " + cityOf(pat.origin || "LIS") + "–" + cityOf(pat.dest || "OPO") + " to Business with miles", "20% mileage discount when upgrading on your existing booking.", "42,000 mi", "Upgrade"],
+                ["star", "Partner offer · Nov", "Earn 3× miles at Memmo Príncipe Real", "Triple miles when booking your favourite hotel through voa stay.", "3× MI", "Activate"]].map((o, i) => (
+                <div key={i} className="rounded-xl bg-black/30 border border-white/10 p-4 flex flex-col text-left">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="w-9 h-9 rounded-xl bg-white/10 inline-flex items-center justify-center text-tap-green shrink-0"><Icon name={o[0]} size={18} /></span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-lime-tint px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep"><Icon name="spark" size={9} /> {o[1]}</span>
+                  </div>
+                  <div className="text-[14px] font-bold mt-3">{o[2]}</div>
                   <div className="text-[11px] text-white/50 mt-1 flex-1">{o[3]}</div>
-                  <div className="flex items-center justify-between mt-3"><span className="text-[12px] font-bold v2-num">{o[4]}</span><Btn size="sm" variant="lime" onClick={() => go("miles")}>{o[5]} →</Btn></div>
+                  <div className="h-px bg-white/10 my-3" />
+                  <div className="flex items-center justify-between"><span className="text-[14px] font-black v2-num text-lime">{o[4]}</span><Btn size="sm" variant="lime" onClick={() => go("miles")}>{o[5]} →</Btn></div>
                 </div>
               ))}
             </div>
           </div>
-          <div className="text-[12px] text-tap-green mt-4 flex items-center justify-center gap-1.5"><Icon name="spark" size={12} /> Earn up to 4,832 voa.miles on your Lisbon stopover hotel and experiences this trip.</div>
+          <div className="mt-6 rounded-2xl border border-tap-green/20 px-4 py-3 flex items-center gap-2 text-[12.5px] font-semibold text-lime" style={{ background: "linear-gradient(90deg, #133019, #1c5229)" }}><Icon name="spark" size={14} className="shrink-0" /> Earn up to 4,832 voa.miles on your Lisbon stopover hotel and experiences this trip.</div>
         </div>
       </section>
 

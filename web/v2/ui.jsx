@@ -122,6 +122,7 @@ export const Icon = ({ name, size = 16, className = "" }) => {
     db: "M12 3c4.4 0 8 1.2 8 2.7S16.4 8.4 12 8.4 4 7.2 4 5.7 7.6 3 12 3Zm8 2.7v6c0 1.5-3.6 2.7-8 2.7s-8-1.2-8-2.7v-6m16 6v6c0 1.5-3.6 2.7-8 2.7s-8-1.2-8-2.7v-6",
     grid: "M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z",
     menu: "M4 6h16M4 12h16M4 18h16",
+    home: "M3 11 12 4l9 7M5 9.5V20h14V9.5M10 20v-5h4v5",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
