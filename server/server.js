@@ -615,6 +615,19 @@ app.post("/api/bookings/ancillary", async (req, res) => {
   res.json({ ok: true, pnr: b.pnr, name: a.name, price: a.price });
 });
 
+// Remove an extra from the current booking. Accepts any code (including non-catalog ones
+// like cabin/seat upgrades) so the Manage-Booking "Add extras" screen can drop anything.
+app.post("/api/bookings/ancillary/remove", async (req, res) => {
+  const { code } = req.body;
+  const b = currentBooking();
+  if (!b) return res.json({ ok: false });
+  const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
+  const items = JSON.parse(b.items_json || "[]").filter(c => c !== code);
+  db.prepare("UPDATE bookings SET items_json=? WHERE id=?").run(JSON.stringify(items), b.id);
+  log("ancillary_removed", { pnr: b.pnr, code, channel: "whatsapp/portal" });
+  res.json({ ok: true, pnr: b.pnr, name: a ? a.name : code, items });
+});
+
 app.post("/api/bookings/cancel", async (req, res) => {
   const b = currentBooking();
   if (!b) return res.json({ ok: false });

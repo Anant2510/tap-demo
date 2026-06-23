@@ -413,6 +413,12 @@ export function AddExtras({ shared, go }) {
     // server value when present, otherwise fall back to the catalog row (demo-resilient).
     setAdded(list => [...list, { code: a.code, name: (r && r.name) || a.name, price: (r && r.price != null) ? r.price : a.price }]);
   };
+  const remove = async (code) => {
+    setPending(code);
+    await api.post("/bookings/ancillary/remove", { code }).catch(() => ({}));
+    setPending(null);
+    setAdded(list => list.filter(x => x.code !== code));
+  };
   if (anc === null) return <Loading label="Loading available extras…" />;
   const total = added.reduce((s, x) => s + (x.price || 0), 0);
   return (
@@ -425,18 +431,20 @@ export function AddExtras({ shared, go }) {
           {anc.map(a => {
             const isAdded = added.some(x => x.code === a.code);
             return (
-              <Card key={a.code} className={cx("p-4 v2-in", a.recommended && "ring-1 ring-tap-green/30")}>
+              <Card key={a.code} className={cx("p-4 v2-in", isAdded ? "ring-1 ring-tap-green/50 bg-lime-tint/30" : a.recommended && "ring-1 ring-tap-green/30")}>
                 <div className="flex items-start gap-3">
                   <span className="w-9 h-9 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={ICON[a.icon] || "bag"} size={16} /></span>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && <Pill tone="green">Recommended</Pill>}</div>
+                    <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && <Pill tone="green">Recommended</Pill>}{isAdded && <Pill tone="lime">Added</Pill>}</div>
                     <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
                     {a.reason && <div className="text-[11px] text-tap-greenDeep mt-1 flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-3">
                   <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
-                  <Btn size="sm" variant={isAdded ? "outline" : "primary"} disabled={isAdded || pending === a.code} onClick={() => add(a)}>{isAdded ? "✓ Added" : pending === a.code ? "Adding…" : "+ Add"}</Btn>
+                  <Btn size="sm" variant={isAdded ? "outline" : "primary"} disabled={pending === a.code} onClick={() => isAdded ? remove(a.code) : add(a)}>
+                    {pending === a.code ? (isAdded ? "Removing…" : "Adding…") : isAdded ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}
+                  </Btn>
                 </div>
               </Card>
             );
@@ -447,7 +455,7 @@ export function AddExtras({ shared, go }) {
             <div className="font-bold text-[15px] mb-2">Your extras</div>
             {added.length === 0
               ? <div className="text-[12px] text-ink-faint">Nothing added yet. Tap “Add” to build your trip.</div>
-              : <div className="space-y-2 text-[13px]">{added.map(x => <div key={x.code} className="flex items-center justify-between"><span className="text-ink-muted">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span></div>)}</div>}
+              : <div className="space-y-2 text-[13px]">{added.map(x => <div key={x.code} className="flex items-center justify-between gap-2"><span className="text-ink-muted flex-1 truncate">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span><button onClick={() => remove(x.code)} disabled={pending === x.code} className="text-ink-faint hover:text-tap-red shrink-0 disabled:opacity-40" aria-label={"Remove " + x.name} title="Remove"><Icon name="x" size={14} /></button></div>)}</div>}
             <Divider className="my-3" />
             <div className="flex items-center justify-between"><span className="text-[12px] text-ink-faint">Total added</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(total)}</span></div>
             <Btn className="w-full mt-3" disabled={added.length === 0} onClick={() => go("manage")}>Done — back to booking</Btn>

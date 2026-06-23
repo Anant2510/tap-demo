@@ -7,17 +7,30 @@ import React, { useState, useEffect } from "react";
 import { Btn, Icon } from "./ui.jsx";
 import { TapLogo } from "./shell.jsx";
 
+// Each demo persona has a distinct identity. Match the entered email / member number to a
+// persona so logging in as Daniel actually switches the live record to Daniel. (Previously
+// login ignored the field and signed you in as whatever persona was last active — which is
+// why entering Daniel's email still showed Lars.)
+const ACCOUNTS = {
+  "daniel.ferreira@consultmail.pt": "daniel", "pt-884512": "daniel",
+  "sofia.marques@familymail.pt": "sofia", "pt-552037": "sofia",
+  "lars.andersen@globalconsult.de": "lars", "de-100294": "lars",
+};
+const resolvePersona = (v) => ACCOUNTS[(v || "").trim().toLowerCase()] || null;
+
 export function LoginModal({ profile, onClose, onLogin }) {
   const u = profile?.user;
   const [email, setEmail] = useState(u?.email || "");
   const [pw, setPw] = useState("demo");
+  const [busy, setBusy] = useState(false);
   useEffect(() => { if (u?.email) setEmail(u.email); }, [u]);
   useEffect(() => {
     const esc = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
 
-  const submit = (e) => { e?.preventDefault?.(); onLogin(); };
+  // Resolve the entered identity → persona, then log in (parent switches the live record).
+  const submit = async (e) => { e?.preventDefault?.(); if (busy) return; setBusy(true); try { await onLogin(resolvePersona(email)); } finally { setBusy(false); } };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -42,7 +55,7 @@ export function LoginModal({ profile, onClose, onLogin }) {
             <label className="flex items-center gap-1.5 text-ink-muted"><input type="checkbox" defaultChecked className="accent-[#46a41a]" /> Keep me signed in</label>
             <a className="text-tap-greenDeep font-semibold">Forgot password?</a>
           </div>
-          <Btn size="lg" className="w-full" type="submit">Log in <Icon name="arrow" size={14} /></Btn>
+          <Btn size="lg" className="w-full" type="submit" disabled={busy}>{busy ? "Signing in…" : <>Log in <Icon name="arrow" size={14} /></>}</Btn>
         </form>
         <div className="mt-4 text-[11px] text-ink-faint text-center">Demo environment · any password works — you'll sign in as the active Miles&Go member.</div>
       </div>

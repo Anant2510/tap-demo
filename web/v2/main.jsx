@@ -31,20 +31,29 @@ function App() {
     window.location.hash = `#/${r}${qs}`;
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [profile, destinations, airports, journey, suggested] = await Promise.all([
-          api.get("/profile").catch(() => null),
-          api.get("/destinations").catch(() => []),
-          api.get("/airports").catch(() => []),
-          api.get("/journey").catch(() => null),
-          api.get("/routes/suggested").catch(() => null),
-        ]);
-        setShared({ profile, destinations, airports, journey, suggested, loading: false });
-      } catch { setShared(s => ({ ...s, loading: false })); }
-    })();
+  const loadShared = useCallback(async () => {
+    setShared(s => ({ ...s, loading: true }));
+    try {
+      const [profile, destinations, airports, journey, suggested] = await Promise.all([
+        api.get("/profile").catch(() => null),
+        api.get("/destinations").catch(() => []),
+        api.get("/airports").catch(() => []),
+        api.get("/journey").catch(() => null),
+        api.get("/routes/suggested").catch(() => null),
+      ]);
+      setShared({ profile, destinations, airports, journey, suggested, loading: false });
+    } catch { setShared(s => ({ ...s, loading: false })); }
   }, []);
+  useEffect(() => { loadShared(); }, [loadShared]);
+
+  // Log in as the persona matching the entered email (Daniel/Sofia/Lars). Switching the
+  // persona re-seeds the live record, so we reload the shared profile/destinations/journey
+  // afterwards and the home screen renders the correct member.
+  const handleLogin = useCallback(async (personaId) => {
+    if (personaId) { try { await api.post("/persona", { persona: personaId }); } catch {} }
+    await loadShared();
+    setLoggedIn(true); setShowLogin(false); go("home");
+  }, [loadShared, go]);
 
   let Screen, entry = ROUTES[route] || ROUTES.home;
   if (route === "home") Screen = loggedIn ? Home : Homepage;
@@ -61,7 +70,7 @@ function App() {
       </main>
       <Footer />
       {showLogin && <LoginModal profile={shared.profile} onClose={() => setShowLogin(false)}
-        onLogin={() => { setLoggedIn(true); setShowLogin(false); go("home"); }} />}
+        onLogin={handleLogin} />}
     </div>
   );
 }

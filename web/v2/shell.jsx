@@ -1,6 +1,7 @@
 // FlyTAP v2 — shell: top navigation + footer + page layout.
 import React, { useState } from "react";
 import { Avatar, Btn, Icon, TierBadge, cx } from "./ui.jsx";
+import { trip } from "./trip.js";
 
 export const TapLogo = ({ onDark = false }) => (
   <span className="text-[22px] font-black tracking-tight select-none">
@@ -22,6 +23,7 @@ const NAV = [
 export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
+  const basketCount = (trip.outbound ? 1 : 0) + (trip.extras?.length || 0);   // live items in the trip basket
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
       <div className="mx-auto max-w-page px-6 h-16 flex items-center gap-6">
@@ -35,12 +37,15 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
             </button>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1">
           <button onClick={() => go("results")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="Search"><Icon name="search" /></button>
-          <button className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute">PT · EUR</button>
-          <button onClick={() => go("wishlist")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="Wishlist"><Icon name="heart" /></button>
-          <button onClick={() => go("basket")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="My Trip Cart"><Icon name="cart" /></button>
-          <button onClick={() => go("console")} className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute border border-line" title="Demo-only: live backend view"><Icon name="db" size={14} /> Demo</button>
+          <button className="hidden sm:inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute">PT · EUR</button>
+          <button onClick={() => go("wishlist")} className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="Wishlist"><Icon name="heart" size={16} /> Wishlist</button>
+          <button onClick={() => go("basket")} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="My Trip Basket">
+            <Icon name="cart" size={16} /><span className="hidden md:inline">My Trip Basket</span>
+            {basketCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-tap-red text-white text-[10px] font-bold inline-flex items-center justify-center">{basketCount}</span>}
+          </button>
+          <button onClick={() => go("console")} className="hidden sm:inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute border border-line" title="Demo-only: live backend view"><Icon name="db" size={14} /> Demo</button>
           {loggedIn && user
             ? <div className="relative">
                 <button onClick={() => setMenu(m => !m)} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-surface-mute">
@@ -52,7 +57,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
                 {menu && (
                   <div className="absolute right-0 mt-2 w-44 bg-surface rounded-xl border border-line shadow-pop py-1 text-[13px]">
                     <button onClick={() => { setMenu(false); go("miles"); }} className="w-full text-left px-3 py-2 hover:bg-surface-mute">Miles & Go</button>
-                    <button onClick={() => { setMenu(false); go("basket"); }} className="w-full text-left px-3 py-2 hover:bg-surface-mute">My trips</button>
+                    <button onClick={() => { setMenu(false); go("manage"); }} className="w-full text-left px-3 py-2 hover:bg-surface-mute">My trips</button>
                     <div className="h-px bg-line my-1" />
                     <button onClick={() => { setMenu(false); onLogout?.(); }} className="w-full text-left px-3 py-2 hover:bg-surface-mute text-ink-muted">Log out</button>
                   </div>

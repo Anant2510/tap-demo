@@ -6,7 +6,7 @@ import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, TierBadge, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
-import { Cart, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
+import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
 import { AIConcierge } from "./ai.jsx";
 import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddExtras, Refund } from "./mmb.jsx";
 import { DemoConsole } from "./demo.jsx";
@@ -421,7 +421,7 @@ export const ROUTES = {
   passenger: { title: "Passenger details", comp: Passenger },
   payment: { title: "Payment", comp: Payment },
   confirmation: { title: "Booking confirmed", comp: Confirmation },
-  basket: { title: "Manage my booking", comp: ManageBooking },
+  basket: { title: "My trip basket", comp: Basket },
   manage: { title: "Manage my booking", comp: ManageBooking },
   upgrade: { title: "Upgrade cabin", comp: CabinUpgrade },
   seatchange: { title: "Change seat", comp: SeatChange },

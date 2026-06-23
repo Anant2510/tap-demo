@@ -42,13 +42,13 @@ const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-full bg
 const Req = () => <span className="text-tap-red">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
-function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch }) {
+function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket }) {
   const t = tripTotals(), byCat = extrasByCategory();
   const u = milesSwitch || {};
   return (
     <aside className="space-y-4">
       <Card className="p-5">
-        <div className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="text-[17px] font-bold">My trip basket</div><span className="w-5 h-5 rounded-full bg-tap-red text-white text-[11px] font-bold inline-flex items-center justify-center">{trip.extras.length + 1}</span></div><Pill tone="red">Step {step}/5</Pill></div>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="text-[17px] font-bold">{basket ? "Basket summary" : "My trip basket"}</div><span className="w-5 h-5 rounded-full bg-tap-red text-white text-[11px] font-bold inline-flex items-center justify-center">{trip.extras.length + 1}</span></div>{basket ? <Pill tone="slate">EUR</Pill> : <Pill tone="red">Step {step}/5</Pill>}</div>
         <div className="text-[11px] text-ink-faint mt-0.5">{trip.origin}–{trip.dest} · {trip.pax} adult{trip.pax > 1 ? "s" : ""} · {fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</div>
         <div className="mt-4 space-y-2 text-[13px]">
           <Line label="Flights" tag={`${trip.pax} pax`} v={t.flights} icon="plane" />
@@ -108,7 +108,8 @@ function Module({ n, kicker, title, sub, right, badge, children }) {
 }
 
 /* ═══════════ CART · View & customize (8 modules) ═══════════ */
-export function Cart({ go }) {
+function CartView({ go, mode = "cart" }) {
+  const isBasket = mode === "basket";
   const [, force] = useState(0); const r = () => force(x => x + 1);
   useEffect(() => { seedExtras(); r(); }, []);
   if (!trip.outbound) return noTrip(go);
@@ -155,11 +156,14 @@ export function Cart({ go }) {
 
   return (
     <div className="bg-surface-soft min-h-screen">
-      <Stepper active={1} />
+      {isBasket
+        ? <div className="mx-auto max-w-page px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
+        : <Stepper active={1} />}
       <div className="mx-auto max-w-page px-6 py-6">
-        <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">View &amp; customize cart</h1><Pill tone="slate">8 modules</Pill></div>
-        <p className="text-[13px] text-ink-muted mt-1">Choose hotels, transfers, protection and experiences to complete your trip. Everything you add flows into your cart.</p>
+        <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">{isBasket ? "My trip basket" : "View & customize cart"}</h1><Pill tone="slate">{isBasket ? `${trip.extras.length + 1} items` : "8 modules"}</Pill></div>
+        <p className="text-[13px] text-ink-muted mt-1">{isBasket ? "Review and customize everything you've added to your trip before checkout." : "Choose hotels, transfers, protection and experiences to complete your trip. Everything you add flows into your cart."}</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adult{trip.pax > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>All extras optional</Chip></div>
+        {isBasket && <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5 text-[12px] flex items-center gap-2 flex-wrap"><Pill tone="lime">Pinned</Pill><span className="font-semibold">Your core flight stays in the basket</span><span className="text-ink-faint">— extras below are optional and can be removed.</span></div>}
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-5">
@@ -219,12 +223,20 @@ export function Cart({ go }) {
               </div>
             </Module>
           </div>
-          <BasketSummary step={2} cta="Review my trip basket →" onCta={() => go("passenger")} secondary="Skip extras & continue with flights only" onSecondary={() => go("passenger")} />
+          {isBasket
+            ? <BasketSummary basket cta={`Checkout and pay ${EUR(tripTotals().total)}`} onCta={() => go("payment")} secondary="Continue browsing flights" onSecondary={() => go("home")} note="Price locked for 15 min · free 24h cancellation" />
+            : <BasketSummary step={2} cta="Review my trip basket →" onCta={() => go("passenger")} secondary="Skip extras & continue with flights only" onSecondary={() => go("passenger")} />}
         </div>
       </div>
     </div>
   );
 }
+
+// Two journeys share the same trip + modules:
+//  • Cart   — step 3 of the linear booking flow → continues to passenger details.
+//  • Basket — the persistent basket opened from the nav → checks out & pays directly.
+export function Cart(props) { return <CartView {...props} mode="cart" />; }
+export function Basket(props) { return <CartView {...props} mode="basket" />; }
 
 /* ═══════════ PASSENGER DETAILS ═══════════ */
 function PaxCard({ idx, lead, prefill }) {
