@@ -117,7 +117,7 @@ const AIRPORTS = {
 
 // 100 routes: [origin, dest, durationMinutes, baseFareEUR, intl?]
 // First 50 = European (Portugal-heavy domestic + PT↔Europe + key intra-Europe).
-const ROUTES = [
+const BASE_ROUTES = [
   // ── Portugal domestic & islands (10) ──
   ["LIS","OPO",55,64],["OPO","LIS",55,64],
   ["LIS","FAO",50,59],["OPO","FAO",80,72],
@@ -167,5 +167,24 @@ const ROUTES = [
   ["GRU","EZE",165,179],["JNB","CAI",480,459],["CAI","DXB",180,189],
   ["BKK","SIN",135,149],["NRT","HKG",230,259],
 ];
+
+// The source list above is mostly one-directional (PT hubs → Europe), so a round-trip's
+// inbound leg (e.g. MAD → OPO) had no route and returned 0 flights. Derive a fully
+// bidirectional network here: every city pair becomes flyable both ways with symmetric
+// duration/fare. Originals are kept authoritative; a reverse is added only when missing.
+// db.js re-syncs ROUTES into the routes table on every boot, so these inbound legs get
+// ingested into the live DB on deploy without a reset.
+const ROUTES = (() => {
+  const out = [], seen = new Set();
+  const push = (o, d, dur, fare, intl) => {
+    const k = `${o}-${d}`;
+    if (o === d || seen.has(k)) return;
+    seen.add(k);
+    out.push(intl == null ? [o, d, dur, fare] : [o, d, dur, fare, intl]);
+  };
+  for (const [o, d, dur, fare, intl] of BASE_ROUTES) push(o, d, dur, fare, intl);   // originals win
+  for (const [o, d, dur, fare, intl] of BASE_ROUTES) push(d, o, dur, fare, intl);   // add missing reverse legs
+  return out;
+})();
 
 module.exports = { AIRPORTS, ROUTES };

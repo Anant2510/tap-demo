@@ -421,6 +421,31 @@ function seedPersonaData(personaId) {
 }
 seed();
 
+// Unconditional, idempotent route-network sync — runs on EVERY boot, independent of the
+// initial seed (which is gated on a fresh DB). Ensures new/reverse routes added to
+// routes-data.js (the inbound legs that make round-trips work) are ingested into an
+// existing DB on deploy, with no reset or persona switch required.
+{
+  // The routes table has no uniqueness on (origin,dest), so prior INSERT OR IGNORE syncs
+  // (here and in seedPersonaData) appended duplicates on every reset/persona-switch. Clean
+  // up any accumulated dupes (keep the earliest row per pair), then enforce uniqueness so
+  // all future syncs are genuinely idempotent.
+  const before = db.prepare("SELECT COUNT(*) c FROM routes").get().c;
+  db.exec("DELETE FROM routes WHERE id NOT IN (SELECT MIN(id) FROM routes GROUP BY origin, dest)");
+  const deduped = before - db.prepare("SELECT COUNT(*) c FROM routes").get().c;
+  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_routes_od ON routes(origin, dest)"); } catch (e) { /* exists */ }
+
+  const ins = db.prepare("INSERT OR IGNORE INTO routes (origin,dest,duration_min,base_fare,region) VALUES (?,?,?,?,?)");
+  let added = 0;
+  for (const [o, d, dur, fare] of ROUTES) {
+    if (!(AIRPORTS[o] && AIRPORTS[d])) continue;
+    const region = AIRPORTS[o].region === "Europe" && AIRPORTS[d].region === "Europe" ? "Europe" : "Intercontinental";
+    const r = ins.run(o, d, dur, fare, region);
+    if (r && r.changes) added++;
+  }
+  if (deduped || added) console.log(`✓ Route network synced (-${deduped} dupes, +${added} routes → ${db.prepare("SELECT COUNT(*) c FROM routes").get().c} bidirectional) → ` + DB_PATH);
+}
+
 /* ── Data-source toggle: SQLite (local) vs Adobe Real-Time CDP ──────────
    The active source decides where the customer PROFILE + traits are hydrated
    from (identity, loyalty, affinity, card-spend traits, preferences, wallet).
