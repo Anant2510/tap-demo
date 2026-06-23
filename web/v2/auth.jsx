@@ -4,7 +4,7 @@
 // Credentials are cosmetic in the demo (the active persona is user_id=1); any
 // password works and the field is prefilled for a one-click demo.
 import React, { useState, useEffect } from "react";
-import { Btn, Icon } from "./ui.jsx";
+import { Btn, Icon, TierBadge } from "./ui.jsx";
 import { TapLogo } from "./shell.jsx";
 
 // Each demo persona has a distinct identity. Match the entered email / member number to a
@@ -17,6 +17,14 @@ const ACCOUNTS = {
   "lars.andersen@globalconsult.de": "lars", "de-100294": "lars",
 };
 const resolvePersona = (v) => ACCOUNTS[(v || "").trim().toLowerCase()] || null;
+
+// One-tap demo sign-in so any of the three members can be reached without typing the exact
+// email (which is why login kept defaulting to whoever was active — usually Daniel).
+const DEMO = [
+  { id: "daniel", name: "Daniel Ferreira", tier: "Gold", hub: "Porto · OPO", email: "daniel.ferreira@consultmail.pt" },
+  { id: "sofia", name: "Sofia Marques", tier: "Silver", hub: "Lisbon · LIS", email: "sofia.marques@familymail.pt" },
+  { id: "lars", name: "Lars Andersen", tier: "Platinum", hub: "Frankfurt · FRA", email: "lars.andersen@globalconsult.de" },
+];
 
 export function LoginModal({ profile, onClose, onLogin }) {
   const u = profile?.user;
@@ -57,7 +65,19 @@ export function LoginModal({ profile, onClose, onLogin }) {
           </div>
           <Btn size="lg" className="w-full" type="submit" disabled={busy}>{busy ? "Signing in…" : <>Log in <Icon name="arrow" size={14} /></>}</Btn>
         </form>
-        <div className="mt-4 text-[11px] text-ink-faint text-center">Demo environment · any password works — you'll sign in as the active Miles&Go member.</div>
+        <div className="mt-5 pt-4 border-t border-line">
+          <div className="text-[10px] font-bold tracking-wide uppercase text-ink-slate mb-2">Demo accounts · one-tap sign-in</div>
+          <div className="space-y-1.5">
+            {DEMO.map(d => (
+              <button key={d.id} disabled={busy} onClick={() => { setEmail(d.email); onLogin(d.id); }}
+                className="w-full flex items-center justify-between rounded-xl border border-line-strong px-3 py-2.5 text-left hover:border-tap-green disabled:opacity-50 transition-colors">
+                <span><span className="text-[13px] font-semibold">{d.name}</span><span className="block text-[11px] text-ink-faint">{d.hub}</span></span>
+                <TierBadge tier={d.tier} />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 text-[11px] text-ink-faint text-center">Demo environment · any password works — sign in as any member above.</div>
       </div>
     </div>
   );

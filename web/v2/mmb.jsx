@@ -210,61 +210,140 @@ export function SeatChange({ shared, go }) {
   const { booking, loading, err } = useActiveBooking();
   const [rec, setRec] = useState(null);
   const [sel, setSel] = useState(null);
+  const [cabin, setCabin] = useState(null);
+  const [eligOk, setEligOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   useEffect(() => { api.get("/seat-recommendation").then(setRec).catch(() => {}); }, []);
-  useEffect(() => { if (rec && !sel) setSel(rec.seat); }, [rec]); // default to recommended
   if (loading) return <Loading label="Loading the seat map…" />;
   if (err || !booking) return <Empty go={go} />;
-  const rows = [3, 4, 5, 6, 7, 8], cols = ["A", "B", "C", "D", "E", "F"];
-  const taken = new Set(["3A", "3F", "5C", "6D", "7B", "8E"]);
+
+  const aircraft = booking.flight?.aircraft || "A330-900neo";
+  const curSeat = booking.seat || rec?.seat || "8A";
+  const curRow = parseInt(curSeat, 10) || 8;
+  const cabinOfRow = (r) => (r <= 2 ? "First" : r <= 9 ? "Executive" : "Economy");
+
+  // Every cabin on the aircraft is selectable, so the full seat map (First / Executive /
+  // Economy) is available — not just one section.
+  const CABINS = {
+    First: { cols: ["A", "D"], rows: [1, 2], config: "1 – 1", desc: "Lie-flat First suite", extraRows: [1], exitRows: [] },
+    Executive: { cols: ["A", "B", "C", "D"], rows: [1, 2, 3, 4, 5, 6, 7, 8, 9], config: "1 – 2 – 1", desc: "Lie-flat Executive", extraRows: [1], exitRows: [1] },
+    Economy: { cols: ["A", "B", "C", "D", "E", "F"], rows: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], config: "3 – 3", desc: "Standard Economy", extraRows: [20, 26], exitRows: [20, 26] },
+  };
+  const cabinKey = cabin || cabinOfRow(curRow);
+  const C = CABINS[cabinKey];
+  const taken = new Set();
+  C.rows.forEach((r, i) => C.cols.forEach((col, j) => { if (((r * 7 + j * 3 + i * 2) % 5) === 0) taken.add(`${r}${col}`); }));
+
+  const feeOf = (id) => (C.extraRows.includes(parseInt(id, 10)) ? 18 : 0);
+  const isExit = (id) => C.exitRows.includes(parseInt(id, 10));
+  const selFee = sel ? feeOf(sel) : 0;
+  const selExit = sel ? isExit(sel) : false;
+  const canConfirm = sel && sel !== curSeat && (!selExit || eligOk);
+
   const confirm = async () => {
     setBusy(true);
-    // "seat-XX" codes aren't seeded → {ok:false}; advance to success (demo-acceptable).
     await api.post("/bookings/ancillary", { code: "seat-" + sel }).catch(() => ({ ok: false }));
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
+
   if (done) return (
     <div className="mx-auto max-w-content px-6 py-8">
-      <SuccessHead title={`Seat ${sel} confirmed`} sub={`PNR ${booking.pnr} · seat updated on your boarding pass`} />
-      <Card className="p-5 mt-6 v2-in"><BookingBand booking={booking} airports={shared.airports} seatOverride={sel} /><div className="flex flex-wrap gap-2 mt-3"><Pill tone="lime">Seat {sel}</Pill>{sel === rec?.seat && <Pill tone="green">Your usual</Pill>}<Pill tone="slate">Front cabin</Pill></div></Card>
+      <SuccessHead title={`Seat ${sel} confirmed`} sub={`PNR ${booking.pnr} · boarding pass reissued`} />
+      <Card className="p-5 mt-6 v2-in">
+        <BookingBand booking={booking} airports={shared.airports} seatOverride={sel} />
+        <div className="flex flex-wrap gap-2 mt-3"><Pill tone="lime">Seat {sel}</Pill><Pill tone="slate">{cabinKey} cabin</Pill>{selFee > 0 && <Pill tone="gold">Extra legroom · {EUR(selFee)}</Pill>}</div>
+      </Card>
+      <div className="rounded-2xl border border-tap-green/30 p-4 mt-4 text-[12px]" style={{ background: "#f2ffdb88" }}><span className="font-semibold">New boarding pass issued.</span> Old pass invalidated · Wallet &amp; email updated · gate info continues.</div>
       <div className="mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn></div>
     </div>
   );
+
   return (
-    <div className="mx-auto max-w-content px-6 py-8">
-      <Crumb go={go} />
-      <h1 className="text-[26px] font-black">Change your seat</h1>
-      {rec && <div className="mt-2 rounded-xl bg-lime-tint text-tap-greenDark px-3 py-2.5 text-[12px] inline-flex items-center gap-1.5"><Icon name="spark" size={12} /> {rec.reason}</div>}
-      <Card className="p-6 mt-5 v2-in">
-        <div className="max-w-[280px] mx-auto">
-          <div className="grid grid-cols-6 gap-2 text-[10px] text-ink-faint mb-2">{cols.map(c => <span key={c} className="text-center">{c}</span>)}</div>
-          <div className="space-y-2">
-            {rows.map(rN => (
-              <div key={rN} className="grid grid-cols-6 gap-2">
-                {cols.map(c => {
-                  const id = `${rN}${c}`, isTaken = taken.has(id), isSel = sel === id, isRec = rec?.seat === id;
-                  return (
-                    <button key={id} disabled={isTaken} onClick={() => setSel(id)}
-                      className={cx("h-9 rounded-lg text-[11px] font-bold transition-colors",
-                        isTaken ? "bg-surface-mute text-ink-faint cursor-not-allowed"
-                          : isSel ? "bg-tap-green text-white"
-                          : isRec ? "bg-lime text-ink" : "bg-white border border-line-strong text-ink hover:border-tap-green")}>
-                      {id}
-                    </button>
-                  );
-                })}
-              </div>
+    <div className="mx-auto max-w-page px-6 py-8">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-[12px] text-ink-faint">
+          <button onClick={() => go("manage")} className="hover:text-ink">My Trip</button> › {booking.pnr} — {cityOf(shared.airports, booking.flight?.origin)}–{cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)} › <span className="text-ink-muted">Change seat</span>
+        </div>
+        {booking.checked_in && <Pill tone="green"><Icon name="check" size={11} /> Checked in</Pill>}
+      </div>
+      <h1 className="text-[30px] font-black mt-3">Change your seat</h1>
+      <p className="text-[13px] text-ink-muted mt-1">Pick a new seat; we recalculate the fare difference and reissue your boarding pass.</p>
+
+      <div className="grid lg:grid-cols-[1fr_380px] gap-6 mt-6 items-start">
+        <Card className="p-6 v2-in">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="font-bold text-[15px]">{aircraft} · <span className="text-tap-greenDeep">{cabinKey} cabin</span></div>
+            <div className="text-[11px] text-ink-faint">{C.config} · {C.desc}</div>
+          </div>
+          <div className="flex gap-1.5 mt-3 mb-4">
+            {Object.keys(CABINS).map(cb => (
+              <button key={cb} onClick={() => { setCabin(cb); setSel(null); setEligOk(false); }}
+                className={cx("px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors", cb === cabinKey ? "bg-surface-dark text-white" : "bg-surface border border-line text-ink-muted hover:bg-surface-mute")}>{cb}</button>
             ))}
           </div>
-        </div>
-        <div className="flex items-center justify-center gap-4 mt-5 text-[10px] text-ink-faint">
-          <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-tap-green inline-block" /> Selected</span>
-          <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-lime inline-block" /> Recommended</span>
-          <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-surface-mute inline-block" /> Taken</span>
-        </div>
-      </Card>
-      <Card className="p-5 mt-4"><div className="flex items-center justify-between flex-wrap gap-3"><div><div className="text-[12px] text-ink-faint">Selected seat</div><div className="text-[22px] font-black v2-num">{sel || "—"}</div></div><Btn size="lg" disabled={busy || !sel} onClick={confirm}>{busy ? "Saving…" : `Confirm seat ${sel || ""}`}</Btn></div></Card>
+          <div className="text-center text-[10px] uppercase tracking-widest text-ink-faint mb-3">Front of aircraft</div>
+          <div className="max-w-[380px] mx-auto">
+            <div className="flex items-center gap-1.5 mb-2"><span className="w-5 shrink-0" />{C.cols.map(col => <span key={col} className="flex-1 text-center text-[10px] text-ink-faint">{col}</span>)}</div>
+            <div className="space-y-1.5">
+              {C.rows.map(r => (
+                <div key={r} className="flex items-center gap-1.5">
+                  <span className="w-5 text-[10px] text-ink-faint text-right shrink-0">{r}</span>
+                  {C.cols.map(col => {
+                    const id = `${r}${col}`, isCur = id === curSeat, isTaken = taken.has(id) && !isCur, isSel = sel === id, extra = feeOf(id) > 0, isRec = rec?.seat === id && !isCur;
+                    return (
+                      <button key={id} disabled={isTaken} title={isExit(id) ? "Exit row · extra legroom" : extra ? "Extra legroom" : ""} onClick={() => { setSel(id); setEligOk(false); }}
+                        className={cx("flex-1 h-10 rounded-lg text-[10px] font-bold leading-none flex flex-col items-center justify-center transition-colors",
+                          isSel ? "bg-tap-green text-white"
+                            : isCur ? "bg-lime-tint text-ink border border-tap-green/50"
+                              : isTaken ? "bg-surface-mute text-ink-faint cursor-not-allowed"
+                                : extra ? "bg-[#F4B740] text-ink"
+                                  : isRec ? "bg-lime text-ink"
+                                    : "bg-white border border-line-strong text-ink hover:border-tap-green")}>
+                        <span>{id}</span>{isCur && <span className="text-[7px] font-medium">Your seat</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-center flex-wrap gap-3 mt-5 text-[10px] text-ink-faint">
+            {[["bg-white border border-line-strong", "Available"], ["bg-surface-mute", "Taken"], ["bg-[#F4B740]", "Extra €18"], ["bg-lime-tint border border-tap-green/50", "Your seat"], ["bg-tap-green", "Selected"]].map(([c, t]) => (
+              <span key={t} className="inline-flex items-center gap-1"><span className={cx("w-3.5 h-3.5 rounded inline-block", c)} /> {t}</span>
+            ))}
+          </div>
+        </Card>
+
+        <aside className="space-y-4">
+          <Card className="p-5 v2-in">
+            <div className="font-bold text-[16px] mb-3">Seat change summary</div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 rounded-xl border border-line p-3"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[18px] font-black v2-num">{curSeat}</div><div className="text-[10px] text-ink-faint">Standard · row {curRow}</div></div>
+              <Icon name="arrow" size={16} className="text-ink-faint shrink-0" />
+              <div className={cx("flex-1 rounded-xl border p-3", sel ? "border-tap-green/50 bg-lime-tint/40" : "border-line border-dashed")}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[18px] font-black v2-num">{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
+            </div>
+            {selFee > 0 && <><Divider className="my-3.5" /><div className="flex items-center justify-between"><span className="text-[13px] font-semibold">Extra-legroom fee</span><span className="text-[18px] font-black v2-num">{EUR(selFee)}</span></div></>}
+            {selExit && (
+              <div className="mt-3 rounded-xl border border-[#F4B740]/60 p-3" style={{ background: "#FFF7E6" }}>
+                <div className="text-[12px] font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> Exit-row eligibility</div>
+                <div className="text-[11px] text-ink-muted mt-1">You must be 16+, able-bodied, speak Portuguese or English, and assist in an emergency.</div>
+                <label className="flex items-center gap-2 text-[12px] font-semibold mt-2"><input type="checkbox" checked={eligOk} onChange={e => setEligOk(e.target.checked)} className="accent-tap-green" /> I confirm I meet exit-row requirements</label>
+              </div>
+            )}
+            <Btn size="lg" className="w-full mt-4" disabled={busy || !canConfirm} onClick={confirm}>{busy ? "Reissuing…" : (sel && sel !== curSeat) ? `Confirm seat ${sel}${selFee ? " · " + EUR(selFee) : ""} →` : "Pick a new seat"}</Btn>
+            <Btn variant="outline" className="w-full mt-2" onClick={() => go("manage")}>Keep current seat</Btn>
+          </Card>
+          <div className="rounded-2xl border border-tap-green/30 p-4" style={{ background: "#f2ffdb88" }}>
+            <div className="text-[12px] font-bold mb-2">After confirming</div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+              {["New BP issued in 5s", "Old BP invalidated", "Wallet & email updated", "Gate updates continue"].map(t => (
+                <div key={t} className="flex items-center gap-1.5"><Icon name="check" size={11} className="text-tap-green shrink-0" /> {t}</div>
+              ))}
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
