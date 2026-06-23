@@ -201,16 +201,16 @@ export function Home({ shared, go }) {
       <div className="bg-surface-navy">
         <div className="mx-auto max-w-page px-6 pt-8 pb-10">
           <div className="relative rounded-3xl overflow-hidden">
-            <video className="absolute inset-0 w-full h-full object-cover" autoPlay muted loop playsInline poster="">
+            <video className="absolute inset-0 w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" ref={v => { if (v) { v.muted = true; const p = v.play(); if (p && p.catch) p.catch(() => {}); } }}>
               <source src="/v2/hero.mp4" type="video/mp4" />
             </video>
-            <div className="absolute inset-0" style={{ background: "linear-gradient(120deg,rgba(15,45,36,0.92),rgba(26,31,41,0.82) 55%,rgba(42,34,51,0.78))" }} />
+            <div className="absolute inset-0" style={{ background: "linear-gradient(100deg, rgba(8,14,20,0.86) 0%, rgba(8,14,20,0.50) 48%, rgba(8,14,20,0.18) 100%)" }} />
             <div className="relative p-6 sm:p-8">
               <div className="flex items-start justify-between">
-                <Eyebrow className="text-tap-green flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Personalized for you</Eyebrow>
-                <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-white/80 text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-lime" : "bg-white/25")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-tap-green"><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Personalized for you</span>
+                <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-white text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-white/25")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
               </div>
-              <div className="text-white/70 text-[14px] mt-3">Bom dia, {u.first_name}.</div>
+              <div className="text-white/75 text-[14px] mt-3">Bom dia, {u.first_name}.</div>
               <h1 className="text-[34px] font-black text-white tracking-tight">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
               {aiOn
                 ? <AIConcierge shared={shared} go={go} embedded onToggleOff={() => setAiOn(false)} />
