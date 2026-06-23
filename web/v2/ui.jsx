@@ -1,8 +1,18 @@
 // FlyTAP v2 — design-system primitives. Faithful to the approved Figma tokens:
 // Inter, white surfaces, dark-navy panels, lime accent, TAP green/red.
-import React from "react";
+import React, { useState } from "react";
 
 export const cx = (...a) => a.filter(Boolean).join(" ");
+
+/* ---- Image with graceful gradient fallback (uses API image_url when present) ---- */
+const IMG_GRADS = [["#2e7d33", "#9efd38"], ["#1a1f29", "#46a41a"], ["#0a3d2e", "#c7f21f"], ["#163a4a", "#5ec6c0"], ["#3a2a1f", "#e8a23a"]];
+function gradFromSeed(seed) { let h = 0; for (const c of String(seed)) h = (h * 31 + c.charCodeAt(0)) >>> 0; const g = IMG_GRADS[h % IMG_GRADS.length]; return `linear-gradient(135deg, ${g[0]}, ${g[1]})`; }
+export function Img({ seed = "tap", src, alt = "", className = "", w = 800, h = 400 }) {
+  const [err, setErr] = useState(false);
+  const url = src || `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`;
+  if (err) return <div className={className} style={{ background: gradFromSeed(seed) }} aria-hidden="true" />;
+  return <img src={url} alt={alt} loading="lazy" onError={() => setErr(true)} className={className} style={{ objectFit: "cover" }} />;
+}
 
 /* ---- Buttons ---- */
 export function Btn({ variant = "primary", size = "md", className = "", children, ...p }) {
@@ -81,6 +91,8 @@ export const Icon = ({ name, size = 16, className = "" }) => {
     refresh: "M21 12a9 9 0 1 1-3-6.7M21 4v4h-4",
     user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9a7 7 0 0 1 14 0",
     x: "M6 6l12 12M18 6 6 18",
+    mic: "M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0M12 19v3",
+    send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">

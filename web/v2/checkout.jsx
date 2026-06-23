@@ -4,8 +4,8 @@
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
-import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings } from "./trip.js";
-import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, cx } from "./ui.jsx";
+import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg } from "./trip.js";
+import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
 const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -131,7 +131,7 @@ export function Cart({ go }) {
   ); };
   const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec }) => { const on = hasExtra(code); return (
     <div className={cx("flex gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-      <div className="w-20 h-16 rounded-lg shrink-0" style={{ background: "linear-gradient(135deg,#2e7d33,#9efd38)" }} />
+      <Img seed={"hotel-" + code} alt={name} className="w-20 h-16 rounded-lg shrink-0" />
       <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <Pill tone="lime">Recommended</Pill>}</div>
         <div className="flex flex-wrap gap-1 mt-1">{tags.map(t => <Pill key={t} tone="slate">{t}</Pill>)}</div>
         <div className="text-[11px] text-ink-muted mt-1">★ {rating} Excellent · {reviews} reviews</div></div>
@@ -214,7 +214,7 @@ export function Cart({ go }) {
             <Module n="08" kicker="Experiences" title="Experiences in Portugal" badge="1 added" sub="Curated tours and tastings for your dates. Skip the lines.">
               <div className="grid sm:grid-cols-3 gap-3">
                 {[["exp-belem", "Belém food walking tour", "3h · pastéis · small group", 65, "Experience"], ["exp-sintra", "Sintra full-day", "Pena Palace · Cabo da Roca", 89, "Day trip · popular"], ["exp-douro", "Douro Valley wine tour", "Vineyards · tastings · river", 120, "Wine"], ["exp-fado", "Fado night experience", "Music · 3-course dinner · port", 75, "Night out"], ["exp-surf", "Surf lesson · Cascais", "2h · gear included · beginners", 55, "Outdoor"], ["exp-train", "Lisbon–Porto train", "2h45 · 1st class · day-trip", 39, "Excursion"]].map(([code, name, sub, price, tag]) => {
-                  const on = hasExtra(code); return <div key={code} className={cx("rounded-xl border overflow-hidden", on ? "border-tap-green" : "border-line")}><div className="h-20" style={{ background: "linear-gradient(135deg,#1a1f29,#46a41a)" }} /><div className="p-3"><Pill tone="slate">{tag}</Pill><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-center justify-between mt-2"><span className="text-[12px] font-bold v2-num">{EUR(price)}<span className="text-[10px] font-medium text-ink-faint"> pp</span></span><Btn size="sm" variant={on ? "outline" : "primary"} onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add"}</Btn></div></div></div>;
+                  const on = hasExtra(code); return <div key={code} className={cx("rounded-xl border overflow-hidden", on ? "border-tap-green" : "border-line")}><Img seed={"exp-" + code} alt={name} className="h-20 w-full" /><div className="p-3"><Pill tone="slate">{tag}</Pill><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-center justify-between mt-2"><span className="text-[12px] font-bold v2-num">{EUR(price)}<span className="text-[10px] font-medium text-ink-faint"> pp</span></span><Btn size="sm" variant={on ? "outline" : "primary"} onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add"}</Btn></div></div></div>;
                 })}
               </div>
             </Module>
@@ -342,16 +342,26 @@ export function Payment({ shared, go }) {
   const [useV, setUseV] = useState(false);
   const [milesUsed, setMilesUsed] = useState(0);
   const [busy, setBusy] = useState(false);
-  let voucher_amt = 0, miles_used = 0, miles_amt = 0;
+  const [seat, setSeat] = useState(null);                 // recommended seat from history (DB)
+  const [splitTab, setSplitTab] = useState("Split Equally");
+  const [mix, setMix] = useState({ card: null, miles: 0, voucher: false, cashback: 0 }); // Payment Composer amounts
+  useEffect(() => { api.get("/seat-recommendation").then(setSeat).catch(() => {}); }, []);
+  const cashbackBal = 38;
+  let voucher_amt = 0, miles_used = 0, miles_amt = 0, cashback_amt = 0;
   if (method === "Miles & Go") { miles_used = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE)); miles_amt = Math.round(miles_used * MILES_RATE); voucher_amt = Math.min(voucher, Math.max(0, t.total - miles_amt)); }
-  else if (method === "Mix Method") { voucher_amt = useV ? Math.min(voucher, t.total) : 0; miles_used = milesUsed; miles_amt = Math.round(miles_used * MILES_RATE); }
-  const card_amt = Math.max(0, t.total - voucher_amt - miles_amt);
+  else if (method === "Mix Method") {
+    voucher_amt = mix.voucher ? Math.min(voucher, t.total) : 0;
+    miles_used = mix.miles; miles_amt = Math.round(miles_used * MILES_RATE);
+    cashback_amt = Math.min(cashbackBal, mix.cashback || 0);
+  }
+  const card_amt = Math.max(0, t.total - voucher_amt - miles_amt - cashback_amt);
+  const seatNo = seat?.seat || "12A";
 
   async function pay() {
     setBusy(true);
     try {
-      const r = await api.post("/pay", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code || e.name), total: t.total, voucher_amt, miles_used, miles_amt, card_amt, seat: "12A", date: trip.date });
-      if (r.ok) { trip.pnr = r.pnr; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, card_amt, method, email: r.email?.to }; go("confirmation"); }
+      const r = await api.post("/pay", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code || e.name), total: t.total, voucher_amt, miles_used, miles_amt, card_amt, seat: seatNo, date: trip.date });
+      if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to }; go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
@@ -395,13 +405,40 @@ export function Payment({ shared, go }) {
                 </div>
                 <label className="flex items-center gap-2 mt-3 text-[12px] text-ink-muted"><input type="checkbox" defaultChecked className="accent-[#46a41a]" /> Save card securely for faster checkout next time <span className="ml-auto"><Pill tone="green"><Icon name="lock" size={10} /> Encrypted</Pill></span></label>
               </>}
-              {method === "Miles & Go" && <div className="text-[13px]"><div className="font-bold text-[15px] mb-2">Pay with Miles &amp; Go</div><p className="text-ink-muted">Using {miles(miles_used)} miles ({EUR(miles_amt)}){voucher_amt ? ` + ${EUR(voucher_amt)} voucher` : ""}; the remaining {EUR(card_amt)} goes to your saved card.</p></div>}
-              {method === "Mix Method" && <div className="space-y-3"><div className="font-bold text-[15px]">Payment composer</div><p className="text-[12px] text-ink-muted">Mix card · miles · voucher. Live total updates as you adjust.</p>
-                <label className="flex items-center justify-between text-[13px] rounded-xl border border-line p-3"><span>Voucher {voucher ? `(€${voucher} available)` : "(none)"}</span><input type="checkbox" disabled={!voucher} checked={useV} onChange={e => setUseV(e.target.checked)} className="accent-[#46a41a]" /></label>
-                <div className="rounded-xl border border-line p-3"><div className="flex items-center justify-between text-[13px]"><span>TAP miles ({miles(u.miles)} avail)</span><span className="font-semibold v2-num">{miles(milesUsed)} mi · {EUR(miles_amt)}</span></div><input type="range" min="0" max={Math.min(u.miles || 0, Math.round((t.total - voucher_amt) / MILES_RATE))} step="500" value={milesUsed} onChange={e => setMilesUsed(+e.target.value)} className="w-full accent-[#46a41a] mt-2" /></div>
-                <div className="rounded-xl border border-tap-green bg-lime-tint/40 p-3 text-[13px] flex items-center justify-between"><span>Card pays the remainder</span><b className="v2-num">{EUR(card_amt)}</b></div></div>}
+              {method === "Miles & Go" && <div className="text-[13px]"><div className="font-bold text-[15px] mb-2 flex items-center gap-2"><Icon name="spark" size={14} className="text-tap-green" /> Pay with Miles &amp; Go</div><div className="rounded-xl border border-tap-green bg-lime-tint/40 p-4"><div className="flex items-center justify-between"><span>Balance</span><span className="font-bold v2-num">{miles(u.miles)} miles</span></div><div className="flex items-center justify-between mt-1.5"><span>Using for this trip</span><span className="font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span></div>{voucher_amt > 0 && <div className="flex items-center justify-between mt-1.5"><span>Voucher applied</span><span className="font-bold v2-num text-tap-greenDeep">−{EUR(voucher_amt)}</span></div>}<Divider className="my-2" /><div className="flex items-center justify-between font-bold"><span>Remaining on saved card</span><span className="v2-num">{EUR(card_amt)}</span></div></div></div>}
+              {method === "Mix Method" && (() => {
+                const milesMax = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE));
+                const Comp = ({ on, title, sub, right, onToggle }) => (
+                  <div className={cx("rounded-xl border p-3.5", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
+                    <div className="flex items-center gap-3"><button onClick={onToggle} className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[11px]", on ? "bg-tap-green" : "bg-surface-mute text-ink-faint")}>{on ? "✓" : ""}</button><div className="flex-1"><div className="text-[13px] font-bold">{title}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>{right}</div>
+                  </div>
+                );
+                return <div className="space-y-3"><div className="font-bold text-[15px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Payment Composer</div><p className="text-[12px] text-ink-muted">Mix card · miles · voucher · cashback. Live total updates as you adjust.</p>
+                  <Comp on={card_amt > 0} title={`Card · Visa ····${u.card_last4 || "4242"}`} sub="Available: unlimited" right={<span className="text-[13px] font-bold v2-num">{EUR(card_amt)}</span>} onToggle={() => { }} />
+                  <Comp on={mix.miles > 0} title="TAP miles" sub={`Balance ${miles(u.miles)} · 1mi=${EUR(MILES_RATE)}`} onToggle={() => setMix(m => ({ ...m, miles: m.miles > 0 ? 0 : milesMax }))} right={<span className="text-[13px] font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span>} />
+                  <div className="px-3 -mt-1"><input type="range" min="0" max={milesMax} step="500" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: +e.target.value }))} className="w-full accent-[#46a41a]" /></div>
+                  <Comp on={mix.voucher && voucher > 0} title={`Voucher${voucher ? " TAP-" + (shared.profile?.vouchers?.[0]?.code || "XYZ") : ""}`} sub={voucher ? `Eligible: ${EUR(voucher)}` : "No active voucher"} onToggle={() => voucher && setMix(m => ({ ...m, voucher: !m.voucher }))} right={<span className="text-[13px] font-bold v2-num">{EUR(voucher_amt)}</span>} />
+                  <Comp on={cashback_amt > 0} title="Cashback wallet" sub={`Balance: ${EUR(cashbackBal)}`} onToggle={() => setMix(m => ({ ...m, cashback: m.cashback > 0 ? 0 : cashbackBal }))} right={<span className="text-[13px] font-bold v2-num">{EUR(cashback_amt)}</span>} />
+                  <div className="rounded-xl bg-surface-soft border border-line p-3 text-[12px] space-y-1"><div className="font-bold text-ink mb-1">Payment breakdown</div><Row label="Card payment" v={EUR(card_amt)} /><Row label={`Miles (${miles(miles_used)})`} v={"−" + EUR(miles_amt)} green /><Row label="Voucher" v={"−" + EUR(voucher_amt)} green /><Row label="Cashback wallet" v={"−" + EUR(cashback_amt)} green /><Divider className="my-1.5" /><div className="flex items-center justify-between font-bold text-[13px]"><span>Total (in EUR)</span><span className="v2-num">{EUR(t.total)}</span></div></div>
+                </div>;
+              })()}
               {(method === "Digital Wallet" || method === "Bank transfer") && <div className="text-[13px] text-ink-muted">{method} selected — you'll be redirected to complete payment. (Demo charges your saved card for {EUR(t.total)}.)</div>}
-              {method === "Split Payment" && <div className="text-[13px]"><div className="flex gap-4 text-[12px] font-semibold mb-3"><span className="text-tap-greenDeep border-b-2 border-tap-green pb-0.5">Split Equally</span><span className="text-ink-faint">Single Payer</span><span className="text-ink-faint">Custom Split</span></div>{Array.from({ length: trip.pax }).map((_, i) => <div key={i} className="flex items-center justify-between rounded-xl border border-line p-3 mb-2"><div><div className="font-semibold">Payer {i + 1}{i === 0 ? " · you" : ""}</div><div className="text-[11px] text-ink-faint">{i === 0 ? (trip.contact?.email || "you") : "guest@email.com"}</div></div><div className="text-right"><div className="font-bold v2-num">{EUR(t.total / trip.pax)} ({Math.round(100 / trip.pax)}%)</div><div className="text-[11px] text-tap-greenDeep">{i === 0 ? "Pay now" : "Link sent"}</div></div></div>)}<p className="text-ink-faint">Per-passenger secure links (A17) come next — the demo charges the lead payer for {EUR(t.total)}.</p></div>}
+              {method === "Split Payment" && (() => {
+                const payers = [{ name: (trip.passengers?.[0]?.first ? trip.passengers[0].first + " (you)" : (u.first_name || "You") + " (you)"), email: trip.contact?.email || u.email || "you@email.com", card: u.card_last4 || "4242", status: "Pay now", lead: true }, ...Array.from({ length: Math.max(0, trip.pax - 1) }).map((_, i) => { const p = trip.passengers?.[i + 1]; return { name: p?.first ? `${p.first} ${p.last || ""}` : `Guest ${i + 1}`, email: "guest" + (i + 1) + "@email.com", card: ["1881", "1234", "5079"][i] || "0000", status: i === 0 ? "Link sent" : "Link pending" }; })];
+                const equal = +(t.total / payers.length).toFixed(2);
+                return <div className="text-[13px]">
+                  <div className="flex gap-4 text-[12px] font-semibold mb-3">{["Single Payer", "Split Equally", "Custom Split"].map(s => <button key={s} onClick={() => setSplitTab(s)} className={cx("pb-0.5 border-b-2", splitTab === s ? "border-tap-green text-tap-greenDeep" : "border-transparent text-ink-faint")}>{s}</button>)}</div>
+                  {payers.map((p, i) => (
+                    <div key={i} className={cx("rounded-xl border p-3.5 mb-2.5", p.lead ? "border-tap-green bg-lime-tint/30" : "border-line")}>
+                      <div className="flex items-center justify-between"><div className="flex items-center gap-2.5"><span className="w-8 h-8 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{p.name[0]}</span><div><div className="font-bold">{p.name}</div><div className="text-[11px] text-ink-faint">{p.email}</div></div></div><div className="text-right"><div className="font-bold v2-num">{EUR(equal)} ({Math.round(100 / payers.length)}%)</div><div className={cx("text-[11px] font-semibold", p.status === "Pay now" ? "text-tap-greenDeep" : "text-ink-faint")}>{p.status === "Pay now" ? "● Ready to charge" : p.status}</div></div></div>
+                      {p.lead
+                        ? <div className="grid sm:grid-cols-3 gap-2 mt-3"><Input defaultValue={`···· ···· ···· ${p.card}`} className="sm:col-span-3 text-[13px]" /><Input defaultValue={u.card_exp || "12 / 28"} placeholder="MM/YY" className="text-[13px]" /><Input defaultValue="•••" placeholder="CVC" className="text-[13px]" /><Input defaultValue={p.name.replace(" (you)", "")} placeholder="Name" className="text-[13px]" /></div>
+                        : <div className="flex items-center justify-between mt-3 rounded-lg bg-surface-soft border border-line px-3 py-2 text-[12px]"><span className="text-ink-muted">Secure payment link · card ····{p.card}</span><button className="font-semibold text-tap-greenDeep">{p.status === "Link pending" ? "Send link" : "Resend"}</button></div>}
+                    </div>
+                  ))}
+                  <div className="rounded-xl bg-surface-dark text-white p-3 text-[12px] flex items-start gap-2"><Icon name="info" size={14} className="mt-0.5 text-lime" /><div><b>Both charges happen at the same time.</b> If either card fails, the booking is cancelled and a full refund is issued. The demo confirms once the lead payer pays {EUR(t.total)}.</div></div>
+                </div>;
+              })()}
               <div className="mt-4 rounded-xl border border-dashed border-line p-3 flex items-center gap-3 text-[12px]"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center"><Icon name="lock" size={14} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><Pill tone="slate"><Icon name="lock" size={10} /> 3-D Secure 2.0</Pill></div>
             </Card>
             {billing}{terms}
@@ -438,7 +475,7 @@ export function Confirmation({ shared, go }) {
                   <div className="text-right"><div className="text-[26px] font-black v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest}</div></div>
                 </div>
               ))}
-              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <Pill key={n} tone="slate"><Icon name="user" size={10} /> {p.first} {p.last} · 14{["A", "B", "C"][n] || "A"}</Pill>)}<Pill tone="slate">Carry-on × {pax.length}</Pill><Pill tone="slate">Standard seat</Pill></div>
+              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <Pill key={n} tone="slate"><Icon name="user" size={10} /> {p.first} {p.last} · {n === 0 ? (trip.seat || "14A") : (["14B", "14C", "14D"][n - 1] || "14A")}</Pill>)}<Pill tone="slate">Carry-on × {pax.length}</Pill><Pill tone="slate">Standard seat</Pill></div>
               <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button>Add to Wallet</button><button>Add to Calendar</button><button>Download e-ticket</button></div>
               <div className="text-[11px] text-ink-faint mt-3 pt-3 border-t border-line">Manage booking · check-in opens 24h before</div>
             </Card>
@@ -447,7 +484,7 @@ export function Confirmation({ shared, go }) {
               <p className="text-[12px] text-ink-faint mb-3">Limited · helpful · not pushy. Max 3 cards.</p>
               <div className="grid sm:grid-cols-2 gap-4">
                 {recs.slice(0, 4).map(d => (
-                  <Card key={d.code} className="overflow-hidden"><div className="h-28" style={{ background: "linear-gradient(135deg,#1a1f29,#46a41a)" }} /><div className="p-4"><div className="font-bold text-[14px]">{d.city}</div><div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 min-h-[28px]">{d.reason || d.tag}</div><div className="flex items-center justify-between mt-2"><div><div className="text-[15px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div><Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn></div></div></Card>
+                  <Card key={d.code} className="overflow-hidden"><Img seed={"dest-" + d.code} src={d.image_url} alt={d.city} className="h-28 w-full" /><div className="p-4"><div className="font-bold text-[14px]">{d.city}</div><div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 min-h-[28px]">{d.reason || d.tag}</div><div className="flex items-center justify-between mt-2"><div><div className="text-[15px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div><Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn></div></div></Card>
                 ))}
               </div>
             </section>
@@ -469,3 +506,111 @@ export function Confirmation({ shared, go }) {
   );
 }
 const Row = ({ label, v, green }) => <div className="flex items-center justify-between"><span className="text-ink-muted">{label}</span><span className={cx("font-semibold v2-num", green && "text-tap-greenDeep")}>{v}</span></div>;
+
+/* ═══════════ EXPRESS CHECKOUT (CH1·B4) — book your usual in two taps ═══════════ */
+export function ExpressCheckout({ shared, go }) {
+  const u = shared?.profile?.user || {};
+  const pat = shared?.profile?.pattern || {};
+  const airports = shared?.airports || [];
+  const cityOf = (c) => airports.find(a => a.code === c)?.city || c;
+  const origin = pat.origin || u.home_airport || "OPO", dest = pat.dest || "LIS";
+  const date = pat.recommendedDate || trip.date || "";
+  const retDate = (() => { if (!date) return ""; const d = new Date(date); d.setDate(d.getDate() + 2); return d.toISOString().slice(0, 10); })();
+  const [, force] = useState(0);
+  const [seat, setSeat] = useState(null);
+  const [bag, setBag] = useState(true), [carbon, setCarbon] = useState(true), [seatUp, setSeatUp] = useState(true), [agree, setAgree] = useState(true), [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get("/seat-recommendation").then(setSeat).catch(() => {});
+    if (!trip.outbound) {
+      Object.assign(trip, { origin, dest, date, ret: retDate, pax: 1, cabin: "Economy" });
+      api.get(`/search?origin=${origin}&dest=${dest}&date=${date}`).then(r => {
+        const f = (r.flights || []).find(x => x.flight_no === pat.usualOutNo) || (r.flights || []).find(x => x.recommended) || (r.flights || [])[0];
+        if (f) setLeg("outbound", { flight: f, fare: "Classic", price: f.price, origin, dest, date });
+        force(x => x + 1);
+      }).catch(() => {});
+      api.get(`/search?origin=${dest}&dest=${origin}&date=${retDate}`).then(r => {
+        const f = (r.flights || []).find(x => x.flight_no === pat.usualBackNo) || (r.flights || []).find(x => x.recommended) || (r.flights || [])[0];
+        if (f) setLeg("inbound", { flight: f, fare: "Classic", price: f.price });
+        force(x => x + 1);
+      }).catch(() => {});
+    }
+  }, []);
+
+  const o = trip.outbound, i = trip.inbound;
+  const base = o?.price || 0;
+  const seatNo = seat?.seat || "12A";
+  const seatCost = seatUp ? 18 : 0, bagCost = bag ? 25 : 0, carbonCost = carbon ? 2 : 0;
+  const taxes = Math.round((base + seatCost + bagCost + carbonCost) * 0.12);
+  const total = base + seatCost + bagCost + carbonCost + taxes;
+  const earn = Math.round(total * 2.88);
+
+  async function pay() {
+    if (!o) return; setBusy(true);
+    try {
+      const items = ["seat-" + seatNo, bag && "checked-bag", carbon && "carbon"].filter(Boolean);
+      const r = await api.post("/pay", { flight_no: o.flight.flight_no, items, total, voucher_amt: 0, miles_used: 0, miles_amt: 0, card_amt: total, seat: seatNo, date });
+      if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total, card_amt: total, method: "Card", email: r.email?.to }; go("confirmation"); }
+      else alert("Payment could not be completed: " + (r.error || "unknown"));
+    } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
+  }
+
+  const Sec = ({ title, action, onAction, children }) => <Card className="p-5"><div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">{title}</div>{action && <button onClick={onAction} className="text-[12px] font-semibold text-tap-greenDeep">{action}</button>}</div>{children}</Card>;
+
+  return (
+    <div className="bg-surface-soft min-h-screen">
+      <div className="bg-surface border-b border-line"><div className="mx-auto max-w-page px-6 py-4 flex items-center gap-3 text-[13px] font-semibold"><span className="flex items-center gap-1.5 text-ink"><span className="w-5 h-5 rounded-full bg-lime text-ink inline-flex items-center justify-center text-[11px]">1</span> Review &amp; Pay</span><span className="flex-1 h-px bg-line-strong" /><span className="flex items-center gap-1.5 text-ink-faint"><span className="w-5 h-5 rounded-full bg-surface-mute text-ink-faint inline-flex items-center justify-center text-[11px]">2</span> Confirmation</span></div></div>
+      <div className="mx-auto max-w-page px-6 py-6">
+        <h1 className="text-[26px] font-bold">Express checkout</h1>
+        <p className="text-[13px] text-ink-muted mt-1">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
+        {!o ? <Card className="p-10 text-center mt-6"><div className="text-[14px] text-ink-muted">Loading your usual {cityOf(origin)} ⇄ {cityOf(dest)} trip…</div></Card> : (
+          <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
+            <div className="space-y-4">
+              <Sec title={`Your trip · ${cityOf(origin)} ⇄ ${cityOf(dest)}`} action="Change flight" onAction={() => go("results", { origin, dest, date, ret: retDate, type: "round" })}>
+                {[o, i].filter(Boolean).map((c, idx) => (
+                  <div key={idx} className="py-2 border-t border-line first:border-0"><div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-1">{idx === 0 ? "Outbound" : "Return"} · {fmtDate(idx === 0 ? date : retDate).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="flex items-center gap-3"><div><div className="text-[18px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="h-px bg-line-strong my-1" /></div><div className="text-right"><div className="text-[18px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest}</div></div></div></div>
+                ))}
+                <div className="mt-2 pt-2 border-t border-line text-[12px] text-ink-muted">Fare: Classic · 23kg bag · seat select · 50% refund · changes for fee</div>
+              </Sec>
+              <Sec title="Passenger" action="Edit">
+                <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{(u.first_name || "D")[0]}</span><div><div className="font-bold text-[14px] flex items-center gap-2">{u.full_name || u.first_name} <Pill tone="gold">{u.tier} · {u.member_no}</Pill></div><div className="text-[11px] text-ink-faint">DOB {u.dob || "—"} · Passport ••••{(u.doc_id || "0000").slice(-4)} · Nationality {u.nationality || "PT"}</div><div className="text-[11px] text-tap-greenDeep font-semibold mt-0.5">Frequent flyer benefits applied: priority boarding, lounge</div></div></div>
+              </Sec>
+              <Sec title="Baggage" action="+ Add bag">
+                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Cabin bag · 8kg</div><div className="text-[11px] text-ink-faint">Included in fare</div></div><Pill tone="slate">Included</Pill></div>
+                <label className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Checked bag · 23kg ×1</div><div className="text-[11px] text-ink-faint">Outbound + return</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{EUR(25)}</span><input type="checkbox" checked={bag} onChange={e => setBag(e.target.checked)} className="accent-[#46a41a]" /></span></label>
+              </Sec>
+              <Sec title="Payment method" action="+ Change">
+                <div className="flex items-center justify-between"><div className="text-[14px] font-semibold flex items-center gap-2">{u.first_name}'s Card <Pill tone="slate">VISA</Pill></div><Pill tone="green"><Icon name="lock" size={10} /> Encrypted</Pill></div>
+                <div className="text-[13px] v2-num mt-1">XXXX XXXX XXXX {u.card_last4 || "4242"}</div>
+                <div className="mt-3 rounded-xl border border-dashed border-line p-3 flex items-center gap-3 text-[12px]"><span className="w-8 h-8 rounded-lg bg-surface-mute inline-flex items-center justify-center"><Icon name="lock" size={13} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div></div><Pill tone="slate">3-D Secure 2.0</Pill></div>
+              </Sec>
+              <Sec title="Seat selection" action="Change seat">
+                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Outbound · {seatNo} (Window, extra legroom)</div><div className="text-[11px] text-ink-faint">{o.flight.flight_no} · {seat?.reason || "your usual"}</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{EUR(18)}</span><input type="checkbox" checked={seatUp} onChange={e => setSeatUp(e.target.checked)} className="accent-[#46a41a]" /></span></div>
+                <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Return · 14C (Aisle, standard)</div><div className="text-[11px] text-ink-faint">{i?.flight?.flight_no || ""}</div></div><Pill tone="lime">Free · {u.tier}</Pill></div>
+              </Sec>
+              <Sec title="Contact details" action="Edit">
+                <div className="text-[13px]">{(u.email || "d•••@gmail.com").replace(/(.).+(@.+)/, "$1•••••$2")} · {u.phone || "+351 ••• 482"}</div>
+                <div className="text-[11px] text-ink-faint mt-0.5">Boarding pass, receipt and IROPS alerts go here.</div>
+              </Sec>
+              <Card className="p-4"><label className="flex items-start gap-2.5 text-[13px]"><input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} className="accent-[#46a41a] mt-0.5" /><span>I've read and accept the <b>fare conditions</b> · <b>baggage rules</b> · <b>privacy policy</b>. {!agree && <Pill tone="red">Required</Pill>}</span></label></Card>
+            </div>
+            <aside className="space-y-4">
+              <Card className="p-5">
+                <div className="text-[17px] font-bold mb-3">My trip basket</div>
+                <div className="space-y-2 text-[13px]"><Row label="Base fare · 1 adult" v={EUR(base)} /><Row label="Taxes & fees" v={EUR(taxes)} />{seatUp && <Row label={`Seat ${seatNo} · extra legroom`} v={EUR(seatCost)} />}{bag && <Row label="Checked bag 23kg" v={EUR(bagCost)} />}{carbon && <Row label="Carbon offset" v={EUR(carbonCost)} />}</div>
+                <Divider className="my-3" />
+                <div className="flex items-end justify-between"><div className="text-[12px] text-ink-muted">Total to pay</div><div className="text-[26px] font-black v2-num">{EUR(total)}</div></div>
+                <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2">Earn {miles(earn)} miles · or pay {miles(Math.round(total * 0.9 / MILES_RATE))} mi + {EUR(Math.round(total * 0.1))}</div>
+                <div className="mt-3 flex gap-2"><input placeholder="Promo code" className="flex-1 bg-surface border border-line rounded-lg px-3 py-2 text-[12px] outline-none" /><Btn size="sm" variant="outline">Apply</Btn></div>
+                <div className="mt-3 rounded-lg bg-surface-mute text-ink-muted text-[12px] px-3 py-2 flex items-center gap-1.5"><span className="text-ink font-bold">●</span> Price held for 14:32 · won't change if you pay now</div>
+                <Btn size="lg" className="w-full mt-3" disabled={!agree || busy} onClick={pay}>{busy ? "Processing…" : `Pay ${EUR(total)} securely`}</Btn>
+                <div className="flex items-center justify-center gap-4 mt-2 text-[12px] font-semibold text-ink-muted"><button>Save & pay later</button><button onClick={() => go("payment")}>Use miles instead</button></div>
+                <div className="text-[10px] text-ink-faint text-center mt-2">PCI · Visa · Mastercard · Amex · MB WAY · Apple Pay · PayPal · Free 24h cancel</div>
+              </Card>
+            </aside>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

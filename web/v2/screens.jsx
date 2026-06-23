@@ -3,10 +3,11 @@
 // screens are scaffolded as a navigable map of the full program.
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
-import { Btn, Card, Pill, Eyebrow, TierBadge, Field, Input, Icon, Divider, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, TierBadge, Field, Input, Icon, Divider, Img, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
-import { Cart, Passenger, Payment, Confirmation } from "./checkout.jsx";
+import { Cart, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
+import { AIConcierge } from "./ai.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
 
@@ -68,7 +69,7 @@ function DestGrid({ destinations = [], go }) {
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {destinations.slice(0, 8).map(d => (
           <Card key={d.code} className="overflow-hidden hover:shadow-pop transition-shadow cursor-pointer" onClick={() => go("results", { origin: d.origin, dest: d.code })}>
-            <div className="h-28 flex items-center justify-center text-4xl" style={gradFor(d.code)}>{d.emoji || "✈️"}</div>
+            <div className="h-28 relative overflow-hidden"><Img seed={d.code + "-" + d.city} src={d.image_url} alt={d.city} className="absolute inset-0 w-full h-full" />{d.emoji && <span className="absolute bottom-2 left-3 text-2xl drop-shadow">{d.emoji}</span>}</div>
             <div className="p-3.5">
               <div className="flex items-center justify-between"><div className="font-bold text-[15px]">{d.city}</div><span className="text-[11px] text-ink-faint v2-num">{d.code}</span></div>
               <div className="text-[11px] text-ink-muted mt-1 line-clamp-2 min-h-[30px]">{d.reason || d.tag}</div>
@@ -108,11 +109,79 @@ export function Homepage({ shared, go }) {
 }
 
 /* ─────────────────────────── HOME (returning user · Daniel) ─────────────────────────── */
+/* editable, functional hero search (route editable · trip-type + pay-with-miles work) */
+function HeroSearch({ u, pat, cityOf, airports, go }) {
+  const retDefault = (() => { if (!pat.recommendedDate) return ""; const d = new Date(pat.recommendedDate); d.setDate(d.getDate() + 5); return d.toISOString().slice(0, 10); })();
+  const [type, setType] = useState("round");
+  const [from, setFrom] = useState(pat.origin || u.home_airport || "OPO");
+  const [to, setTo] = useState(pat.dest || "LIS");
+  const [date, setDate] = useState(pat.recommendedDate || "");
+  const [ret, setRet] = useState(retDefault);
+  const [pax, setPax] = useState(1);
+  const [cabin, setCabin] = useState("Economy");
+  const [payMiles, setPayMiles] = useState(false);
+  const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
+  const swap = () => { setFrom(to); setTo(from); };
+  const go2 = () => go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
+  const cell = "rounded-xl border border-line p-3";
+  const lbl = "text-[9px] font-bold uppercase tracking-wide text-ink-faint";
+  const bare = "w-full bg-transparent text-[15px] font-bold outline-none";
+
+  return (
+    <Card className="mt-5 p-4 sm:p-5">
+      <div className="flex gap-4 overflow-x-auto v2-track text-[13px] font-semibold pb-3 border-b border-line">
+        {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 pb-2 -mb-3 border-b-2", i === 0 ? "border-tap-green text-ink" : "border-transparent text-ink-muted hover:text-ink")}>{t}</button>)}
+      </div>
+      <div className="flex items-center justify-between mt-3">
+        <div className="flex gap-4 text-[12px] font-semibold">
+          {[["round", "Round trip"], ["oneway", "One way"], ["multi", "Multi-city"]].map(([k, l]) => (
+            <button key={k} onClick={() => setType(k)} className={cx("pb-0.5 border-b-2", type === k ? "border-tap-green text-ink" : "border-transparent text-ink-muted")}>{l}</button>
+          ))}
+        </div>
+        <button onClick={() => setPayMiles(v => !v)} className="flex items-center gap-2 text-[12px] font-semibold text-ink-muted">Pay with Miles <Icon name="spark" size={13} className={payMiles ? "text-tap-green" : "text-ink-faint"} /><span className={cx("w-9 h-5 rounded-full relative transition-colors", payMiles ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", payMiles ? "right-0.5" : "left-0.5")} /></span></button>
+      </div>
+
+      <div className="grid md:grid-cols-12 gap-3 mt-3">
+        <div className={cx(cell, "md:col-span-3 relative")}>
+          <div className={lbl}>Frequent route · editable</div>
+          <div className="flex items-center gap-2 mt-1"><input list="ap-h" value={from} onChange={e => setFrom(e.target.value.toUpperCase())} className={bare} /><button onClick={swap} className="text-tap-green shrink-0" title="Swap"><Icon name="arrow" size={14} /></button><input list="ap-h" value={to} onChange={e => setTo(e.target.value.toUpperCase())} className={cx(bare, "text-right")} /></div>
+          <div className="text-[10px] text-ink-faint mt-0.5">{cityOf(from)} → {cityOf(to)}</div>
+        </div>
+        <div className={cx(cell, type === "oneway" ? "md:col-span-3" : "md:col-span-3")}>
+          <div className={lbl}>{type === "oneway" ? "Depart" : "Depart · Return"}</div>
+          <div className="flex items-center gap-2 mt-1"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={cx(bare, "text-[13px]")} />{type !== "oneway" && <input type="date" value={ret} onChange={e => setRet(e.target.value)} className={cx(bare, "text-[13px]")} />}</div>
+          <div className="text-[10px] text-ink-faint mt-0.5">± 3 days flexibility on</div>
+        </div>
+        <div className={cx(cell, "md:col-span-2")}><div className={lbl}>Passenger</div><select value={pax} onChange={e => setPax(+e.target.value)} className={cx(bare, "mt-1")}>{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Adult{n > 1 ? "s" : ""}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">{u.first_name} · saved</div></div>
+        <div className={cx(cell, "md:col-span-2")}><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">Preferred</div></div>
+        <div className="md:col-span-2 flex"><Btn size="lg" className="w-full h-full" onClick={go2}>Search flight</Btn></div>
+      </div>
+      <datalist id="ap-h">{airports.map(a => <option key={a.code} value={a.code}>{a.city} ({a.code})</option>)}</datalist>
+
+      {type === "multi" && (
+        <div className="grid md:grid-cols-12 gap-3 mt-3">
+          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · from</div><input list="ap-h" value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value.toUpperCase() })} className={cx(bare, "mt-1")} /></div>
+          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · to</div><input list="ap-h" value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value.toUpperCase() })} className={cx(bare, "mt-1")} placeholder="Where to?" /></div>
+          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
+          <div className="md:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-4 mt-4 text-[12px] text-ink-muted">
+        {[["Traveler details saved", true], [`Default ${u.card_brand || "card"} ready`, true], [`${u.tier} benefits active`, true], ["Use miles available", (u.miles || 0) > 0]].map(([t, ok], i) => (
+          <span key={i} className="flex items-center gap-1.5"><Icon name="check" size={13} className={ok ? "text-tap-green" : "text-ink-faint"} /> {t}</span>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 export function Home({ shared, go }) {
   const { profile, journey, airports = [] } = shared;
   const [rec, setRec] = useState(null);
   const [anc, setAnc] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [aiOn, setAiOn] = useState(false);          // TAP AI is OFF by default
   useEffect(() => {
     api.get("/recommendation").then(setRec).catch(() => {});
     api.get("/ancillaries").then(a => setAnc((a || []).sort((x, y) => (y.recommended ? 1 : 0) - (x.recommended ? 1 : 0)))).catch(() => {});
@@ -136,35 +205,13 @@ export function Home({ shared, go }) {
             <div className="relative p-6 sm:p-8">
               <div className="flex items-start justify-between">
                 <Eyebrow className="text-tap-green flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Personalized for you</Eyebrow>
-                <label className="flex items-center gap-2 text-white/80 text-[12px] font-semibold"><span className="w-9 h-5 rounded-full bg-lime relative"><span className="absolute right-0.5 top-0.5 w-4 h-4 rounded-full bg-white" /></span>TAP AI</label>
+                <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-white/80 text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-lime" : "bg-white/25")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
               </div>
               <div className="text-white/70 text-[14px] mt-3">Bom dia, {u.first_name}.</div>
-              <h1 className="text-[34px] font-black text-white tracking-tight">Ready for your usual trip?</h1>
-              {/* prefilled search panel */}
-              <Card className="mt-5 p-4 sm:p-5">
-                <div className="flex gap-4 overflow-x-auto v2-track text-[13px] font-semibold pb-3 border-b border-line">
-                  {TRIP_TABS.map((t, i) => <span key={t} className={cx("shrink-0 pb-2 -mb-3 border-b-2", i === 0 ? "border-tap-green text-ink" : "border-transparent text-ink-muted")}>{t}</span>)}
-                </div>
-                <div className="flex items-center justify-between mt-3">
-                  <div className="flex gap-4 text-[12px] font-semibold"><span className="text-ink border-b-2 border-tap-green pb-0.5">Round trip</span><span className="text-ink-muted">One way</span><span className="text-ink-muted">Multi-city</span></div>
-                  <label className="flex items-center gap-2 text-[12px] font-semibold text-ink-muted">Pay with Miles <Icon name="spark" size={13} className="text-tap-green" /></label>
-                </div>
-                <div className="grid md:grid-cols-12 gap-3 mt-3">
-                  <div className="md:col-span-3 rounded-xl border border-line p-3">
-                    <div className="text-[9px] font-bold uppercase tracking-wide text-ink-faint">Frequent route · prefilled</div>
-                    <div className="flex items-center gap-2 mt-1"><span className="text-[15px] font-bold">{cityOf(pat.origin || "OPO")}</span><Icon name="arrow" size={13} className="text-tap-green" /><span className="text-[15px] font-bold">{cityOf(pat.dest || "LIS")}</span></div>
-                  </div>
-                  <div className="md:col-span-3 rounded-xl border border-line p-3"><div className="text-[9px] font-bold uppercase tracking-wide text-ink-faint">Depart · Return</div><div className="text-[15px] font-bold mt-1">{pat.recommendedLabel || "—"}</div><div className="text-[11px] text-ink-faint">± 3 days flexibility on</div></div>
-                  <div className="md:col-span-2 rounded-xl border border-line p-3"><div className="text-[9px] font-bold uppercase tracking-wide text-ink-faint">Passenger</div><div className="text-[15px] font-bold mt-1">1 Adult</div><div className="text-[11px] text-ink-faint">{u.first_name} · saved</div></div>
-                  <div className="md:col-span-2 rounded-xl border border-line p-3"><div className="text-[9px] font-bold uppercase tracking-wide text-ink-faint">Cabin</div><div className="text-[15px] font-bold mt-1">Economy</div><div className="text-[11px] text-ink-faint">Preferred</div></div>
-                  <div className="md:col-span-2 flex"><Btn size="lg" className="w-full h-full" onClick={search}>Search flight</Btn></div>
-                </div>
-                <div className="flex flex-wrap gap-4 mt-4 text-[12px] text-ink-muted">
-                  {[["Traveler details saved", true], [`Default ${u.card_brand || "card"} ready`, true], [`${u.tier} benefits active`, true], ["Use miles available", (u.miles || 0) > 0]].map(([t, ok], i) => (
-                    <span key={i} className="flex items-center gap-1.5"><Icon name="check" size={13} className="text-tap-green" /> {t}</span>
-                  ))}
-                </div>
-              </Card>
+              <h1 className="text-[34px] font-black text-white tracking-tight">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
+              {aiOn
+                ? <AIConcierge shared={shared} go={go} embedded onToggleOff={() => setAiOn(false)} />
+                : <HeroSearch u={u} pat={pat} cityOf={cityOf} airports={airports} go={go} />}
             </div>
           </div>
         </div>
@@ -180,7 +227,7 @@ export function Home({ shared, go }) {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {buildTemplates(profile, cityOf).map((t, i) => (
               <Card key={i} className="overflow-hidden">
-                <div className="h-24 relative" style={gradFor(t.route)}><span className="absolute bottom-2 left-3 text-white text-[10px] font-bold uppercase tracking-wide">{t.label}</span><span className="absolute top-2 right-3 text-white/80 text-[10px]">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span></div>
+                <div className="h-24 relative overflow-hidden"><Img seed={"route-" + t.route} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-gradient-to-t from-black/55 to-black/10" /><span className="absolute bottom-2 left-3 text-white text-[10px] font-bold uppercase tracking-wide">{t.label}</span><span className="absolute top-2 right-3 text-white/90 text-[10px]">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span></div>
                 <div className="p-3.5">
                   <div className="flex items-center justify-between"><div className="text-[15px] font-bold">{t.route}</div><div className="text-[12px] font-semibold text-ink-muted v2-num">{t.time}</div></div>
                   <div className="text-[11px] text-ink-muted mt-1 min-h-[28px]">{t.detail}</div>
@@ -234,7 +281,7 @@ export function Home({ shared, go }) {
           <div className="grid md:grid-cols-3 gap-4">
             {/* usual trip */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative" style={gradFor(pat.dest || "LIS")}><Pill tone="lime" className="absolute top-3 left-3">Usual trip</Pill></div>
+              <div className="h-28 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} className="absolute inset-0 w-full h-full" /><Pill tone="lime" className="absolute top-3 left-3">Usual trip</Pill></div>
               <div className="p-4">
                 <div className="font-bold text-[15px]">Book {cityOf(pat.origin || "OPO")} → {cityOf(pat.dest || "LIS")}</div>
                 <div className="text-[12px] text-ink-muted mt-1">{pat.recommendedLabel} {pat.usualDep} · fare from {EUR(pat.usualPrice)} · hand bag only.</div>
@@ -244,7 +291,7 @@ export function Home({ shared, go }) {
             </Card>
             {/* resume */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative" style={gradFor((journey?.dest || "OPO") + "x")}><Pill tone={resumable ? "green" : "slate"} className="absolute top-3 left-3"><Icon name="clock" size={10} /> {resumable ? "In-progress" : "No draft"}</Pill></div>
+              <div className="h-28 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone={resumable ? "green" : "slate"} className="absolute top-3 left-3"><Icon name="clock" size={10} /> {resumable ? "In-progress" : "No draft"}</Pill></div>
               <div className="p-4">
                 {resumable ? <>
                   <div className="font-bold text-[15px]">Resume booking</div>
@@ -260,7 +307,7 @@ export function Home({ shared, go }) {
             </Card>
             {/* tomorrow / boarding */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative" style={gradFor((upcoming?.flight?.dest || "OPO") + "y")}><Pill tone="slate" className="absolute top-3 left-3"><Icon name="clock" size={10} /> {upcoming ? "Upcoming" : "No trips"}</Pill></div>
+              <div className="h-28 relative overflow-hidden"><Img seed={"trip-" + (upcoming?.flight?.dest || "OPO")} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone="slate" className="absolute top-3 left-3"><Icon name="clock" size={10} /> {upcoming ? "Upcoming" : "No trips"}</Pill></div>
               <div className="p-4">
                 {upcoming ? <>
                   <div className="font-bold text-[15px]">{upcoming.flight_no} · {upcoming.flight?.origin} → {upcoming.flight?.dest}</div>
@@ -374,13 +421,13 @@ export const ROUTES = {
   payment: { title: "Payment", comp: Payment },
   confirmation: { title: "Booking confirmed", comp: Confirmation },
   basket: { title: "My Trip Basket (manage)", phase: 1, plan: "Active trip, boarding pass, check-in; manage-my-booking entry.", reuses: "/api/bookings, /api/checkin" },
-  express: { title: "Express Checkout", phase: 2, plan: "Book-your-usual in the fewest clicks (B4).", reuses: "express_usual, /api/pay" },
+  express: { title: "Express checkout", comp: ExpressCheckout },
   hold: { title: "Hold My Fare", phase: 2, plan: "Free 48h fare hold for tier members (A8).", reuses: "/api/fare-lock, /api/hold" },
   disruption: { title: "Disruption / IROPS", phase: 2, plan: "Proactive rebooking hub (C5/C2).", reuses: "/api/disrupt, /api/rebook" },
   stopover: { title: "Portugal Stopover", phase: 3, plan: "Free Lisbon/Porto stopover builder.", reuses: "/api/search (new)" },
   extras: { title: "Trip Extras / merchandising", phase: 3, plan: "Hotels, Experiences, Cabs — AEM Content Fragments (offers-headless).", reuses: "/api/recommendation, AEM getOffers" },
   miles: { title: "TAP Miles & Go", phase: 3, plan: "Tier progress, miles redemption, partner earn.", reuses: "/api/profile, /api/recommendation" },
   wishlist: { title: "Wishlist", phase: 3, plan: "Saved routes & destinations.", reuses: "(new)" },
-  ai: { title: "TAP AI", phase: 2, plan: "Conversational booking agent (16 tools).", reuses: "/api/ai/agent" },
+  ai: { title: "TAP AI · Travel concierge", comp: AIConcierge },
   admin: { title: "Admin / Experimentation (CMS)", phase: 4, plan: "Sort/filter rules CMS (A1) + experimentation (E1).", reuses: "Demo Console, /api/admin/*" },
 };
