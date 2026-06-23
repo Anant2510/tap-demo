@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS payments (
   miles_used INTEGER, miles_amt REAL, card_amt REAL, created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
-  id INTEGER PRIMARY KEY, type TEXT, payload_json TEXT, created_at TEXT
+  id INTEGER PRIMARY KEY, type TEXT, payload_json TEXT, created_at TEXT, app TEXT DEFAULT 'v1'
 );
 CREATE TABLE IF NOT EXISTS emails (
   id INTEGER PRIMARY KEY, user_id INTEGER, to_addr TEXT, subject TEXT, email_type TEXT,
@@ -97,6 +97,10 @@ CREATE TABLE IF NOT EXISTS wa_messages (
 
 // users.wa_id stores the last WhatsApp sender so the portal can push proactively
 try { db.exec("ALTER TABLE users ADD COLUMN wa_id TEXT"); } catch {}
+
+// Per-app event attribution: tag each event with the originating frontend (v1 / v2) so
+// each Demo Console shows only its own app's events. No-op if the column already exists.
+try { db.exec("ALTER TABLE events ADD COLUMN app TEXT DEFAULT 'v1'"); } catch (e) { /* already migrated */ }
 
 const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 

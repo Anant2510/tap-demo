@@ -21,6 +21,12 @@ const { packageFor } = require("./packages");
 const whatsapp = require("./whatsapp");
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
+const { AsyncLocalStorage } = require("node:async_hooks");
+// Per-request frontend attribution (v1 vs v2), carried through async context so every
+// event write and read can be scoped to the app that triggered it.
+const appCtx = new AsyncLocalStorage();
+const currentApp = () => { const s = appCtx.getStore(); return (s && s.app) || "v1"; };
+
 const app = express();
 
 // Optional sub-path mounting (e.g. BASE_PATH=/tapportal → app served at /tapportal/).
@@ -40,10 +46,14 @@ if (BASE_PATH) {
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));   // Twilio posts x-www-form-urlencoded
+// Tag every request with its originating frontend. v2 sends "X-App: v2"; the legacy app
+// sends nothing → defaults to "v1". Wrapping next() in the ALS context means all downstream
+// handlers (incl. timer-deferred work) can read currentApp() to scope event writes/reads.
+app.use((req, _res, next) => { const h = String(req.headers["x-app"] || "").toLowerCase(); appCtx.run({ app: h === "v2" ? "v2" : "v1" }, next); });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 const log = (type, payload) =>
-  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES (?,?,?)").run(type, JSON.stringify(payload || {}), now());
+  db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload || {}), now(), currentApp());
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 // Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
 const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
@@ -180,8 +190,8 @@ function scheduleSearchFollowup(origin, dest, date, flights) {
   const originCity = cityName(origin), destCity = cityName(dest);
   // 1) immediate follow-up ("your search is saved")
   sendEmail("search_followup", { origin, dest, originCity, destCity, date, low }).catch(() => {});
-  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('search_followup_sent',?,?)")
-    .run(JSON.stringify({ origin, dest, date, low }), now());
+  db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('search_followup_sent',?,?,?)")
+    .run(JSON.stringify({ origin, dest, date, low }), now(), currentApp());
   // 2) offer follow-up after a short delay, only if still no booking to this dest
   const key = `${origin}-${dest}`;
   if (followupTimers[key]) clearTimeout(followupTimers[key]);
@@ -193,8 +203,8 @@ function scheduleSearchFollowup(origin, dest, date, flights) {
     if (recentBooked > 0) return;   // they booked — no need to chase
     const discount = 15;
     await sendEmail("search_offer", { origin, dest, originCity, destCity, date, low, discount }).catch(() => {});
-    db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('search_offer_sent',?,?)")
-      .run(JSON.stringify({ origin, dest, date, discount }), now());
+    db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('search_offer_sent',?,?,?)")
+      .run(JSON.stringify({ origin, dest, date, discount }), now(), currentApp());
   }, 45000);   // 45s in the demo; would be hours/days in production
 }
 
@@ -637,7 +647,7 @@ app.post("/api/bookings/checkin", (req, res) => {
   const f = flightByNo(b.flight_no) || {};
   if (b.checked_in) return res.json({ ok: true, state: "already_checked_in", pnr: b.pnr, seat: b.seat, group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
   db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
-  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('checkin',?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web", doc: req.body?.doc_id || null }), now());
+  db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('checkin',?,?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web", doc: req.body?.doc_id || null }), now(), currentApp());
   log("booking_checkin", { pnr: b.pnr });
   cdpEvents.emit("checkin", liveIdentity(), { origin: f.origin, destination: f.dest, travelDate: b.flight_date, flightNumber: b.flight_no, seat: b.seat || "4C", cabin: "Economy", channel: "web" });
   res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
@@ -1054,7 +1064,7 @@ function agentRunTool(name, input, session) {
     const f = flightByNo(b.flight_no) || {};
     if (b.checked_in) return { ok: true, state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat, group: boardingGroup(userTier()), message: "You're already checked in for this flight." };
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
-    db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('agent_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
+    db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('agent_checkin',?,?,?)").run(JSON.stringify({ pnr: b.pnr }), now(), currentApp());
     log("agent_checkin", { pnr: b.pnr });
     return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "4C", group: boardingGroup(userTier()) };
   }
@@ -1510,7 +1520,9 @@ app.get("/api/admin/db", (req, res) => {
   const out = {};
   for (const t of SHOW_TABLES) {
     const cap = (t === "routes" || t === "airports") ? 200 : 40;
-    const rows = db.prepare(`SELECT * FROM ${t} ORDER BY rowid DESC LIMIT ${cap}`).all();
+    const rows = t === "events"
+      ? db.prepare(`SELECT * FROM events WHERE app=? ORDER BY rowid DESC LIMIT ${cap}`).all(currentApp())
+      : db.prepare(`SELECT * FROM ${t} ORDER BY rowid DESC LIMIT ${cap}`).all();
     out[t] = rows.map(r => { const { html, ...rest } = r; return t === "users" ? maskUserCard(rest) : rest; });
   }
   res.json({ dbPath: DB_PATH, tables: out });
@@ -1530,8 +1542,10 @@ app.get("/api/admin/cdp", (req, res) => {
   for (const t of SHOW_TABLES) {
     try { counts[t] = db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c; } catch { counts[t] = 0; }
   }
-  const events = db.prepare("SELECT id,type,payload_json,created_at FROM events ORDER BY id DESC LIMIT 40")
-    .all().map(e => {
+  // events are app-scoped so the count matches this console's filtered stream
+  try { counts.events = db.prepare("SELECT COUNT(*) c FROM events WHERE app=?").get(currentApp()).c; } catch {}
+  const events = db.prepare("SELECT id,type,payload_json,created_at FROM events WHERE app=? ORDER BY id DESC LIMIT 40")
+    .all(currentApp()).map(e => {
       const payload = safeJson(e.payload_json);
       return { id: e.id, type: e.type, at: e.created_at, payload, cdpPayload: toCdpTrack(e.type, payload, e.created_at) };
     });

@@ -40,6 +40,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
           <button className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute">PT · EUR</button>
           <button onClick={() => go("wishlist")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="Wishlist"><Icon name="heart" /></button>
           <button onClick={() => go("basket")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="My Trip Cart"><Icon name="cart" /></button>
+          <button onClick={() => go("console")} className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute border border-line" title="Demo-only: live backend view"><Icon name="db" size={14} /> Demo</button>
           {loggedIn && user
             ? <div className="relative">
                 <button onClick={() => setMenu(m => !m)} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-surface-mute">

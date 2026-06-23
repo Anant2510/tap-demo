@@ -8,6 +8,8 @@ import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
 import { Cart, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
 import { AIConcierge } from "./ai.jsx";
+import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddExtras, Refund } from "./mmb.jsx";
+import { DemoConsole } from "./demo.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
 
@@ -419,14 +421,22 @@ export const ROUTES = {
   passenger: { title: "Passenger details", comp: Passenger },
   payment: { title: "Payment", comp: Payment },
   confirmation: { title: "Booking confirmed", comp: Confirmation },
-  basket: { title: "My Trip Basket (manage)", phase: 1, plan: "Active trip, boarding pass, check-in; manage-my-booking entry.", reuses: "/api/bookings, /api/checkin" },
+  basket: { title: "Manage my booking", comp: ManageBooking },
+  manage: { title: "Manage my booking", comp: ManageBooking },
+  upgrade: { title: "Upgrade cabin", comp: CabinUpgrade },
+  seatchange: { title: "Change seat", comp: SeatChange },
+  rebook: { title: "Rebook", comp: Rebook },
+  checkin: { title: "Online check-in", comp: CheckInIndirect },
+  addextras: { title: "Add extras", comp: AddExtras },
+  refund: { title: "Cancel & refund", comp: Refund },
   express: { title: "Express checkout", comp: ExpressCheckout },
   hold: { title: "Hold My Fare", phase: 2, plan: "Free 48h fare hold for tier members (A8).", reuses: "/api/fare-lock, /api/hold" },
-  disruption: { title: "Disruption / IROPS", phase: 2, plan: "Proactive rebooking hub (C5/C2).", reuses: "/api/disrupt, /api/rebook" },
+  disruption: { title: "Disruption / IROPS", comp: Rebook },
   stopover: { title: "Portugal Stopover", phase: 3, plan: "Free Lisbon/Porto stopover builder.", reuses: "/api/search (new)" },
-  extras: { title: "Trip Extras / merchandising", phase: 3, plan: "Hotels, Experiences, Cabs — AEM Content Fragments (offers-headless).", reuses: "/api/recommendation, AEM getOffers" },
+  extras: { title: "Trip Extras", comp: AddExtras },
   miles: { title: "TAP Miles & Go", phase: 3, plan: "Tier progress, miles redemption, partner earn.", reuses: "/api/profile, /api/recommendation" },
   wishlist: { title: "Wishlist", phase: 3, plan: "Saved routes & destinations.", reuses: "(new)" },
   ai: { title: "TAP AI · Travel concierge", comp: AIConcierge },
-  admin: { title: "Admin / Experimentation (CMS)", phase: 4, plan: "Sort/filter rules CMS (A1) + experimentation (E1).", reuses: "Demo Console, /api/admin/*" },
+  console: { title: "Demo Console", comp: DemoConsole },
+  admin: { title: "Demo Console", comp: DemoConsole },
 };

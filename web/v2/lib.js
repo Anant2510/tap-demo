@@ -2,9 +2,10 @@
 // the backend API lives at /api/* (unchanged). No build/server changes required.
 const API = "/api";
 const j = (r) => r.json();
+const HDRS = { "X-App": "v2" };   // tags every v2 request so v2 events/reads stay isolated from v1
 export const api = {
-  get: (p) => fetch(API + p).then(j),
-  post: (p, body) => fetch(API + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then(j),
+  get: (p) => fetch(API + p, { headers: HDRS }).then(j),
+  post: (p, body) => fetch(API + p, { method: "POST", headers: { "Content-Type": "application/json", ...HDRS }, body: JSON.stringify(body || {}) }).then(j),
 };
 
 export const EUR = (n) => n == null ? "—" : `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;

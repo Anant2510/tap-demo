@@ -111,6 +111,8 @@ export const Icon = ({ name, size = 16, className = "" }) => {
     x: "M6 6l12 12M18 6 6 18",
     mic: "M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0M12 19v3",
     send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z",
+    db: "M12 3c4.4 0 8 1.2 8 2.7S16.4 8.4 12 8.4 4 7.2 4 5.7 7.6 3 12 3Zm8 2.7v6c0 1.5-3.6 2.7-8 2.7s-8-1.2-8-2.7v-6m16 6v6c0 1.5-3.6 2.7-8 2.7s-8-1.2-8-2.7v-6",
+    grid: "M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
