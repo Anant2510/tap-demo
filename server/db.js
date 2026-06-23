@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE TABLE IF NOT EXISTS emails (
   id INTEGER PRIMARY KEY, user_id INTEGER, to_addr TEXT, subject TEXT, email_type TEXT,
-  html TEXT, status TEXT, provider_id TEXT, created_at TEXT
+  html TEXT, status TEXT, provider_id TEXT, created_at TEXT, app TEXT DEFAULT 'v1'
 );
 CREATE TABLE IF NOT EXISTS wa_messages (
   id INTEGER PRIMARY KEY, direction TEXT, wa_id TEXT, msg_type TEXT, body TEXT,
@@ -101,6 +101,7 @@ try { db.exec("ALTER TABLE users ADD COLUMN wa_id TEXT"); } catch {}
 // Per-app event attribution: tag each event with the originating frontend (v1 / v2) so
 // each Demo Console shows only its own app's events. No-op if the column already exists.
 try { db.exec("ALTER TABLE events ADD COLUMN app TEXT DEFAULT 'v1'"); } catch (e) { /* already migrated */ }
+try { db.exec("ALTER TABLE emails ADD COLUMN app TEXT DEFAULT 'v1'"); } catch (e) { /* already migrated */ }
 
 const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 

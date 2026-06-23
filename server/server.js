@@ -21,11 +21,7 @@ const { packageFor } = require("./packages");
 const whatsapp = require("./whatsapp");
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
-const { AsyncLocalStorage } = require("node:async_hooks");
-// Per-request frontend attribution (v1 vs v2), carried through async context so every
-// event write and read can be scoped to the app that triggered it.
-const appCtx = new AsyncLocalStorage();
-const currentApp = () => { const s = appCtx.getStore(); return (s && s.app) || "v1"; };
+const { appCtx, currentApp } = require("./appctx");
 
 const app = express();
 
@@ -166,6 +162,10 @@ app.get("/api/search", (req, res) => {
   persistFlights(flights);
   // Re-read from DB so ids are attached (and any disruption state persists)
   const stored = db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, date);
+  // Background price lookups (the results date-strip fetching each day's fare) pass bg=1:
+  // return prices only, with NO behavioural side-effects — so they don't flood the search
+  // log, the journey, the CDP stream, or trigger abandonment emails.
+  if (req.query.bg) return res.json({ ok: true, origin, dest, date, route, flights: stored, bg: true });
   // Log the search itself — this is behavioural data the CDP would use
   db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at)
     VALUES (1,?,?,?,?,?,?,?)`).run(origin, dest, date, 1, stored.length, "Web app", now());
@@ -184,28 +184,47 @@ app.get("/api/search", (req, res) => {
    real delays; here the follow-up email is created right away (so it's visible in
    the demo), and an offer email is scheduled a short time later UNLESS a booking
    for the same destination appears first. */
-const followupTimers = {};
+/* Search-abandonment automation — de-duplicated and cancellable. A single follow-up and a
+   single offer are scheduled per ROUTE (not per request), so the results page hammering
+   /api/search collapses into one sequence (date-strip previews use bg=1 and never reach
+   here). Both are delayed and cancelled the instant a booking completes, so a normal
+   search → book flow produces NO abandonment emails — only a genuinely abandoned search does. */
+const followupTimers = {};   // `${origin}-${dest}` -> { followup, offer }
+const FOLLOWUP_MS = Number(process.env.SEARCH_FOLLOWUP_MS) || 15000, OFFER_MS = Number(process.env.SEARCH_OFFER_MS) || 60000;
+const bookedToDest = (dest) => db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
+  WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(dest).c > 0;
+
 function scheduleSearchFollowup(origin, dest, date, flights) {
   const low = flights.length ? Math.min(...flights.map(f => f.price)) : 0;
   const originCity = cityName(origin), destCity = cityName(dest);
-  // 1) immediate follow-up ("your search is saved")
-  sendEmail("search_followup", { origin, dest, originCity, destCity, date, low }).catch(() => {});
-  db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('search_followup_sent',?,?,?)")
-    .run(JSON.stringify({ origin, dest, date, low }), now(), currentApp());
-  // 2) offer follow-up after a short delay, only if still no booking to this dest
   const key = `${origin}-${dest}`;
-  if (followupTimers[key]) clearTimeout(followupTimers[key]);
-  followupTimers[key] = setTimeout(async () => {
-    const booked = db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
-      WHERE b.user_id=1 AND b.status='confirmed' AND f.dest=? AND b.created_at > ?`).get(dest, date + " 00:00:00").c;
-    const recentBooked = db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
-      WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(dest).c;
-    if (recentBooked > 0) return;   // they booked — no need to chase
-    const discount = 15;
-    await sendEmail("search_offer", { origin, dest, originCity, destCity, date, low, discount }).catch(() => {});
-    db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('search_offer_sent',?,?,?)")
-      .run(JSON.stringify({ origin, dest, date, discount }), now(), currentApp());
-  }, 45000);   // 45s in the demo; would be hours/days in production
+  const app = currentApp();   // remember which frontend searched, so deferred emails tag correctly
+  if (followupTimers[key]) { clearTimeout(followupTimers[key].followup); clearTimeout(followupTimers[key].offer); }
+  const tagEvent = (type, payload) =>
+    db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload), now(), app);
+  const runIn = (ms, fn) => setTimeout(() => appCtx.run({ app }, fn), ms);   // run callback in the right app-context
+  followupTimers[key] = {
+    followup: runIn(FOLLOWUP_MS, () => {
+      if (bookedToDest(dest)) return;
+      sendEmail("search_followup", { origin, dest, originCity, destCity, date, low }).catch(() => {});
+      tagEvent("search_followup_sent", { origin, dest, date, low });
+    }),
+    offer: runIn(OFFER_MS, () => {
+      if (bookedToDest(dest)) return;
+      const discount = 15;
+      sendEmail("search_offer", { origin, dest, originCity, destCity, date, low, discount }).catch(() => {});
+      tagEvent("search_offer_sent", { origin, dest, date, discount });
+    }),
+  };
+}
+
+// A completed booking = converting, not abandoning — cancel every pending follow-up/offer
+// so no abandonment email fires after a purchase.
+function cancelAllSearchFollowups() {
+  for (const k of Object.keys(followupTimers)) {
+    clearTimeout(followupTimers[k].followup); clearTimeout(followupTimers[k].offer);
+    delete followupTimers[k];
+  }
 }
 
 /* ── Profile / personalization data ─────────────────────────── */
@@ -520,6 +539,7 @@ app.post("/api/pay", async (req, res) => {
   db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
     VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
   log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
+  cancelAllSearchFollowups();   // converted — don't chase with abandonment emails
   const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
   cdpEvents.emit("booked", liveIdentity(), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
   res.json({ ok: true, pnr, email });
@@ -965,6 +985,7 @@ function agentRunTool(name, input, session) {
     db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,'Business')`)
       .run(f.flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
     log("agent_checkout", { pnr, gross, date: bookDate, split: { voucher_amt, miles_used, card_amt } });
+    cancelAllSearchFollowups();   // converted — don't chase with abandonment emails
     sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
     session.selected = null;
     return { ok: true, pnr, total: gross, date: bookDate, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
@@ -1520,17 +1541,17 @@ app.get("/api/admin/db", (req, res) => {
   const out = {};
   for (const t of SHOW_TABLES) {
     const cap = (t === "routes" || t === "airports") ? 200 : 40;
-    const rows = t === "events"
-      ? db.prepare(`SELECT * FROM events WHERE app=? ORDER BY rowid DESC LIMIT ${cap}`).all(currentApp())
+    const rows = (t === "events" || t === "emails")
+      ? db.prepare(`SELECT * FROM ${t} WHERE app=? ORDER BY rowid DESC LIMIT ${cap}`).all(currentApp())
       : db.prepare(`SELECT * FROM ${t} ORDER BY rowid DESC LIMIT ${cap}`).all();
     out[t] = rows.map(r => { const { html, ...rest } = r; return t === "users" ? maskUserCard(rest) : rest; });
   }
   res.json({ dbPath: DB_PATH, tables: out });
 });
 app.get("/api/admin/emails", (req, res) =>
-  res.json(db.prepare("SELECT id,to_addr,subject,email_type,status,created_at FROM emails ORDER BY id DESC LIMIT 50").all()));
+  res.json(db.prepare("SELECT id,to_addr,subject,email_type,status,created_at FROM emails WHERE app=? ORDER BY id DESC LIMIT 50").all(currentApp())));
 app.get("/api/admin/emails/:id", (req, res) =>
-  res.json(db.prepare("SELECT * FROM emails WHERE id=?").get(req.params.id) || {}));
+  res.json(db.prepare("SELECT * FROM emails WHERE id=? AND app=?").get(req.params.id, currentApp()) || {}));
 
 /* ── Live DB + CDP proof for the demo ──────────────────────────────
    Returns (1) the real DB file + engine, (2) live row counts, (3) the

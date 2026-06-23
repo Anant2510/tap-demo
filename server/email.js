@@ -8,6 +8,7 @@
    ────────────────────────────────────────────────────────────── */
 const nodemailer = require("nodemailer");
 const { db, now } = require("./db");
+const { currentApp } = require("./appctx");
 
 const SMTP_READY = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 let transporter = null;
@@ -211,10 +212,10 @@ async function sendEmail(type, data) {
       status = "delivered via SMTP"; providerId = info.messageId;
     } catch (e) { status = "send failed: " + e.message.slice(0, 80); }
   }
-  const r = db.prepare(`INSERT INTO emails (user_id,to_addr,subject,email_type,html,status,provider_id,created_at)
-    VALUES (1,?,?,?,?,?,?,?)`).run(to, subject, type, html, status, providerId, now());
-  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES (?,?,?)")
-    .run("email_" + type, JSON.stringify({ to, subject, status }), now());
+  const r = db.prepare(`INSERT INTO emails (user_id,to_addr,subject,email_type,html,status,provider_id,created_at,app)
+    VALUES (1,?,?,?,?,?,?,?,?)`).run(to, subject, type, html, status, providerId, now(), currentApp());
+  db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)")
+    .run("email_" + type, JSON.stringify({ to, subject, status }), now(), currentApp());
   return { id: Number(r.lastInsertRowid), to, subject, status };
 }
 

@@ -72,7 +72,7 @@ export function Results({ shared, params, go }) {
     if (!date) return;
     const base = new Date(date + "T00:00:00");
     const days = [-3, -2, -1, 0, 1, 2, 3].map(o => { const d = new Date(base); d.setDate(d.getDate() + o); return d.toISOString().slice(0, 10); });
-    Promise.all(days.map(d => api.get(`/search?origin=${origin}&dest=${dest}&date=${d}`).then(r => ({ d, p: (r.flights || []).reduce((m, f) => Math.min(m, f.price), Infinity) })).catch(() => ({ d, p: Infinity }))))
+    Promise.all(days.map(d => api.get(`/search?origin=${origin}&dest=${dest}&date=${d}&bg=1`).then(r => ({ d, p: (r.flights || []).reduce((m, f) => Math.min(m, f.price), Infinity) })).catch(() => ({ d, p: Infinity }))))
       .then(rows => setWeek(rows.map(r => ({ date: r.d, price: isFinite(r.p) ? r.p : null }))));
   }, [origin, dest, date]);
 
