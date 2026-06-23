@@ -184,6 +184,8 @@ export function Home({ shared, go }) {
   const [aiOn, setAiOn] = useState(false);          // TAP AI is OFF by default
   const tplRef = useRef(null);
   const scrollTpl = (dir) => tplRef.current?.scrollBy({ left: dir * 280, behavior: "smooth" });
+  // High-contrast status badge for image overlays — solid/blurred white pill so it reads on any photo
+  const overlayBadge = "absolute top-3 left-3 inline-flex items-center gap-1 rounded-full bg-white/95 backdrop-blur px-2.5 py-1 text-[11px] font-bold shadow-sm";
   useEffect(() => {
     api.get("/recommendation").then(setRec).catch(() => {});
     api.get("/ancillaries").then(a => setAnc((a || []).sort((x, y) => (y.recommended ? 1 : 0) - (x.recommended ? 1 : 0)))).catch(() => {});
@@ -198,7 +200,7 @@ export function Home({ shared, go }) {
   const search = () => go("results", { origin: pat.origin || u.home_airport, dest: pat.dest || "LIS", date: pat.recommendedDate, type: "round", pax: 1, cabin: "Economy" });
 
   return (
-    <div className="bg-surface-soft">
+    <div className="bg-surface-mute">
       {/* HERO: full-bleed video background, white content panel */}
       <div className="relative overflow-hidden bg-surface-navy">
         <video className="absolute inset-0 w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" ref={v => { if (v) { v.muted = true; const p = v.play(); if (p && p.catch) p.catch(() => {}); } }}>
@@ -292,17 +294,18 @@ export function Home({ shared, go }) {
           <div className="grid md:grid-cols-3 gap-4">
             {/* usual trip */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} src={imageFor(pat.dest || "LIS", cityOf(pat.dest || "LIS"))} className="absolute inset-0 w-full h-full" /><Pill tone="lime" className="absolute top-3 left-3">Usual trip</Pill></div>
+              <div className="h-40 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} src={imageFor(pat.dest || "LIS", cityOf(pat.dest || "LIS"))} className="absolute inset-0 w-full h-full" /><span className={cx(overlayBadge, "text-tap-greenDeep")}><Icon name="home" size={11} /> Usual trip</span></div>
               <div className="p-4">
                 <div className="font-bold text-[15px]">Book {cityOf(pat.origin || "OPO")} → {cityOf(pat.dest || "LIS")}</div>
                 <div className="text-[12px] text-ink-muted mt-1">{pat.recommendedLabel} {pat.usualDep} · fare from {EUR(pat.usualPrice)} · hand bag only.</div>
                 <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="slate">2 taps</Pill><Pill tone="slate">Default card</Pill><Pill tone="slate">{miles(u.miles)} mi avail.</Pill></div>
-                <div className="flex items-center justify-between mt-3"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from</div><div className="text-[18px] font-black v2-num">{EUR(rec?.package?.total || pat.usualPrice)}</div></div><Btn size="sm" onClick={() => go("express")}>Book Now →</Btn></div>
+                <div className="h-px bg-line my-3" />
+                <div className="flex items-center justify-between"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from</div><div className="text-[18px] font-black v2-num">{EUR(rec?.package?.total || pat.usualPrice)}</div></div><Btn size="sm" onClick={() => go("express")}>Book Now →</Btn></div>
               </div>
             </Card>
             {/* resume */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} src={imageFor(journey?.dest || "OPO", cityOf(journey?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone={resumable ? "green" : "slate"} className="absolute top-3 left-3"><Icon name="clock" size={10} /> {resumable ? "In-progress" : "No draft"}</Pill></div>
+              <div className="h-40 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} src={imageFor(journey?.dest || "OPO", cityOf(journey?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, resumable ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {resumable ? "In-progress" : "No draft"}</span></div>
               <div className="p-4">
                 {resumable ? <>
                   <div className="font-bold text-[15px]">Resume booking</div>
@@ -318,7 +321,7 @@ export function Home({ shared, go }) {
             </Card>
             {/* tomorrow / boarding */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative overflow-hidden"><Img seed={"trip-" + (upcoming?.flight?.dest || "OPO")} src={imageFor(upcoming?.flight?.dest || "OPO", cityOf(upcoming?.flight?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone="slate" className="absolute top-3 left-3"><Icon name="clock" size={10} /> {upcoming ? "Upcoming" : "No trips"}</Pill></div>
+              <div className="h-40 relative overflow-hidden"><Img seed={"trip-" + (upcoming?.flight?.dest || "OPO")} src={imageFor(upcoming?.flight?.dest || "OPO", cityOf(upcoming?.flight?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, upcoming ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {upcoming ? "Upcoming" : "No trips"}</span></div>
               <div className="p-4">
                 {upcoming ? <>
                   <div className="font-bold text-[15px]">{upcoming.flight_no} · {upcoming.flight?.origin} → {upcoming.flight?.dest}</div>
@@ -335,13 +338,16 @@ export function Home({ shared, go }) {
           </div>
         </section>
 
-        {/* TOMORROW'S TRIP · LIVE */}
-        {upcoming && (
-          <section>
+      </div>
+
+      {/* TOMORROW'S TRIP · LIVE — own white band so sections alternate (zebra) */}
+      {upcoming && (
+        <section className="bg-surface border-y border-line">
+          <div className="mx-auto max-w-page px-6 py-10">
             <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Your next trip · live</h2><span className="text-[11px] text-ink-faint">Auto-pulled from itinerary</span></div>
-            <Card className="p-5">
+            <div className="rounded-2xl border border-line bg-surface-soft p-5">
               <div className="flex flex-wrap items-center gap-6">
-                <div><Pill tone="green" className="mb-2">Confirmed</Pill><div className="text-[11px] text-ink-faint">{upcoming.flight_no} · {upcoming.flight?.aircraft || "A320"}</div><div className="flex items-center gap-3 mt-1"><div><div className="text-[22px] font-bold v2-num">{upcoming.flight?.dep}</div><div className="text-[11px] text-ink-faint">{upcoming.flight?.origin}</div></div><Icon name="plane" size={16} className="text-tap-green" /><div><div className="text-[22px] font-bold v2-num">{upcoming.flight?.arr}</div><div className="text-[11px] text-ink-faint">{upcoming.flight?.dest}</div></div></div><div className="text-[11px] text-ink-muted mt-1">Seat {upcoming.seat || "—"} · Hand bag · Carbon offset on</div></div>
+                <div><Pill tone="green" className="mb-2">Confirmed</Pill><div className="text-[11px] text-ink-faint">{upcoming.flight_no} · {upcoming.flight?.aircraft || "A320"}</div><div className="flex items-start gap-3 mt-1"><div><div className="text-[22px] font-bold leading-none v2-num">{upcoming.flight?.dep}</div><div className="text-[11px] text-ink-faint mt-1">{upcoming.flight?.origin}{upcoming.flight?.terminal ? ` · ${upcoming.flight.terminal}` : ""}</div></div><Icon name="arrow" size={16} className="text-ink-faint shrink-0 mt-1.5" /><div><div className="text-[22px] font-bold leading-none v2-num">{upcoming.flight?.arr}</div><div className="text-[11px] text-ink-faint mt-1">{upcoming.flight?.dest}</div></div></div><div className="text-[11px] text-ink-muted mt-1">Seat {upcoming.seat || "—"} · Hand bag · Carbon offset on</div></div>
                 <div className="flex-1 min-w-[260px]">
                   <div className="flex items-center justify-between">
                     {["Booked", "Seat picked", "Check-in", "Board", "Arrive"].map((s, i) => (
@@ -355,9 +361,12 @@ export function Home({ shared, go }) {
                 </div>
                 <div className="min-w-[200px]"><div className="text-[10px] uppercase tracking-wide text-ink-faint mb-1">Next action</div><Btn variant="primary" className="w-full" onClick={() => go("basket")}>Check in early →</Btn><Btn variant="lime" className="w-full mt-2" onClick={() => go("basket")}>Add mobile pass to Wallet</Btn></div>
               </div>
-            </Card>
-          </section>
-        )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <div className="mx-auto max-w-page px-6 py-10 space-y-12">
 
         {/* WORTH YOUR WHILE */}
         {anc.length > 0 && (

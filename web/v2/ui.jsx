@@ -13,7 +13,7 @@ const TOPIC_KW = { hotel: "hotel,room", memmo: "boutique,hotel", bairro: "hotel,
 function tokens(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" "); }
 export function imageFor(key, cityName) {
   const city = String(cityName || "").toLowerCase().trim();
-  if (city && CITY_KW[city]) return flickr(CITY_KW[city], key || city);
+  if (city && CITY_KW[city]) return flickr(CITY_KW[city] + ",cityscape", key || city);
   const toks = tokens(key);
   for (const t of toks) { if (TOPIC_KW[t]) return flickr(TOPIC_KW[t], key); }
   for (const t of toks) { if (CITY_KW[t]) return flickr(CITY_KW[t], key); if (CODE_KW[t]) return flickr(CITY_KW[CODE_KW[t]] || CODE_KW[t], key); }
@@ -41,7 +41,7 @@ export function Btn({ variant = "primary", size = "md", className = "", children
     lime: "bg-lime text-ink hover:bg-lime-alt",
     soft: "bg-lime-tint text-tap-greenDeep hover:bg-lime/40",
     dark: "bg-surface-dark text-white hover:bg-ink-strong",
-    outline: "border border-line-strong text-ink hover:bg-surface-mute",
+    outline: "border border-tap-green text-tap-greenDeep hover:bg-lime-tint",
     ghost: "text-ink hover:bg-surface-mute",
     danger: "bg-tap-red text-white hover:opacity-90",
   };
