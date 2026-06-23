@@ -4,14 +4,32 @@ import React, { useState } from "react";
 
 export const cx = (...a) => a.filter(Boolean).join(" ");
 
-/* ---- Image with graceful gradient fallback (uses API image_url when present) ---- */
+/* ---- Relevant imagery: keyword-based real photos (Lisbon→Lisbon, Funchal→Funchal…) ----
+   imageFor() builds a LoremFlickr URL from city/topic keywords; Img falls back to a
+   deterministic photo, then a gradient, if a source 404s. Production swaps in AEM/DAM. */
+const CITY_KW = { lisbon: "lisbon,portugal", porto: "porto,portugal", funchal: "funchal,madeira", madeira: "madeira,island", madrid: "madrid,spain", barcelona: "barcelona,spain", paris: "paris,france", london: "london,england", rome: "rome,italy", milan: "milan,italy", amsterdam: "amsterdam", berlin: "berlin,germany", brussels: "brussels", geneva: "geneva,switzerland", zurich: "zurich", "são paulo": "saopaulo,brazil", "sao paulo": "saopaulo,brazil", "rio de janeiro": "rio,brazil", "new york": "newyork,city", boston: "boston,city", faro: "faro,algarve", azores: "azores,island", cascais: "cascais,portugal", sintra: "sintra,palace" };
+const CODE_KW = { lis: "lisbon", opo: "porto", fnc: "funchal", mad: "madrid", bcn: "barcelona", cdg: "paris", ory: "paris", lon: "london", lgw: "london", lhr: "london", fco: "rome", gru: "saopaulo", gig: "rio", jfk: "newyork", bos: "boston", fao: "faro" };
+const TOPIC_KW = { hotel: "hotel,room", memmo: "boutique,hotel", bairro: "hotel,lisbon", quinta: "resort,pool", lounge: "airport,lounge", priority: "airport,boarding", fasttrack: "airport,security", douro: "vineyard,wine", wine: "vineyard,wine", belem: "pastry,food", food: "portuguese,food", sintra: "sintra,palace", surf: "surfing,beach", fado: "fado,guitar", train: "train,railway", transfer: "car,road", car: "car,road", seat: "airplane,seat", bag: "luggage,suitcase", meal: "airplane,meal" };
+function tokens(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" "); }
+export function imageFor(key, cityName) {
+  const city = String(cityName || "").toLowerCase().trim();
+  if (city && CITY_KW[city]) return flickr(CITY_KW[city], key || city);
+  const toks = tokens(key);
+  for (const t of toks) { if (TOPIC_KW[t]) return flickr(TOPIC_KW[t], key); }
+  for (const t of toks) { if (CITY_KW[t]) return flickr(CITY_KW[t], key); if (CODE_KW[t]) return flickr(CITY_KW[CODE_KW[t]] || CODE_KW[t], key); }
+  if (city) return flickr(city + ",city", key || city);
+  return null;
+}
+function flickr(kw, lockKey) { let h = 0; for (const c of String(lockKey || kw)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return `https://loremflickr.com/800/450/${kw}?lock=${(h % 40) + 1}`; }
+
 const IMG_GRADS = [["#2e7d33", "#9efd38"], ["#1a1f29", "#46a41a"], ["#0a3d2e", "#c7f21f"], ["#163a4a", "#5ec6c0"], ["#3a2a1f", "#e8a23a"]];
 function gradFromSeed(seed) { let h = 0; for (const c of String(seed)) h = (h * 31 + c.charCodeAt(0)) >>> 0; const g = IMG_GRADS[h % IMG_GRADS.length]; return `linear-gradient(135deg, ${g[0]}, ${g[1]})`; }
-export function Img({ seed = "tap", src, alt = "", className = "", w = 800, h = 400 }) {
-  const [err, setErr] = useState(false);
-  const url = src || `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`;
-  if (err) return <div className={className} style={{ background: gradFromSeed(seed) }} aria-hidden="true" />;
-  return <img src={url} alt={alt} loading="lazy" onError={() => setErr(true)} className={className} style={{ objectFit: "cover" }} />;
+export function Img({ seed = "tap", src, alt = "", className = "", w = 800, h = 450 }) {
+  const picsum = `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`;
+  const [stage, setStage] = useState(src ? 0 : 1); // 0=relevant src · 1=deterministic photo · 2=gradient
+  const url = stage === 0 ? src : stage === 1 ? picsum : null;
+  if (stage >= 2 || !url) return <div className={className} style={{ background: gradFromSeed(seed) }} aria-hidden="true" />;
+  return <img src={url} alt={alt} loading="lazy" onError={() => setStage(s => s + 1)} className={className} style={{ objectFit: "cover" }} />;
 }
 
 /* ---- Buttons ---- */

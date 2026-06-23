@@ -3,7 +3,7 @@
 // screens are scaffolded as a navigable map of the full program.
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
-import { Btn, Card, Pill, Eyebrow, TierBadge, Field, Input, Icon, Divider, Img, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, TierBadge, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
 import { Cart, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
@@ -69,7 +69,7 @@ function DestGrid({ destinations = [], go }) {
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {destinations.slice(0, 8).map(d => (
           <Card key={d.code} className="overflow-hidden hover:shadow-pop transition-shadow cursor-pointer" onClick={() => go("results", { origin: d.origin, dest: d.code })}>
-            <div className="h-28 relative overflow-hidden"><Img seed={d.code + "-" + d.city} src={d.image_url} alt={d.city} className="absolute inset-0 w-full h-full" />{d.emoji && <span className="absolute bottom-2 left-3 text-2xl drop-shadow">{d.emoji}</span>}</div>
+            <div className="h-28 relative overflow-hidden"><Img seed={d.code + "-" + d.city} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="absolute inset-0 w-full h-full" />{d.emoji && <span className="absolute bottom-2 left-3 text-2xl drop-shadow">{d.emoji}</span>}</div>
             <div className="p-3.5">
               <div className="flex items-center justify-between"><div className="font-bold text-[15px]">{d.city}</div><span className="text-[11px] text-ink-faint v2-num">{d.code}</span></div>
               <div className="text-[11px] text-ink-muted mt-1 line-clamp-2 min-h-[30px]">{d.reason || d.tag}</div>
@@ -201,7 +201,10 @@ export function Home({ shared, go }) {
       <div className="bg-surface-navy">
         <div className="mx-auto max-w-page px-6 pt-8 pb-10">
           <div className="relative rounded-3xl overflow-hidden">
-            <div className="absolute inset-0" style={{ background: "linear-gradient(120deg,#0f2d24,#1a1f29 55%,#2a2233)" }} />
+            <video className="absolute inset-0 w-full h-full object-cover" autoPlay muted loop playsInline poster="">
+              <source src="/v2/hero.mp4" type="video/mp4" />
+            </video>
+            <div className="absolute inset-0" style={{ background: "linear-gradient(120deg,rgba(15,45,36,0.92),rgba(26,31,41,0.82) 55%,rgba(42,34,51,0.78))" }} />
             <div className="relative p-6 sm:p-8">
               <div className="flex items-start justify-between">
                 <Eyebrow className="text-tap-green flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Personalized for you</Eyebrow>
@@ -227,7 +230,7 @@ export function Home({ shared, go }) {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {buildTemplates(profile, cityOf).map((t, i) => (
               <Card key={i} className="overflow-hidden">
-                <div className="h-24 relative overflow-hidden"><Img seed={"route-" + t.route} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-gradient-to-t from-black/55 to-black/10" /><span className="absolute bottom-2 left-3 text-white text-[10px] font-bold uppercase tracking-wide">{t.label}</span><span className="absolute top-2 right-3 text-white/90 text-[10px]">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span></div>
+                <div className="h-24 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-gradient-to-t from-black/55 to-black/10" /><span className="absolute bottom-2 left-3 text-white text-[10px] font-bold uppercase tracking-wide">{t.label}</span><span className="absolute top-2 right-3 text-white/90 text-[10px]">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span></div>
                 <div className="p-3.5">
                   <div className="flex items-center justify-between"><div className="text-[15px] font-bold">{t.route}</div><div className="text-[12px] font-semibold text-ink-muted v2-num">{t.time}</div></div>
                   <div className="text-[11px] text-ink-muted mt-1 min-h-[28px]">{t.detail}</div>
@@ -281,7 +284,7 @@ export function Home({ shared, go }) {
           <div className="grid md:grid-cols-3 gap-4">
             {/* usual trip */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} className="absolute inset-0 w-full h-full" /><Pill tone="lime" className="absolute top-3 left-3">Usual trip</Pill></div>
+              <div className="h-28 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} src={imageFor(pat.dest || "LIS", cityOf(pat.dest || "LIS"))} className="absolute inset-0 w-full h-full" /><Pill tone="lime" className="absolute top-3 left-3">Usual trip</Pill></div>
               <div className="p-4">
                 <div className="font-bold text-[15px]">Book {cityOf(pat.origin || "OPO")} → {cityOf(pat.dest || "LIS")}</div>
                 <div className="text-[12px] text-ink-muted mt-1">{pat.recommendedLabel} {pat.usualDep} · fare from {EUR(pat.usualPrice)} · hand bag only.</div>
@@ -291,7 +294,7 @@ export function Home({ shared, go }) {
             </Card>
             {/* resume */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone={resumable ? "green" : "slate"} className="absolute top-3 left-3"><Icon name="clock" size={10} /> {resumable ? "In-progress" : "No draft"}</Pill></div>
+              <div className="h-28 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} src={imageFor(journey?.dest || "OPO", cityOf(journey?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone={resumable ? "green" : "slate"} className="absolute top-3 left-3"><Icon name="clock" size={10} /> {resumable ? "In-progress" : "No draft"}</Pill></div>
               <div className="p-4">
                 {resumable ? <>
                   <div className="font-bold text-[15px]">Resume booking</div>
@@ -307,7 +310,7 @@ export function Home({ shared, go }) {
             </Card>
             {/* tomorrow / boarding */}
             <Card className="overflow-hidden">
-              <div className="h-28 relative overflow-hidden"><Img seed={"trip-" + (upcoming?.flight?.dest || "OPO")} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone="slate" className="absolute top-3 left-3"><Icon name="clock" size={10} /> {upcoming ? "Upcoming" : "No trips"}</Pill></div>
+              <div className="h-28 relative overflow-hidden"><Img seed={"trip-" + (upcoming?.flight?.dest || "OPO")} src={imageFor(upcoming?.flight?.dest || "OPO", cityOf(upcoming?.flight?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><Pill tone="slate" className="absolute top-3 left-3"><Icon name="clock" size={10} /> {upcoming ? "Upcoming" : "No trips"}</Pill></div>
               <div className="p-4">
                 {upcoming ? <>
                   <div className="font-bold text-[15px]">{upcoming.flight_no} · {upcoming.flight?.origin} → {upcoming.flight?.dest}</div>

@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
 import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg } from "./trip.js";
-import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
 const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -131,7 +131,7 @@ export function Cart({ go }) {
   ); };
   const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec }) => { const on = hasExtra(code); return (
     <div className={cx("flex gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-      <Img seed={"hotel-" + code} alt={name} className="w-20 h-16 rounded-lg shrink-0" />
+      <Img seed={"hotel-" + code} src={imageFor("hotel-" + code)} alt={name} className="w-20 h-16 rounded-lg shrink-0" />
       <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <Pill tone="lime">Recommended</Pill>}</div>
         <div className="flex flex-wrap gap-1 mt-1">{tags.map(t => <Pill key={t} tone="slate">{t}</Pill>)}</div>
         <div className="text-[11px] text-ink-muted mt-1">★ {rating} Excellent · {reviews} reviews</div></div>
@@ -214,7 +214,7 @@ export function Cart({ go }) {
             <Module n="08" kicker="Experiences" title="Experiences in Portugal" badge="1 added" sub="Curated tours and tastings for your dates. Skip the lines.">
               <div className="grid sm:grid-cols-3 gap-3">
                 {[["exp-belem", "Belém food walking tour", "3h · pastéis · small group", 65, "Experience"], ["exp-sintra", "Sintra full-day", "Pena Palace · Cabo da Roca", 89, "Day trip · popular"], ["exp-douro", "Douro Valley wine tour", "Vineyards · tastings · river", 120, "Wine"], ["exp-fado", "Fado night experience", "Music · 3-course dinner · port", 75, "Night out"], ["exp-surf", "Surf lesson · Cascais", "2h · gear included · beginners", 55, "Outdoor"], ["exp-train", "Lisbon–Porto train", "2h45 · 1st class · day-trip", 39, "Excursion"]].map(([code, name, sub, price, tag]) => {
-                  const on = hasExtra(code); return <div key={code} className={cx("rounded-xl border overflow-hidden", on ? "border-tap-green" : "border-line")}><Img seed={"exp-" + code} alt={name} className="h-20 w-full" /><div className="p-3"><Pill tone="slate">{tag}</Pill><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-center justify-between mt-2"><span className="text-[12px] font-bold v2-num">{EUR(price)}<span className="text-[10px] font-medium text-ink-faint"> pp</span></span><Btn size="sm" variant={on ? "outline" : "primary"} onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add"}</Btn></div></div></div>;
+                  const on = hasExtra(code); return <div key={code} className={cx("rounded-xl border overflow-hidden", on ? "border-tap-green" : "border-line")}><Img seed={"exp-" + code} src={imageFor(code)} alt={name} className="h-20 w-full" /><div className="p-3"><Pill tone="slate">{tag}</Pill><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-center justify-between mt-2"><span className="text-[12px] font-bold v2-num">{EUR(price)}<span className="text-[10px] font-medium text-ink-faint"> pp</span></span><Btn size="sm" variant={on ? "outline" : "primary"} onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add"}</Btn></div></div></div>;
                 })}
               </div>
             </Module>
@@ -484,7 +484,7 @@ export function Confirmation({ shared, go }) {
               <p className="text-[12px] text-ink-faint mb-3">Limited · helpful · not pushy. Max 3 cards.</p>
               <div className="grid sm:grid-cols-2 gap-4">
                 {recs.slice(0, 4).map(d => (
-                  <Card key={d.code} className="overflow-hidden"><Img seed={"dest-" + d.code} src={d.image_url} alt={d.city} className="h-28 w-full" /><div className="p-4"><div className="font-bold text-[14px]">{d.city}</div><div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 min-h-[28px]">{d.reason || d.tag}</div><div className="flex items-center justify-between mt-2"><div><div className="text-[15px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div><Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn></div></div></Card>
+                  <Card key={d.code} className="overflow-hidden"><Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-28 w-full" /><div className="p-4"><div className="font-bold text-[14px]">{d.city}</div><div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 min-h-[28px]">{d.reason || d.tag}</div><div className="flex items-center justify-between mt-2"><div><div className="text-[15px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div><Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn></div></div></Card>
                 ))}
               </div>
             </section>
