@@ -144,7 +144,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
       <div className="grid md:grid-cols-12 gap-3 mt-3">
         <div className={cx(cell, "md:col-span-3 relative")}>
           <div className={lbl}>Frequent route · editable</div>
-          <div className="flex items-center gap-2 mt-1"><input list="ap-h" value={from} onChange={e => setFrom(e.target.value.toUpperCase())} className={bare} /><button onClick={swap} className="text-tap-green shrink-0" title="Swap"><Icon name="arrow" size={14} /></button><input list="ap-h" value={to} onChange={e => setTo(e.target.value.toUpperCase())} className={cx(bare, "text-right")} /></div>
+          <div className="flex items-center gap-2 mt-1"><select value={from} onChange={e => setFrom(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select><button onClick={swap} className="text-tap-green shrink-0" title="Swap"><Icon name="arrow" size={14} /></button><select value={to} onChange={e => setTo(e.target.value)} className={cx(bare, "appearance-none cursor-pointer text-right")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
           <div className="text-[10px] text-ink-faint mt-0.5">{cityOf(from)} → {cityOf(to)}</div>
         </div>
         <div className={cx(cell, type === "oneway" ? "md:col-span-3" : "md:col-span-3")}>
@@ -156,12 +156,10 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
         <div className={cx(cell, "md:col-span-2")}><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">Preferred</div></div>
         <div className="md:col-span-2 flex"><Btn size="lg" className="w-full h-full" onClick={go2}>Search flight</Btn></div>
       </div>
-      <datalist id="ap-h">{airports.map(a => <option key={a.code} value={a.code}>{a.city} ({a.code})</option>)}</datalist>
-
       {type === "multi" && (
         <div className="grid md:grid-cols-12 gap-3 mt-3">
-          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · from</div><input list="ap-h" value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value.toUpperCase() })} className={cx(bare, "mt-1")} /></div>
-          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · to</div><input list="ap-h" value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value.toUpperCase() })} className={cx(bare, "mt-1")} placeholder="Where to?" /></div>
+          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+          <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
           <div className={cx(cell, "md:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
           <div className="md:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
         </div>
@@ -197,25 +195,23 @@ export function Home({ shared, go }) {
 
   return (
     <div className="bg-surface-soft">
-      {/* HERO */}
-      <div className="bg-surface-navy">
-        <div className="mx-auto max-w-page px-6 pt-8 pb-10">
-          <div className="relative rounded-3xl overflow-hidden">
-            <video className="absolute inset-0 w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" ref={v => { if (v) { v.muted = true; const p = v.play(); if (p && p.catch) p.catch(() => {}); } }}>
-              <source src="/v2/hero.mp4" type="video/mp4" />
-            </video>
-            <div className="absolute inset-0" style={{ background: "linear-gradient(100deg, rgba(8,14,20,0.86) 0%, rgba(8,14,20,0.50) 48%, rgba(8,14,20,0.18) 100%)" }} />
-            <div className="relative p-6 sm:p-8">
-              <div className="flex items-start justify-between">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-tap-green"><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Personalized for you</span>
-                <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-white text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-white/25")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
-              </div>
-              <div className="text-white/75 text-[14px] mt-3">Bom dia, {u.first_name}.</div>
-              <h1 className="text-[34px] font-black text-white tracking-tight">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
-              {aiOn
-                ? <AIConcierge shared={shared} go={go} embedded onToggleOff={() => setAiOn(false)} />
-                : <HeroSearch u={u} pat={pat} cityOf={cityOf} airports={airports} go={go} />}
+      {/* HERO: full-bleed video background, white content panel */}
+      <div className="relative overflow-hidden bg-surface-navy">
+        <video className="absolute inset-0 w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" ref={v => { if (v) { v.muted = true; const p = v.play(); if (p && p.catch) p.catch(() => {}); } }}>
+          <source src="/v2/hero.mp4" type="video/mp4" />
+        </video>
+        <div className="absolute inset-0 bg-black/15" />
+        <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
+          <div className="rounded-3xl bg-surface shadow-pop p-6 sm:p-8">
+            <div className="flex items-start justify-between">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-tap-green"><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Personalized for you</span>
+              <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-ink-muted text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
             </div>
+            <div className="text-ink-muted text-[14px] mt-3">Bom dia, {u.first_name}.</div>
+            <h1 className="text-[34px] font-black text-ink tracking-tight">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
+            {aiOn
+              ? <AIConcierge shared={shared} go={go} embedded onToggleOff={() => setAiOn(false)} />
+              : <HeroSearch u={u} pat={pat} cityOf={cityOf} airports={airports} go={go} />}
           </div>
         </div>
       </div>
