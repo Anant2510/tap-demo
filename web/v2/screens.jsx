@@ -1,7 +1,7 @@
 // FlyTAP v2 — screens. Homepage (logged-out) + the personalized Home (returning
 // user), built to the approved Figma and wired to the live backend. Remaining
 // screens are scaffolded as a navigable map of the full program.
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
@@ -32,7 +32,7 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
     <Card className="p-4 sm:p-5">
       <div className="flex gap-1 overflow-x-auto v2-track -mx-1 px-1 pb-3">
         {TRIP_TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors", tab === t ? "bg-surface-dark text-white" : "text-ink-muted hover:bg-surface-mute")}>{t}</button>
+          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors", tab === t ? "bg-lime-tint text-tap-greenDeep" : "text-ink-muted hover:bg-surface-mute")}>{t}</button>
         ))}
       </div>
       <div className="flex gap-4 text-[12px] font-semibold text-ink-muted mb-3">
@@ -125,14 +125,14 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
   const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
   const swap = () => { setFrom(to); setTo(from); };
   const go2 = () => go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
-  const cell = "rounded-xl border border-line p-3 min-w-0";
+  const cell = "rounded-xl border border-line bg-surface/55 p-3 min-w-0";
   const lbl = "text-[9px] font-bold uppercase tracking-wide text-ink-faint";
   const bare = "w-full min-w-0 bg-transparent text-[15px] font-bold outline-none";
 
   return (
-    <Card className="mt-5 p-4 sm:p-5">
-      <div className="flex gap-4 overflow-x-auto v2-track text-[13px] font-semibold pb-3 border-b border-line">
-        {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 pb-2 -mb-3 border-b-2", i === 0 ? "border-tap-green text-ink" : "border-transparent text-ink-muted hover:text-ink")}>{t}</button>)}
+    <div className="mt-5">
+      <div className="flex gap-1 overflow-x-auto v2-track text-[13px] font-semibold pb-3">
+        {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 rounded-full px-3.5 py-1.5 transition-colors", i === 0 ? "bg-lime-tint text-tap-greenDeep" : "text-ink-muted hover:text-ink hover:bg-surface-mute")}>{t}</button>)}
       </div>
       <div className="flex items-center justify-between flex-wrap gap-3 mt-3">
         <div className="flex gap-4 text-[12px] font-semibold">
@@ -172,7 +172,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
           <span key={i} className="flex items-center gap-1.5"><Icon name="check" size={13} className={ok ? "text-tap-green" : "text-ink-faint"} /> {t}</span>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -182,6 +182,8 @@ export function Home({ shared, go }) {
   const [anc, setAnc] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [aiOn, setAiOn] = useState(false);          // TAP AI is OFF by default
+  const tplRef = useRef(null);
+  const scrollTpl = (dir) => tplRef.current?.scrollBy({ left: dir * 280, behavior: "smooth" });
   useEffect(() => {
     api.get("/recommendation").then(setRec).catch(() => {});
     api.get("/ancillaries").then(a => setAnc((a || []).sort((x, y) => (y.recommended ? 1 : 0) - (x.recommended ? 1 : 0)))).catch(() => {});
@@ -204,7 +206,7 @@ export function Home({ shared, go }) {
         </video>
         <div className="absolute inset-0 bg-black/15" />
         <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
-          <div className="rounded-3xl bg-surface shadow-pop p-6 sm:p-8">
+          <div className="rounded-3xl bg-surface/75 backdrop-blur-xl border border-white/50 shadow-pop p-6 sm:p-8">
             <div className="flex items-start justify-between">
               <PersonalizedTag />
               <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-ink-muted text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
@@ -223,16 +225,20 @@ export function Home({ shared, go }) {
         <section>
           <div className="flex items-end justify-between mb-4">
             <div><h2 className="text-[22px] font-bold">Your commute templates</h2><div className="flex gap-4 text-[12px] font-semibold mt-2"><span className="text-ink border-b-2 border-ink pb-0.5">Templates</span><span className="text-ink-faint">Recent searches</span><span className="text-ink-faint">Favourites</span></div></div>
-            <div className="flex gap-2"><button className="w-9 h-9 rounded-full border border-line flex items-center justify-center text-ink-muted">←</button><button className="w-9 h-9 rounded-full bg-surface-dark text-white flex items-center justify-center">→</button></div>
+            <div className="flex gap-2"><button onClick={() => scrollTpl(-1)} className="w-9 h-9 rounded-full border border-line flex items-center justify-center text-ink-muted hover:bg-surface-mute">←</button><button onClick={() => scrollTpl(1)} className="w-9 h-9 rounded-full bg-surface-dark text-white flex items-center justify-center hover:bg-ink-strong">→</button></div>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div ref={tplRef} className="flex gap-4 overflow-x-auto v2-track snap-x pb-2 -mx-1 px-1">
             {buildTemplates(profile, cityOf).map((t, i) => (
-              <Card key={i} className="overflow-hidden">
-                <div className="h-24 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-gradient-to-t from-black/55 to-black/10" /><span className="absolute bottom-2 left-3 text-white text-[10px] font-bold uppercase tracking-wide">{t.label}</span><span className="absolute top-2 right-3 text-white/90 text-[10px]">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span></div>
+              <Card key={i} className="overflow-hidden shrink-0 w-[260px] snap-start">
+                <div className="h-20 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
                 <div className="p-3.5">
-                  <div className="flex items-center justify-between"><div className="text-[15px] font-bold">{t.route}</div><div className="text-[12px] font-semibold text-ink-muted v2-num">{t.time}</div></div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">{t.label}</span>
+                    <span className="text-[10px] text-ink-faint">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5"><div className="text-[15px] font-bold">{t.route}</div><div className="text-[12px] font-semibold text-ink-muted v2-num">{t.time}</div></div>
                   <div className="text-[11px] text-ink-muted mt-1 min-h-[28px]">{t.detail}</div>
-                  <Btn size="sm" variant={t.shuttle ? "outline" : "lime"} className="mt-2 w-full" onClick={() => t.shuttle ? null : go("express")}>{t.shuttle ? "Manage shuttle" : "One-tap book"}</Btn>
+                  <Btn size="sm" variant={t.shuttle ? "outline" : "soft"} className="mt-2 w-full" onClick={() => t.shuttle ? null : go("express")}>{t.shuttle ? "Manage shuttle" : "One-tap book"}</Btn>
                 </div>
               </Card>
             ))}

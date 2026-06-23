@@ -39,6 +39,7 @@ export function Btn({ variant = "primary", size = "md", className = "", children
   const variants = {
     primary: "bg-tap-green text-white hover:bg-tap-greenDeep",
     lime: "bg-lime text-ink hover:bg-lime-alt",
+    soft: "bg-lime-tint text-tap-greenDeep hover:bg-lime/40",
     dark: "bg-surface-dark text-white hover:bg-ink-strong",
     outline: "border border-line-strong text-ink hover:bg-surface-mute",
     ghost: "text-ink hover:bg-surface-mute",
