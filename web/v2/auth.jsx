@@ -16,7 +16,19 @@ const ACCOUNTS = {
   "sofia.marques@familymail.pt": "sofia", "pt-552037": "sofia", "sofia": "sofia", "sofia marques": "sofia",
   "lars.andersen@globalconsult.de": "lars", "de-100294": "lars", "lars": "lars", "lars andersen": "lars",
 };
-const resolvePersona = (v) => ACCOUNTS[(v || "").trim().toLowerCase()] || null;
+function resolvePersona(v) {
+  const k = (v || "").trim().toLowerCase();
+  if (!k) return null;
+  if (ACCOUNTS[k]) return ACCOUNTS[k];
+  // Lenient demo matching: any email whose local-part names a member resolves to them
+  // (e.g. daniel@flytap.demo, sofia@anything). Exact seeded emails, names, full names
+  // and member numbers all still work.
+  const local = k.split("@")[0].replace(/[._-].*$/, "");   // "daniel.ferreira" → "daniel"
+  if (ACCOUNTS[local]) return ACCOUNTS[local];
+  const compact = k.replace(/[\s-]/g, "");                  // "pt884512" → matches "pt-884512"
+  for (const key in ACCOUNTS) if (key.replace(/[\s-]/g, "") === compact) return ACCOUNTS[key];
+  return null;
+}
 
 // One-tap demo sign-in so any of the three members can be reached without typing the exact
 // email (which is why login kept defaulting to whoever was active — usually Daniel).
@@ -62,7 +74,7 @@ export function LoginModal({ profile, onClose, onLogin }) {
           <label className="block">
             <span className="block text-[10px] font-bold tracking-wide uppercase text-ink-slate mb-1">Email or member number</span>
             <input value={email} onChange={e => { setEmail(e.target.value); if (err) setErr(""); }} autoFocus
-              placeholder="name@email.com or member no."
+              placeholder="daniel@flytap.demo, a name, or member no."
               className="w-full bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] focus:border-tap-green outline-none" />
           </label>
           <label className="block">
