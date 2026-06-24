@@ -61,7 +61,13 @@ export function AIConcierge({ shared, go, embedded, onToggleOff }) {
   const [busy, setBusy] = useState(false);
   const session = useRef("v2-" + Math.random().toString(36).slice(2, 8));
   const endRef = useRef(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
+  const mounted = useRef(false);
+  // Follow new messages to the bottom while chatting, but NOT on first mount —
+  // otherwise navigating to TAP AI scrolls the page down past the section header.
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [msgs, busy]);
 
   async function send(text) {
     const q = (text != null ? text : input).trim(); if (!q || busy) return;

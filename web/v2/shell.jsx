@@ -24,7 +24,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
-  const basketCount = (trip.outbound ? 1 : 0) + (trip.extras?.length || 0);   // live items in the trip basket
+  const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 : 0) + (trip.extras?.length || 0);   // live items in the trip basket (0 once a booking is confirmed)
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
       <div className="mx-auto max-w-page px-6 h-16 flex items-center gap-6">
@@ -96,12 +96,12 @@ export function Footer() {
   ];
   return (
     <footer className="mt-16 bg-surface-dark text-white">
-      <div className="mx-auto max-w-page px-6 py-12 grid lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr] gap-8">
-        <div>
+      <div className="mx-auto max-w-page px-6 py-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr] gap-8">
+        <div className="col-span-2 md:col-span-3 lg:col-span-1">
           <TapLogo onDark />
           <p className="text-[12px] text-white/55 mt-3 max-w-[230px]">An original premium airline concept connecting the Americas to Europe through Portugal.</p>
           <div className="flex gap-2 mt-4">{["IG", "f", "in", "X"].map(s => <span key={s} className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-[11px] font-bold">{s}</span>)}</div>
-          <div className="mt-6"><div className="text-[10px] font-bold uppercase tracking-wide text-white/40">Newsletter</div><div className="text-[12px] text-white/70 mt-1 mb-2">Get fare alerts and Stopover offers.</div>
+          <div className="mt-6"><div className="text-[10px] font-bold uppercase tracking-wide text-lime">Newsletter</div><div className="text-[12px] text-white/90 mt-1 mb-2">Get fare alerts and Stopover offers.</div>
             <div className="flex gap-2"><input placeholder="you@email.com" className="flex-1 bg-white/10 border border-white/15 rounded-lg px-3 py-2 text-[12px] placeholder:text-white/40 outline-none" /><Btn size="sm" variant="lime">Join</Btn></div></div>
         </div>
         {cols.map(([h, items]) => (

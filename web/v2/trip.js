@@ -10,6 +10,16 @@ export const trip = {
 };
 
 export function setLeg(leg, choice) { trip[leg] = choice; }
+// Clear the basket back to its initial state (called on login / persona switch / logout,
+// so a new context never inherits a previous session's in-progress cart).
+export function resetTrip() {
+  Object.assign(trip, {
+    type: "round", pax: 1, cabin: "Economy",
+    origin: null, dest: null, date: null, ret: null,
+    outbound: null, inbound: null, extras: [],
+    passengers: [], contact: null, payment: null, pnr: null,
+  });
+}
 export function hasExtra(code) { return trip.extras.some(x => x.code === code); }
 export function toggleExtra(item) {
   const i = trip.extras.findIndex(x => x.code === item.code);

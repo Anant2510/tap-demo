@@ -347,29 +347,49 @@ export function Home({ shared, go }) {
             <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Your next trip · live</h2><span className="text-[11px] text-ink-faint">Auto-pulled from itinerary</span></div>
             <div className="rounded-2xl border border-line bg-surface-soft p-5">
               <div className="flex flex-wrap items-center gap-6">
-                <div><Pill tone="green" className="mb-2">Confirmed</Pill><div className="text-[11px] text-ink-faint">{upcoming.flight_no} · {upcoming.flight?.aircraft || "A320"}</div><div className="flex items-start gap-3 mt-1"><div><div className="text-[22px] font-bold leading-none v2-num">{upcoming.flight?.dep}</div><div className="text-[11px] text-ink-faint mt-1">{upcoming.flight?.origin}{upcoming.flight?.terminal ? ` · ${upcoming.flight.terminal}` : ""}</div></div><Icon name="arrow" size={16} className="text-ink-faint shrink-0 mt-1.5" /><div><div className="text-[22px] font-bold leading-none v2-num">{upcoming.flight?.arr}</div><div className="text-[11px] text-ink-faint mt-1">{upcoming.flight?.dest}</div></div></div><div className="text-[11px] text-ink-muted mt-1">Seat {upcoming.seat || "—"} · Hand bag · Carbon offset on</div></div>
-                <div className="flex-1 min-w-[260px]">
-                  <div className="flex items-center justify-between">
-                    {["Booked", "Seat picked", "Check-in", "Board", "Arrive"].map((s, i) => (
-                      <div key={s} className="flex-1 flex flex-col items-center relative">
-                        {i > 0 && <div className={cx("absolute right-1/2 top-1.5 h-0.5 w-full", i <= 2 ? "bg-tap-green" : "bg-line-strong")} />}
-                        <span className={cx("relative w-3.5 h-3.5 rounded-full border-2", i <= 2 ? "bg-tap-green border-tap-green" : "bg-surface border-line-strong")} />
-                        <span className="text-[10px] text-ink-muted mt-1.5">{s}</span>
+                <div><Pill tone="green" className="mb-2">Confirmed</Pill><div className="text-[11px] text-ink-faint">{upcoming.flight_no} · {upcoming.flight?.aircraft || "A320"}</div><div className="flex items-start gap-3 mt-1"><div><div className="text-[22px] font-bold leading-none v2-num">{upcoming.flight?.dep}</div><div className="text-[11px] text-ink-faint mt-1">{upcoming.flight?.origin}{upcoming.flight?.terminal ? ` · ${upcoming.flight.terminal}` : ""}</div></div><Icon name="arrow" size={16} className="text-ink-faint shrink-0 mt-1.5" /><div><div className="text-[22px] font-bold leading-none v2-num">{upcoming.flight?.arr}</div><div className="text-[11px] text-ink-faint mt-1">{upcoming.flight?.dest}</div></div></div><div className="text-[11px] text-ink-muted mt-1">Seat <span className="font-bold text-ink">{upcoming.seat || "—"}</span> · Hand bag · Carbon offset on</div></div>
+                <div className="flex-1 min-w-[240px]">
+                  {(() => {
+                    const dep = upcoming.flight?.dep || "", arr = upcoming.flight?.arr || "", dtg = upcoming.days_to_go;
+                    const ciSub = upcoming.checked_in ? "Checked in" : (dtg > 1 ? `in ${dtg}d` : dtg === 1 ? "Tomorrow" : dtg === 0 ? "Open today" : "Open");
+                    const STEPS = [
+                      { label: "Booked", sub: "Done" },
+                      { label: "Seat picked", sub: upcoming.seat ? `Seat ${upcoming.seat}` : "Done" },
+                      { label: "Check-in", sub: ciSub },
+                      { label: "Board", sub: dep },
+                      { label: "Arrive", sub: arr },
+                    ];
+                    const cur = upcoming.checked_in ? 3 : 2;            // current step (advances once checked in)
+                    const n = STEPS.length;
+                    return (
+                      <div className="relative">
+                        {/* single shared track behind the icon row — runs first→last icon centre */}
+                        <div className="absolute top-[7px] left-[10%] right-[10%] h-0.5 bg-line-strong" />
+                        <div className="absolute top-[7px] left-[10%] h-0.5 bg-tap-green" style={{ width: `${(cur / (n - 1)) * 80}%` }} />
+                        <div className="flex items-start">
+                          {STEPS.map((s, i) => (
+                            <div key={s.label} className="flex-1 min-w-0 flex flex-col items-center text-center px-0.5">
+                              <span className={cx("relative z-10 w-3.5 h-3.5 rounded-full border-2 shrink-0",
+                                i < cur ? "bg-tap-green border-tap-green" : i === cur ? "bg-tap-green border-tap-green ring-2 ring-tap-green/30" : "bg-surface border-line-strong")} />
+                              <span className={cx("text-[10px] mt-1.5 leading-tight", i === cur ? "text-tap-greenDeep font-semibold" : "text-ink-muted")}>{s.label}</span>
+                              {s.sub ? <span className="text-[9px] text-ink-faint leading-tight mt-0.5 v2-num">{s.sub}</span> : null}
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
                 </div>
-                <div className="min-w-[200px]"><div className="text-[10px] uppercase tracking-wide text-ink-faint mb-1">Next action</div><Btn variant="primary" className="w-full" onClick={() => go("basket")}>Check in early →</Btn><Btn variant="lime" className="w-full mt-2" onClick={() => go("basket")}>Add mobile pass to Wallet</Btn></div>
+                <div className="min-w-[200px]"><div className="text-[10px] uppercase tracking-wide text-ink-faint mb-1">Next action</div><Btn variant="primary" className="w-full" onClick={() => go("basket")}>Check in early →</Btn><Btn variant="soft" className="w-full mt-2" onClick={() => go("basket")}>Add mobile pass to Wallet</Btn></div>
               </div>
             </div>
           </div>
         </section>
       )}
 
-      <div className="mx-auto max-w-page px-6 py-10 space-y-12">
-
-        {/* WORTH YOUR WHILE */}
-        {anc.length > 0 && (
+      {/* WORTH YOUR WHILE — grey page band */}
+      {anc.length > 0 && (
+        <div className="mx-auto max-w-page px-6 py-10">
           <section>
             <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Worth your while{upcoming ? ` · for ${upcoming.flight?.dep || "your trip"}` : ""}</h2><span className="text-[11px] text-ink-faint">Ranked for {u.tier} commuters</span></div>
             <div className="grid md:grid-cols-3 gap-4">
@@ -383,15 +403,22 @@ export function Home({ shared, go }) {
               ))}
             </div>
           </section>
-        )}
+        </div>
+      )}
 
-        {/* QUICK ACTIONS */}
-        <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {[["cart", "Manage booking", "PNR or last name", "basket"], ["check", "Online check-in", "Opens 22h before", "basket"], ["clock", "Flight status", "Track any TP", "results"], ["bag", "Add bag", "Cheaper before airport", "cart"], ["plane", "Change flight", u.tier + " · no fee", "basket"], ["star", "Help center", "Chat or call", "ai"]].map(([ic, t, s, r]) => (
-            <button key={t} onClick={() => go(r)} className="text-left rounded-xl border border-lime/40 bg-lime-tint/40 hover:bg-lime-tint p-3.5"><span className="text-tap-greenDeep"><Icon name={ic} size={16} /></span><div className="text-[13px] font-bold mt-2">{t}</div><div className="text-[11px] text-ink-muted">{s}</div></button>
-          ))}
-        </section>
+      {/* QUICK ACTIONS — own white band so the section alternates (zebra) from the grey page */}
+      <section className="bg-surface border-y border-line">
+        <div className="mx-auto max-w-page px-6 py-10">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {[["cart", "Manage booking", "PNR or last name", "basket"], ["check", "Online check-in", "Opens 22h before", "basket"], ["clock", "Flight status", "Track any TP", "results"], ["bag", "Add bag", "Cheaper before airport", "cart"], ["plane", "Change flight", u.tier + " · no fee", "basket"], ["star", "Help center", "Chat or call", "ai"]].map(([ic, t, s, r]) => (
+              <button key={t} onClick={() => go(r)} className="text-left rounded-xl border border-lime/40 bg-lime-tint/40 hover:bg-lime-tint p-3.5"><span className="text-tap-greenDeep"><Icon name={ic} size={16} /></span><div className="text-[13px] font-bold mt-2">{t}</div><div className="text-[11px] text-ink-muted">{s}</div></button>
+            ))}
+          </div>
+        </div>
+      </section>
 
+      {/* DESTINATIONS — back on the grey page background */}
+      <div className="mx-auto max-w-page px-6 py-10">
         <DestGrid destinations={shared.destinations} go={go} />
       </div>
     </div>

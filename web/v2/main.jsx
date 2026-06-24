@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./lib.js";
+import { resetTrip } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
 import { LoginModal } from "./auth.jsx";
@@ -50,6 +51,7 @@ function App() {
   // persona re-seeds the live record, so we reload the shared profile/destinations/journey
   // afterwards and the home screen renders the correct member.
   const handleLogin = useCallback(async (personaId) => {
+    resetTrip();   // new member context starts with an empty basket
     if (personaId) { try { await api.post("/persona", { persona: personaId }); } catch {} }
     await loadShared();
     setLoggedIn(true); setShowLogin(false); go("home");
@@ -62,7 +64,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col bg-surface-soft">
       <TopNav route={route} go={go} profile={shared.profile} loggedIn={loggedIn}
-        onLogin={() => setShowLogin(true)} onLogout={() => { setLoggedIn(false); go("home"); }} />
+        onLogin={() => setShowLogin(true)} onLogout={() => { resetTrip(); setLoggedIn(false); go("home"); }} />
       <main className="flex-1">
         {Screen
           ? <Screen shared={shared} params={params} go={go} />
