@@ -21,7 +21,7 @@ function seedExtras() {
 }
 
 /* ── stepper ── */
-const STEPS = ["Select flights", "Trip extras", "My Trip Cart", "Passenger details", "Payment"];
+const STEPS = ["Select flights", "Trip extras", "My Trip Basket", "Passenger details", "Payment"];
 function Stepper({ active }) {
   return (
     <div className="bg-surface border-b border-line">
@@ -38,7 +38,7 @@ function Stepper({ active }) {
     </div>
   );
 }
-const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-full bg-surface border border-line text-[12px] font-semibold inline-flex items-center gap-1.5">{dot && <span className="w-1.5 h-1.5 rounded-full bg-tap-green" />}{children}</span>;
+const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-full bg-surface border border-line text-[12px] font-semibold inline-flex items-center gap-1.5">{dot && <span className="w-1.5 h-1.5 rounded-full bg-lime" />}{children}</span>;
 const Req = () => <span className="text-tap-red">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
@@ -102,7 +102,9 @@ function Module({ n, kicker, title, sub, right, badge, children }) {
         <div className="flex items-start gap-3"><span className="shrink-0 w-9 h-9 rounded-lg bg-surface-mute text-ink-faint inline-flex items-center justify-center text-[12px] font-bold">{n}</span>
           <div><div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{kicker}</div><div className="font-bold text-[16px] flex items-center gap-2">{title}{badge && <Pill tone="lime"><Icon name="check" size={10} /> {badge}</Pill>}</div>{sub && <div className="text-[12px] text-ink-muted mt-0.5">{sub}</div>}</div>
         </div>{right}
-      </div>{children}
+      </div>
+      <div className="h-px bg-line -mx-5 mb-4" />
+      {children}
     </Card>
   );
 }
@@ -118,9 +120,14 @@ function CartView({ go, mode = "cart" }) {
 
   const SeatType = ({ code, name, sub, price }) => {
     const on = code === "std" ? !seat : hasExtra(code);
-    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); r(); }} className={cx("flex-1 text-left rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/50" : "border-line")}>
-      <div className="flex gap-1 mb-2">{[0, 1, 2, 3, 4].map(i => <span key={i} className={cx("w-5 h-5 rounded", (on && i === 2) || (on && code !== "std" && i === 3) ? "bg-lime" : "bg-surface-mute")} />)}</div>
-      <div className="text-[13px] font-semibold flex items-center justify-between">{name}{price ? <span className="v2-num">{EUR(price)}</span> : <Pill tone="green">Included</Pill>}</div><div className="text-[11px] text-ink-faint">{sub}</div>
+    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); r(); }} className={cx("flex-1 text-left rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line")}>
+      <div className="flex gap-1 mb-2">{[0, 1, 2, 3, 4].map(i => <span key={i} className={cx("w-5 h-5 rounded", (on && i === 1) || (on && code !== "std" && i === 2) ? "bg-lime" : "bg-surface-mute")} />)}</div>
+      <div className="flex items-center gap-2">
+        <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span>
+        <span className="text-[13px] font-semibold flex-1">{name}</span>
+        {price ? <span className="text-[13px] font-bold v2-num">{EUR(price)}</span> : <span className="text-[13px] font-semibold text-tap-greenDeep">Included</span>}
+      </div>
+      <div className="text-[11px] text-ink-faint mt-1 pl-6">{sub}</div>
     </button>;
   };
   const Bag = ({ code, name, sub, price, locked }) => { const on = locked || hasExtra(code); return (
@@ -167,8 +174,8 @@ function CartView({ go, mode = "cart" }) {
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-5">
-            <Module n="01" kicker="Seats & baggage" title="Seats & baggage" sub="Pick where you sit and what you bring." right={<button className="text-[12px] font-semibold text-tap-greenDeep">Full Cabin View</button>}>
-              <Eyebrow className="mb-2">Choose your seat type · per passenger · both flights</Eyebrow>
+            <Module n="01" kicker="Seats & baggage" title="Seats & baggage" sub="Pick where you sit and what you bring.">
+              <div className="flex items-center justify-between mb-2"><Eyebrow>Choose your seat type · per passenger · both flights</Eyebrow><button className="text-[12px] font-semibold text-tap-greenDeep shrink-0">Full Cabin View</button></div>
               <div className="flex flex-col sm:flex-row gap-3"><SeatType code="std" name="Standard" sub="Standard 78cm pitch · auto-assigned" /><SeatType code="seat-nsf" name="Next Seat Free" sub="+10cm legroom · exit-row seats" price={48} /><SeatType code="seat-win" name="Window+" sub="Window + free middle + legroom" price={68} /></div>
               <Eyebrow className="mt-4 mb-2">Baggage · what's included with Classic fare</Eyebrow>
               <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked /><Bag name="Checked bag · 23kg" sub="1 piece per traveller · Classic fare" locked /><Bag code="bag-extra" name="Extra checked bag · 23kg" sub="Add a 2nd bag · saves €15 vs airport" price={55} /></div>

@@ -99,6 +99,7 @@ export const Icon = ({ name, size = 16, className = "" }) => {
   const paths = {
     plane: "M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5Z",
     arrow: "M5 12h14M13 6l6 6-6 6",
+    swap: "M4 9h12M13 6l3 3-3 3M20 15H8M11 12l-3 3 3 3",
     search: "M11 19a8 8 0 1 1 5.29-14A8 8 0 0 1 11 19Zm10 2-4.35-4.35",
     spark: "M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2Z",
     bolt: "M13 2 4 14h6l-1 8 9-12h-6l1-8Z",
