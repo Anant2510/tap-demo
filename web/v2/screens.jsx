@@ -333,7 +333,7 @@ export function Home({ shared, go }) {
                   <div className="font-bold text-[15px]">{upcoming.flight_no} · {upcoming.flight?.origin} → {upcoming.flight?.dest}</div>
                   <div className="text-[12px] text-ink-muted mt-1">Boarding {upcoming.flight?.dep} · seat {upcoming.seat || "—"}. {upcoming.days_to_go === 0 ? "Today." : upcoming.days_to_go === 1 ? "Tomorrow." : "On time."}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="slate">Check-in soon</Pill><Pill tone="slate">Mobile pass</Pill></div>
-                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => go("basket")}>Manage trip →</Btn></div></div>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => go("manage")}>Manage trip →</Btn></div></div>
                 </> : <>
                   <div className="font-bold text-[15px]">No upcoming trips</div>
                   <div className="text-[12px] text-ink-muted mt-1">Book your usual to get going.</div>
@@ -386,7 +386,7 @@ export function Home({ shared, go }) {
                     );
                   })()}
                 </div>
-                <div className="min-w-[200px]"><div className="text-[10px] uppercase tracking-wide text-ink-faint mb-1">Next action</div><Btn variant="primary" className="w-full" onClick={() => go("basket")}>Check in early →</Btn><Btn variant="soft" className="w-full mt-2" onClick={() => go("basket")}>Add mobile pass to Wallet</Btn></div>
+                <div className="min-w-[200px]"><div className="text-[10px] uppercase tracking-wide text-ink-faint mb-1">Next action</div><Btn variant="primary" className="w-full" onClick={() => go("checkin")}>Check in early →</Btn><Btn variant="soft" className="w-full mt-2" onClick={() => go("checkin")}>Add mobile pass to Wallet</Btn></div>
               </div>
             </div>
           </div>

@@ -162,7 +162,7 @@ function CartView({ go, mode = "cart", shared }) {
   const [carbonOn, setCarbonOn] = useState(true);
   // Don't re-seed a recommended basket if the member explicitly cleared it last time; an open
   // saved basket has already been restored on login, so seedExtras() is a no-op in that case.
-  useEffect(() => { if (shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
+  useEffect(() => { if (trip.outbound && shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
   if (!trip.outbound) return noTrip(go);
   const save = () => api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
   const add = (code, name, price, cat) => { toggleExtra({ code, name, price, cat }); save(); r(); };

@@ -26,7 +26,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [, _basketTick] = useState(0);
   useEffect(() => onTripChange(() => _basketTick(n => n + 1)), []); // re-render the badge the moment the basket changes
-  const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : (trip.extras?.length || 0));   // 0 once a booking is confirmed; otherwise flight + add-ons
+  const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : 0);   // 0 once booked or with no chosen flight; otherwise flight + add-ons (matches the basket page)
   const bookActive = ["home", "results", "cart", "basket", "express", "passenger", "payment", "customize"].includes(route);
   return (
     <header className="sticky top-0 z-40 bg-surface-2/95 backdrop-blur border-b border-line">
