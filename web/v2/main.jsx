@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./lib.js";
-import { resetTrip } from "./trip.js";
+import { resetTrip, restoreFromSaved } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
 import { LoginModal } from "./auth.jsx";
@@ -35,14 +35,18 @@ function App() {
   const loadShared = useCallback(async () => {
     setShared(s => ({ ...s, loading: true }));
     try {
-      const [profile, destinations, airports, journey, suggested] = await Promise.all([
+      const [profile, destinations, airports, journey, suggested, basket] = await Promise.all([
         api.get("/profile").catch(() => null),
         api.get("/destinations").catch(() => []),
         api.get("/airports").catch(() => []),
         api.get("/journey").catch(() => null),
         api.get("/routes/suggested").catch(() => null),
+        api.get("/basket").catch(() => null),
       ]);
-      setShared({ profile, destinations, airports, journey, suggested, loading: false });
+      // Resume an abandoned, still-open basket so a returning member sees their saved
+      // add-ons (and the nav count) without re-doing anything. 'cleared' is left empty.
+      if (basket?.status === "open") restoreFromSaved(basket);
+      setShared({ profile, destinations, airports, journey, suggested, basket, loading: false });
     } catch { setShared(s => ({ ...s, loading: false })); }
   }, []);
   useEffect(() => { loadShared(); }, [loadShared]);

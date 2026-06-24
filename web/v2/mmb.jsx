@@ -5,7 +5,7 @@
 // server's currentBooking()), so the card you see is the booking the action mutates.
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
-import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 
 /* ── shared helpers ───────────────────────────────────────────── */
@@ -521,6 +521,7 @@ export function AddExtras({ shared, go }) {
                     <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && <Pill tone="green">Recommended</Pill>}{isAdded && <Pill tone="lime">Added</Pill>}</div>
                     <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
                     {a.reason && <div className="text-[11px] text-tap-greenDeep mt-1 flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
+                    {a.recommended && a.reason && <WhyChip reason={a.reason} signals={a.signals} className="mt-1" />}
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-3">

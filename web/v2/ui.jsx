@@ -64,6 +64,36 @@ export const Pill = ({ tone = "lime", className = "", children }) => {
   return <span className={cx("inline-flex items-center gap-1 text-[10px] font-bold tracking-wide uppercase px-2 py-1 rounded-full border", tones[tone], className)}>{children}</span>;
 };
 
+/* ---- "Why am I seeing this?" explainability ----
+   A small (i) control placed on any personalized surface (offer, recommendation, upsell).
+   Opening it reveals the logic + the supporting signals — all derived from the member's own
+   DB records (bookings · searches · travel history · loyalty), so a demo can show *why* each
+   personalization fired and point to the same records in the database. Pass `reason` (a string,
+   which may be " · "-separated) and/or `signals` (an explicit array of supporting facts). */
+export function WhyChip({ reason, signals, source = "From your TAP records: bookings · searches · travel history (DB)", label = "Why this?", dark = false, className = "" }) {
+  const [open, setOpen] = useState(false);
+  const items = (signals && signals.length ? signals : String(reason || "").split(/\s·\s|;\s/)).map(s => String(s).trim()).filter(Boolean);
+  if (!items.length) return null;
+  return (
+    <div className={cx("text-left", className)}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-label="Why am I seeing this?"
+        className={cx("inline-flex items-center gap-1 text-[10px] font-semibold transition-colors", dark ? "text-white/70 hover:text-lime" : "text-ink-muted hover:text-tap-greenDeep")}>
+        <span className="w-3.5 h-3.5 rounded-full border border-current inline-flex items-center justify-center text-[9px] font-bold leading-none">i</span>
+        {label && <span>{label}</span>}
+      </button>
+      {open && (
+        <div className={cx("mt-1.5 rounded-lg border p-2.5 animate-[v2fade_.2s_ease]", dark ? "border-white/15 bg-white/10" : "border-line bg-surface-2")}>
+          <div className={cx("text-[10px] font-bold uppercase tracking-wide flex items-center gap-1", dark ? "text-lime" : "text-tap-greenDeep")}><Icon name="spark" size={11} /> Why you're seeing this</div>
+          <ul className="mt-1 space-y-0.5">
+            {items.map((s, i) => <li key={i} className={cx("text-[11px] flex items-start gap-1.5", dark ? "text-white/80" : "text-ink-700")}><span className={dark ? "text-lime leading-tight" : "text-tap-green leading-tight"}>•</span><span>{s}</span></li>)}
+          </ul>
+          <div className={cx("mt-1.5 pt-1.5 border-t text-[9px]", dark ? "border-white/15 text-white/50" : "border-line text-ink-faint")}>{source}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TierBadge({ tier = "Gold", className = "" }) {
   const map = { Platinum: "from-slate-300 to-slate-500 text-ink", Gold: "from-[#E8C75A] to-[#C9A227] text-ink", Silver: "from-slate-200 to-slate-400 text-ink" };
   return <span className={cx("inline-flex items-center text-[10px] font-extrabold tracking-widest px-2 py-0.5 rounded-full bg-gradient-to-br", map[tier] || map.Gold, className)}>{(tier || "Member").toUpperCase()}</span>;

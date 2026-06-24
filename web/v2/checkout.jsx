@@ -4,8 +4,8 @@
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
-import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg } from "./trip.js";
-import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
+import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER } from "./trip.js";
+import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
 const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -15,12 +15,15 @@ const CAT_ICON = { Hotels: "home", "Cars & transfers": "arrow", Insurance: "shie
 const CAT_SUB = { Hotels: "8 nights · 2 adults", "Cars & transfers": "Private sedan · 1-way", Insurance: "2 travelers", "Lounge & services": "Pre-flight · 2 adults", Onboard: "Both flights", Experiences: "2 travelers", "Seats & baggage": "Both flights", "Carbon offset": "This trip" };
 const CAT_QTY = { Insurance: true, "Lounge & services": true, Experiences: true };
 
-/* seed the default extras so the basket reads like the Figma (hotel + transfer + insurance + lounge + experience) */
+/* seed the default extras so the basket reads like the Figma. Each carries a source so the
+   basket can classify them: system-recommended add-ons for Daniel's stopover + one auto-added
+   default (insurance). Anything the member adds themselves comes in as source "user". */
 function seedExtras() {
   if (trip.extras.length) return;
-  [["hotel-memmo", "Hotel — Memmo Príncipe Real", 640, "Hotels"], ["car-lis", "Airport transfer · LIS → hotel", 25, "Cars & transfers"],
-   ["ins-plus", "Travel Insurance · Plus × 2", 76, "Insurance"], ["lounge-opo", "TAP Lounge · OPO", 90, "Lounge & services"],
-   ["exp-belem", "Belém food walking tour", 130, "Experiences"]].forEach(([code, name, price, cat]) => trip.extras.push({ code, name, price, qty: 1, cat }));
+  [["hotel-memmo", "Hotel — Memmo Príncipe Real", 640, "Hotels", "recommended"], ["car-lis", "Airport transfer · LIS → hotel", 25, "Cars & transfers", "recommended"],
+   ["ins-plus", "Travel Insurance · Plus × 2", 76, "Insurance", "auto"], ["lounge-opo", "TAP Lounge · OPO", 90, "Lounge & services", "recommended"],
+   ["exp-belem", "Belém food walking tour", 130, "Experiences", "recommended"]].forEach(([code, name, price, cat, source]) => trip.extras.push({ code, name, price, qty: 1, cat, source }));
+  pingBasket();
 }
 
 /* ── stepper ── */
@@ -47,7 +50,7 @@ const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-full bg
 const Req = () => <span className="text-tap-red">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
-function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user }) {
+function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear }) {
   const t = tripTotals();
   const u = milesSwitch || {};
   const tier = u.tier || user?.tier || "Gold";
@@ -55,6 +58,8 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
   const milesNeeded = Math.round(t.total * 0.9 / MILES_RATE);
   const milesTax = Math.round(t.total * 0.1);
   const showMiles = !basket && (!!user || !!milesSwitch);
+  const groups = extrasBySource();
+  const lastCode = trip.extras[trip.extras.length - 1]?.code;
   return (
     <aside className="space-y-4">
       <Card className="p-5">
@@ -62,10 +67,18 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         <div className="text-[11px] text-ink-faint mt-0.5">{trip.origin}–{trip.dest} · {trip.pax} adult{trip.pax > 1 ? "s" : ""} · {fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</div>
 
         <div className="mt-4">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-0.5">Anchor · Locked in from Step 1</div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mt-3 mb-0.5">Anchor · Locked in from Step 1</div>
           <SummaryItem icon="plane" name={`Flights · ${trip.origin}–${trip.dest}`} sub={`${trip.outbound?.flight?.flight_no || ""}${trip.inbound ? " / " + trip.inbound.flight.flight_no : ""} · ${trip.outbound?.fare || "Classic"}`} price={t.flights} qty={`${trip.pax} traveler${trip.pax > 1 ? "s" : ""}`} />
-          <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mt-3 mb-0.5">Extras you added · {trip.extras.length} items</div>
-          {trip.extras.map((e, i) => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={i === trip.extras.length - 1} />)}
+          {SOURCE_ORDER.filter(s => groups[s] && groups[s].length).map(s => (
+            <div key={s} className="mt-3">
+              <div className="flex items-center justify-between mb-0.5">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{SOURCE_META[s].label} · {groups[s].length}</div>
+                <span className={cx("inline-flex items-center text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full", s === "user" ? "bg-lime text-ink" : s === "recommended" ? "bg-tap-green/10 text-tap-greenDeep" : "bg-surface-mute text-ink-muted")}>{SOURCE_META[s].tag}</span>
+              </div>
+              {groups[s].map(e => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
+            </div>
+          ))}
+          {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-2 text-[11px] font-semibold text-ink-muted hover:text-tap-red inline-flex items-center gap-1"><Icon name="x" size={11} /> Clear basket</button>}
           <div className="mt-2.5 space-y-1 text-[12px]">
             <div className="flex items-center justify-between"><span className="text-ink-muted">Subtotal extras</span><span className="font-semibold v2-num text-ink">{eur2(t.extras)}</span></div>
             <div className="flex items-center justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num text-ink">{eur2(t.taxes)}</span></div>
@@ -147,9 +160,13 @@ function CartView({ go, mode = "cart", shared }) {
   const isBasket = mode === "basket";
   const [, force] = useState(0); const r = () => force(x => x + 1);
   const [carbonOn, setCarbonOn] = useState(true);
-  useEffect(() => { seedExtras(); r(); }, []);
+  // Don't re-seed a recommended basket if the member explicitly cleared it last time; an open
+  // saved basket has already been restored on login, so seedExtras() is a no-op in that case.
+  useEffect(() => { if (shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
   if (!trip.outbound) return noTrip(go);
-  const add = (code, name, price, cat) => { toggleExtra({ code, name, price, cat }); api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code) }).catch(() => {}); r(); };
+  const save = () => api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
+  const add = (code, name, price, cat) => { toggleExtra({ code, name, price, cat }); save(); r(); };
+  const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
   const seat = trip.extras.find(e => e.cat === "Seats & baggage");
 
   const SeatType = ({ code, name, sub, price }) => {
@@ -287,8 +304,8 @@ function CartView({ go, mode = "cart", shared }) {
             </Module>
           </div>
           {isBasket
-            ? <BasketSummary basket cta={`Checkout and pay ${EUR(tripTotals().total)}`} onCta={() => go("payment")} secondary="Continue browsing flights" onSecondary={() => go("home")} note="Price locked for 15 min · free 24h cancellation" />
-            : <BasketSummary step={2} user={shared?.profile?.user} onMilesSwitch={() => go("payment")} cta="Review my trip basket →" onCta={() => go("passenger")} secondary="Skip extras & continue with flights only" onSecondary={() => go("passenger")} />}
+            ? <BasketSummary basket onClear={clear} cta={`Checkout and pay ${EUR(tripTotals().total)}`} onCta={() => go("payment")} secondary="Continue browsing flights" onSecondary={() => go("home")} note="Price locked for 15 min · free 24h cancellation" />
+            : <BasketSummary step={2} user={shared?.profile?.user} onClear={clear} onMilesSwitch={() => go("payment")} cta="Review my trip basket →" onCta={() => go("passenger")} secondary="Skip extras & continue with flights only" onSecondary={() => go("passenger")} />}
         </div>
       </div>
     </div>
@@ -559,7 +576,7 @@ export function Confirmation({ shared, go }) {
               <p className="text-[12px] text-ink-faint mb-3">Limited · helpful · not pushy. Max 3 cards.</p>
               <div className="grid sm:grid-cols-2 gap-4">
                 {recs.slice(0, 4).map(d => (
-                  <Card key={d.code} className="overflow-hidden"><Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-28 w-full" /><div className="p-4"><div className="font-bold text-[14px]">{d.city}</div><div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 min-h-[28px]">{d.reason || d.tag}</div><div className="flex items-center justify-between mt-2"><div><div className="text-[15px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div><Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn></div></div></Card>
+                  <Card key={d.code} className="overflow-hidden"><Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-28 w-full" /><div className="p-4"><div className="font-bold text-[14px]">{d.city}</div><div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 min-h-[28px]">{d.reason || d.tag}</div>{(d.reason || d.signals) && <WhyChip reason={d.reason} signals={d.signals} className="mt-1" />}<div className="flex items-center justify-between mt-2"><div><div className="text-[15px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div><Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn></div></div></Card>
                 ))}
               </div>
             </section>

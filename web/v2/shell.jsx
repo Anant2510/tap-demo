@@ -1,7 +1,7 @@
 // FlyTAP v2 — shell: top navigation + footer + page layout.
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Avatar, Btn, Icon, TierBadge, cx } from "./ui.jsx";
-import { trip } from "./trip.js";
+import { trip, onTripChange } from "./trip.js";
 
 export const TapLogo = ({ onDark = false }) => (
   <span className="text-[22px] font-black tracking-tight select-none">
@@ -24,7 +24,9 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
-  const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : 0);   // seeded extras don't count until a flight is chosen; 0 once a booking is confirmed
+  const [, _basketTick] = useState(0);
+  useEffect(() => onTripChange(() => _basketTick(n => n + 1)), []); // re-render the badge the moment the basket changes
+  const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : (trip.extras?.length || 0));   // 0 once a booking is confirmed; otherwise flight + add-ons
   const bookActive = ["home", "results", "cart", "basket", "express", "passenger", "payment", "customize"].includes(route);
   return (
     <header className="sticky top-0 z-40 bg-surface-2/95 backdrop-blur border-b border-line">

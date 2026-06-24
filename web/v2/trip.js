@@ -5,11 +5,19 @@ export const trip = {
   type: "round", pax: 1, cabin: "Economy",
   origin: null, dest: null, date: null, ret: null,
   outbound: null, inbound: null,   // { flight, fare, price }
-  extras: [],                       // [{ code, name, price, qty }]
+  extras: [],                       // [{ code, name, price, qty, cat, source }]  source: recommended | auto | user
   passengers: [], contact: null, payment: null, pnr: null,
 };
 
-export function setLeg(leg, choice) { trip[leg] = choice; }
+// Lightweight pub/sub so anything outside a screen (e.g. the top-nav basket badge)
+// re-renders the moment the in-memory basket changes — keeps the count in the nav,
+// the right-rail summary and the basket window in lock-step.
+const _listeners = new Set();
+export function onTripChange(fn) { _listeners.add(fn); return () => _listeners.delete(fn); }
+function notify() { _listeners.forEach(fn => { try { fn(); } catch { } }); }
+export function pingBasket() { notify(); }
+
+export function setLeg(leg, choice) { trip[leg] = choice; notify(); }
 // Clear the basket back to its initial state (called on login / persona switch / logout,
 // so a new context never inherits a previous session's in-progress cart).
 export function resetTrip() {
@@ -19,11 +27,53 @@ export function resetTrip() {
     outbound: null, inbound: null, extras: [],
     passengers: [], contact: null, payment: null, pnr: null,
   });
+  notify();
 }
 export function hasExtra(code) { return trip.extras.some(x => x.code === code); }
 export function toggleExtra(item) {
   const i = trip.extras.findIndex(x => x.code === item.code);
-  if (i >= 0) trip.extras.splice(i, 1); else trip.extras.push({ ...item, qty: item.qty || 1, cat: item.cat || "Extras" });
+  if (i >= 0) trip.extras.splice(i, 1); else trip.extras.push({ ...item, qty: item.qty || 1, cat: item.cat || "Extras", source: item.source || "user" });
+  notify();
+}
+// Empty just the add-ons (keep the chosen flight) — the user's explicit "clear basket".
+export function clearBasket() { trip.extras = []; notify(); }
+// A serializable snapshot persisted to the server so the basket survives an abandoned
+// session: flight context + every add-on with its source (user / recommended / auto).
+export function tripSnapshot() {
+  return {
+    type: trip.type, pax: trip.pax, cabin: trip.cabin,
+    origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret,
+    outbound: trip.outbound, inbound: trip.inbound,
+    extras: trip.extras.map(e => ({ code: e.code, name: e.name, price: e.price, qty: e.qty || 1, cat: e.cat, source: e.source || "user" })),
+  };
+}
+// Rebuild an abandoned basket from the server snapshot so a returning member resumes
+// exactly where they left off (flight + add-ons), with the count showing in the nav.
+export function restoreFromSaved(saved) {
+  if (!saved) return false;
+  const snap = saved.snapshot || {};
+  const extras = Array.isArray(snap.extras) ? snap.extras : [];
+  if (!extras.length && !snap.outbound) return false;
+  Object.assign(trip, {
+    type: snap.type || "round", pax: snap.pax || 1, cabin: snap.cabin || "Economy",
+    origin: snap.origin ?? null, dest: snap.dest ?? null, date: snap.date ?? null, ret: snap.ret ?? null,
+    outbound: snap.outbound || null, inbound: snap.inbound || null,
+    extras: extras.map(e => ({ ...e, qty: e.qty || 1, cat: e.cat || "Extras", source: e.source || "recommended" })),
+  });
+  notify();
+  return true;
+}
+// Source labels for the basket classification (recommended by system / auto-added / added by you).
+export const SOURCE_META = {
+  recommended: { label: "Recommended for you", tag: "Recommended", tone: "green" },
+  auto: { label: "Auto-added", tag: "Auto-added", tone: "slate" },
+  user: { label: "Added by you", tag: "Added by you", tone: "lime" },
+};
+export const SOURCE_ORDER = ["user", "recommended", "auto"];
+export function extrasBySource() {
+  const g = { user: [], recommended: [], auto: [] };
+  for (const e of trip.extras) (g[e.source] || g.recommended).push(e);
+  return g;
 }
 // group added extras by category for the basket summary (Hotels / Cars / Insurance / …)
 export function extrasByCategory() {

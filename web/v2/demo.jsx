@@ -448,6 +448,65 @@ function SegmentsPanel({ shared }) {
   );
 }
 
+/* ── Personalization ledger — per recommendation, the exact records that drove it ── */
+function PersonalizationLedger() {
+  const [d, setD] = useState(null);
+  useEffect(() => { const f = () => api.get("/admin/personalization").then(setD).catch(() => { }); f(); const t = setInterval(f, 6000); return () => clearInterval(t); }, []);
+  if (!d) return <Section icon="analytics" title="Personalization ledger"><div className="text-[12px] text-ink-faint">Reading personalization decisions…</div></Section>;
+  const recTables = d.records || {};
+  return (
+    <Section icon="analytics" title="Personalization ledger" sub="Every recommendation on the site, traced to the exact DB rows & RT-CDP audiences that drove it" accent
+      right={<span className={cx("inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full", d.cdpOn ? "bg-lime-tint text-tap-greenDeep" : "bg-surface-mute text-ink-muted")}><Dot ok={d.cdpOn} /> RT-CDP {d.cdpOn ? "live" : "DB-only"}</span>}>
+      <div className="rounded-xl bg-surface-soft border border-line p-3 mb-3 text-[12px]">
+        <span className="font-bold">{d.identity?.name}</span> · {d.identity?.tier} · {miles(d.identity?.miles)} mi · {d.identity?.home_airport}
+        {!!(d.audiences && d.audiences.length) && <div className="mt-1 text-[11px] text-ink-muted">Adobe RT-CDP audiences: {d.audiences.join(", ")}</div>}
+        {!!(d.segments && d.segments.length) && <div className="mt-0.5 text-[11px] text-ink-muted">Segments: {d.segments.map(s => s.name).join(", ")}</div>}
+      </div>
+      <div className="space-y-3">
+        {(d.surfaces || []).map((s, si) => (
+          <div key={si} className="border border-line rounded-xl overflow-hidden">
+            <div className="bg-surface-mute px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-ink-slate">{s.surface} <span className="opacity-60">({s.items.length})</span></div>
+            <div className="divide-y divide-line">
+              {s.items.length === 0 && <div className="px-3 py-3 text-[12px] text-ink-faint">No active recommendations for this surface yet.</div>}
+              {s.items.map((it, ii) => (
+                <div key={ii} className="px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="font-semibold text-[13px]">{it.title}</div>
+                    {it.via && <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-lime-tint text-tap-greenDeep">{it.via}</span>}
+                  </div>
+                  {it.reason && <div className="text-[11px] text-ink-muted mt-0.5">{it.reason}</div>}
+                  {!!(it.signals && it.signals.length) && (
+                    <ul className="mt-1 space-y-0.5">
+                      {it.signals.map((sig, k) => <li key={k} className="text-[11px] text-ink-700 flex items-start gap-1.5"><Icon name="spark" size={10} className="text-tap-green mt-0.5 shrink-0" /><Mono className="text-[10.5px]">{sig}</Mono></li>)}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 grid md:grid-cols-3 gap-3">
+        {[["travel_history", "Travel history"], ["searches", "Searches"], ["bookings", "Bookings"]].map(([key, label]) => {
+          const rows = recTables[key] || [];
+          const cols = rows[0] ? Object.keys(rows[0]) : [];
+          return (
+            <div key={key} className="border border-line rounded-xl overflow-hidden">
+              <div className="bg-surface-mute px-3 py-2 text-[11px] font-bold text-ink-slate">{label} <span className="opacity-60">({rows.length})</span></div>
+              <div className="overflow-auto max-h-[200px]">
+                <table className="w-full text-[10.5px]">
+                  <thead className="sticky top-0 bg-surface"><tr>{cols.map(c => <th key={c} className="text-left px-2 py-1 font-bold text-ink-slate border-b border-line whitespace-nowrap">{c}</th>)}</tr></thead>
+                  <tbody>{rows.map((r, i) => <tr key={i} className={i % 2 ? "bg-surface-mute/40" : ""}>{cols.map(c => <td key={c} className="px-2 py-1 whitespace-nowrap max-w-[150px] truncate"><Mono>{typeof r[c] === "object" ? JSON.stringify(r[c]) : String(r[c] ?? "")}</Mono></td>)}</tr>)}</tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
 export function DemoConsole({ shared, go }) {
   const [dbPath, setDbPath] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -481,6 +540,7 @@ export function DemoConsole({ shared, go }) {
         <UnifiedProfile />
         <Affinity />
         <SegmentsPanel shared={shared} />
+        <PersonalizationLedger />
         <div className="grid lg:grid-cols-[1.6fr_1fr] gap-5 items-start">
           <DbInspector />
           <EmailCenter />

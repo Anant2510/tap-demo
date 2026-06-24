@@ -3,7 +3,7 @@
 // screens are scaffolded as a navigable map of the full program.
 import React, { useState, useEffect, useRef } from "react";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
-import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
 import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
@@ -75,6 +75,7 @@ function DestGrid({ destinations = [], go }) {
             <div className="p-3.5">
               <div className="flex items-center justify-between"><div className="font-bold text-[15px]">{d.city}</div><span className="text-[11px] text-ink-faint v2-num">{d.code}</span></div>
               <div className="text-[11px] text-ink-muted mt-1 line-clamp-2 min-h-[30px]">{d.reason || d.tag}</div>
+              {(d.reason || d.signals) && <WhyChip reason={d.reason} signals={d.signals} className="mt-1" />}
               <div className="flex items-center justify-between mt-2.5"><div className="text-[13px] font-bold">from {EUR(d.price)}</div><div className="flex items-center gap-1">{d.miles_price && <Pill tone="green"><Icon name="spark" size={10} /> miles</Pill>}<Pill tone={d.contentSource === "aem" ? "lime" : "slate"}>{d.contentSource || "local"}</Pill></div></div>
             </div>
           </Card>
@@ -181,6 +182,7 @@ export function Home({ shared, go }) {
   const [rec, setRec] = useState(null);
   const [anc, setAnc] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [offerTiles, setOfferTiles] = useState(null);
   const [aiOn, setAiOn] = useState(false);          // TAP AI is OFF by default
   const tplRef = useRef(null);
   const scrollTpl = (dir) => tplRef.current?.scrollBy({ left: dir * 336, behavior: "smooth" });
@@ -190,6 +192,7 @@ export function Home({ shared, go }) {
     api.get("/recommendation").then(setRec).catch(() => {});
     api.get("/ancillaries").then(a => setAnc((a || []).sort((x, y) => (y.recommended ? 1 : 0) - (x.recommended ? 1 : 0)))).catch(() => {});
     api.get("/bookings").then(setBookings).catch(() => {});
+    api.get("/offers/tiles").then(d => setOfferTiles(d?.tiles || null)).catch(() => {});
   }, []);
   if (!profile) return <Page><div className="py-20 text-center text-ink-faint">Loading your journey…</div></Page>;
 
@@ -267,18 +270,21 @@ export function Home({ shared, go }) {
               {prog.next && <div className="rounded-xl bg-black/40 border border-white/10 p-4 min-w-[220px] text-center"><div className="text-[40px] font-black text-lime leading-none v2-num">{prog.pct}%</div><div className="text-[10px] uppercase tracking-wide text-white/50 mt-1">Progress to {prog.next}</div><div className="h-2 rounded-full bg-white/15 mt-2 overflow-hidden"><div className="h-full rounded-full" style={{ width: prog.pct + "%", background: "linear-gradient(90deg,#9efd38,#8b5cf6)" }} /></div></div>}
             </div>
             <div className="grid sm:grid-cols-3 gap-3 mt-5">
-              {[["home", "Because you're " + u.tier, "Use miles to discount your Lisbon hotel", "Apply 8,000 mi to any 3-night stay · save up to €80 instantly.", "8,000 mi", "Apply"],
-                ["plane", "Limited · next trip", "Upgrade " + cityOf(pat.origin || "LIS") + "–" + cityOf(pat.dest || "OPO") + " to Business with miles", "20% mileage discount when upgrading on your existing booking.", "42,000 mi", "Upgrade"],
-                ["star", "Partner offer · Nov", "Earn 3× miles at Memmo Príncipe Real", "Triple miles when booking your favourite hotel through voa stay.", "3× MI", "Activate"]].map((o, i) => (
-                <div key={i} className="rounded-xl bg-black/30 border border-white/10 p-4 flex flex-col text-left">
+              {(offerTiles && offerTiles.length ? offerTiles : [
+                { icon: "home", badge: "Because you're " + u.tier, title: "Use miles to discount your Lisbon hotel", detail: "Apply 8,000 mi to any 3-night stay · save up to €80 instantly.", value: "8,000 mi", cta: "Apply", reason: `${u.tier} member · ${miles(u.miles)} tap.miles available (users)` },
+                { icon: "plane", badge: "Limited · next trip", title: "Upgrade " + cityOf(pat.origin || "LIS") + "–" + cityOf(pat.dest || "OPO") + " to Business with miles", detail: "20% mileage discount when upgrading on your existing booking.", value: "42,000 mi", cta: "Upgrade", reason: `${cityOf(pat.origin || "LIS")}–${cityOf(pat.dest || "OPO")} is your most-flown route (travel_history)` },
+                { icon: "star", badge: "Partner offer · Nov", title: "Earn 3× miles at Memmo Príncipe Real", detail: "Triple miles when booking your favourite hotel through voa stay.", value: "3× MI", cta: "Activate", reason: "Memmo Príncipe Real is in your recent stays (bookings)" },
+              ]).map((o, i) => (
+                <div key={o.id || i} className="rounded-xl bg-black/30 border border-white/10 p-4 flex flex-col text-left">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="w-9 h-9 rounded-xl bg-white/10 inline-flex items-center justify-center text-tap-green shrink-0"><Icon name={o[0]} size={18} /></span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-lime-tint px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep"><Icon name="spark" size={9} /> {o[1]}</span>
+                    <span className="w-9 h-9 rounded-xl bg-white/10 inline-flex items-center justify-center text-tap-green shrink-0"><Icon name={o.icon} size={18} /></span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-lime-tint px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep"><Icon name="spark" size={9} /> {o.badge}</span>
                   </div>
-                  <div className="text-[14px] font-bold mt-3">{o[2]}</div>
-                  <div className="text-[11px] text-white/50 mt-1 flex-1">{o[3]}</div>
+                  <div className="text-[14px] font-bold mt-3">{o.title}</div>
+                  <div className="text-[11px] text-white/50 mt-1 flex-1">{o.detail}</div>
+                  {(o.reason || o.signals) && <WhyChip reason={o.reason} signals={o.signals} dark className="mt-2" />}
                   <div className="h-px bg-white/10 my-3" />
-                  <div className="flex items-center justify-between"><span className="text-[14px] font-black v2-num text-lime">{o[4]}</span><Btn size="sm" variant="lime" onClick={() => go("miles")}>{o[5]} →</Btn></div>
+                  <div className="flex items-center justify-between"><span className="text-[14px] font-black v2-num text-lime">{o.value}</span><Btn size="sm" variant="lime" onClick={() => go(o.action || "miles")}>{o.cta} →</Btn></div>
                 </div>
               ))}
             </div>
@@ -398,6 +404,7 @@ export function Home({ shared, go }) {
                   <div className="flex items-center justify-between"><Pill tone={a.recommended ? "lime" : "slate"}>{a.recommended ? "Recommended" : i === 1 ? "Cash + miles" : "Popular · " + u.tier}</Pill><span className="text-[10px] text-ink-faint">{a.reason ? "" : ""}</span></div>
                   <div className="text-[15px] font-bold mt-2">{a.name}</div>
                   <div className="text-[11px] text-ink-muted mt-1 flex-1">{a.reason || a.desc || "Add before you fly."}</div>
+                  {a.recommended && a.reason && <WhyChip reason={a.reason} signals={a.signals} className="mt-1.5" />}
                   <div className="flex items-center justify-between mt-3"><div className="text-[13px] font-bold v2-num">{EUR(a.price)} <span className="text-[11px] font-medium text-ink-faint">or {miles(Math.round(a.price / MILES_RATE))} mi</span></div><Btn size="sm" variant={i === 1 ? "outline" : "primary"} onClick={() => go("cart")}>{i === 1 ? "Review" : "Add"}</Btn></div>
                 </Card>
               ))}
