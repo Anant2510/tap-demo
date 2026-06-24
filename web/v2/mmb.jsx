@@ -4,7 +4,7 @@
 // Each screen reads the same "current booking" the server acts on (mirror of the
 // server's currentBooking()), so the card you see is the booking the action mutates.
 import React, { useState, useEffect } from "react";
-import { api, EUR, miles, fmtDate } from "./lib.js";
+import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 
@@ -166,7 +166,11 @@ export function CabinUpgrade({ shared, go }) {
   const [done, setDone] = useState(false);
   if (loading) return <Loading label="Loading upgrade options…" />;
   if (err || !booking) return <Empty go={go} />;
-  const fareDiff = 149, milesPrice = 22000;
+  // Upgrade price derived from the booking's own fare (≈60%, min €60), with the miles
+  // price kept consistent with the cash price via MILES_RATE — not a fixed magic number.
+  const baseFare = booking.flight?.price || 180;
+  const fareDiff = Math.max(60, Math.round(baseFare * 0.6 / 5) * 5);
+  const milesPrice = Math.round(fareDiff / MILES_RATE / 500) * 500;
   const confirm = async () => {
     setBusy(true);
     // The "cabin-executive" code isn't seeded in the ancillaries table (demo): the

@@ -22,8 +22,12 @@ export function extrasByCategory() {
   return g;
 }
 export function bundleSavings() {
-  const cats = new Set(trip.extras.map(e => e.cat));
-  return (cats.has("Hotels") && cats.has("Lounge & services")) ? 42.5 : 0; // matches the Figma's bundle-savings logic
+  // Cross-sell bundle discount: 15% off when a stay (Hotels) and Lounge & services
+  // are booked together. Proportional to the actual extras, not a fixed amount.
+  const g = extrasByCategory();
+  if (!(g["Hotels"] > 0 && g["Lounge & services"] > 0)) return 0;
+  const base = (g["Hotels"] || 0) + (g["Lounge & services"] || 0);
+  return Math.round(base * 0.15 * 100) / 100;
 }
 export function tripTotals() {
   const legPrice = (trip.outbound?.price || 0) + (trip.inbound?.price || 0);

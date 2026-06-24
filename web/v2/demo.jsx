@@ -332,6 +332,122 @@ function EmailCenter() {
 }
 
 /* ── ROUTE COMPONENT ── */
+/* ── Unified customer profile · 360° (Phase 3) — the stitch + segments + offer ── */
+function UnifiedProfile() {
+  const [p, setP] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const load = () => { setLoading(true); api.get("/cdp/profile").then(x => setP(x && x.id ? x : null)).catch(() => setP(null)).finally(() => setLoading(false)); };
+  useEffect(() => { load(); }, []);
+  const ch = (p && p.channels) || {};
+  return (
+    <Section icon="user" title="Unified customer profile · 360°" accent
+      sub="Adobe RT-CDP mirror — identities stitched across offline (PSS) and online (web), with live segment membership and the segment-driven offer."
+      right={<Btn size="sm" variant="outline" onClick={load}><Icon name="refresh" size={12} /> Refresh</Btn>}>
+      {loading && !p ? <div className="text-[12px] text-ink-faint py-3">Loading profile…</div>
+        : !p ? <div className="text-[12px] text-ink-faint py-3">No profile yet — create a PSS booking, or run a search/booking on the site, then refresh.</div>
+          : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-surface-dark text-white inline-flex items-center justify-center font-bold">{(p.name || "?").slice(0, 1)}</div>
+                <div>
+                  <div className="font-bold text-[14px] flex items-center gap-2">{p.name || "Unknown"} {p.stitched && <Pill tone="lime"><Icon name="check" size={10} /> Stitched</Pill>}</div>
+                  <div className="text-[11px] text-ink-faint">{p.tier || "Member"} · profile #{p.id}</div>
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-line p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-slate mb-1.5">Identity graph</div>
+                  <div className="space-y-1 text-[12px]">
+                    <div><span className="text-ink-faint">loyaltyId </span><Mono>{(p.identities.loyaltyId || []).join(", ") || "—"}</Mono></div>
+                    <div><span className="text-ink-faint">email </span><Mono>{(p.identities.email || []).join(", ") || "—"}</Mono></div>
+                    <div><span className="text-ink-faint">ecid </span><Mono>{(p.identities.ecid || []).join(", ") || "—"}</Mono></div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-line p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-slate mb-1.5">Channels</div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Pill tone={ch.pss ? "green" : "slate"}>PSS · offline {ch.pss || 0}</Pill>
+                    <Pill tone={ch.web ? "green" : "slate"}>Web · online {ch.web || 0}</Pill>
+                  </div>
+                  <div className="flex gap-4 mt-2 text-[12px]">
+                    <span><b className="v2-num">{p.bookings}</b> <span className="text-ink-faint">bookings</span></span>
+                    <span><b className="v2-num">{EUR(p.total_spend)}</b> <span className="text-ink-faint">spend</span></span>
+                    <span><b className="v2-num">{miles(p.miles)}</b> <span className="text-ink-faint">mi</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wide text-ink-slate mb-1.5">Segment membership</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(p.segments || []).length === 0 ? <span className="text-[12px] text-ink-faint">No segments yet.</span>
+                    : p.segments.map(s => <Pill key={s} tone={s.indexOf("Stitched") === 0 ? "lime" : "slate"}>{s}</Pill>)}
+                </div>
+              </div>
+
+              {p.offer && (
+                <div className="rounded-xl border border-tap-green/40 bg-lime-tint/40 p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep mb-1">Triggered offer · driven by segment “{p.offer.segment}”</div>
+                  <div className="text-[13px] font-bold">{p.offer.email.title}</div>
+                  <div className="text-[12px] text-ink-muted mt-0.5">{p.offer.email.subject}</div>
+                </div>
+              )}
+            </div>
+          )}
+    </Section>
+  );
+}
+
+/* ── Segments & decisioning (Phase 3) — audiences the unified profile qualifies for ── */
+function SegmentsPanel({ shared }) {
+  const active = shared?.profile?.user?.member_no || "";
+  const [members, setMembers] = useState([]);
+  const [member, setMember] = useState("");
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.get("/pss/members").then(m => { setMembers(m || []); setMember(active || (m && m[0] && m[0].member_no) || ""); }).catch(() => {}); }, [active]);
+  const run = (mno) => { const id = mno || member; if (!id) return; setBusy(true); api.get("/segments/" + encodeURIComponent(id)).then(setData).catch(() => setData(null)).finally(() => setBusy(false)); };
+  useEffect(() => { if (member) run(member); }, [member]);
+  const p = data?.profile;
+  return (
+    <Section icon="star" title="Segments &amp; decisioning"
+      right={data ? <Pill tone={data.source === "adobe" ? "green" : "dark"}>{data.source === "adobe" ? "Adobe RT-CDP" : "local engine"}</Pill> : null}
+      sub="Audiences the unified (online + offline/PSS) profile qualifies for — and the offer each drives. Reads Adobe RT-CDP audiences when wired, else the local engine.">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <select value={member} onChange={e => setMember(e.target.value)} className="bg-surface border border-line-strong rounded-lg px-3 py-1.5 text-[12px]">
+          {members.map(m => <option key={m.member_no} value={m.member_no}>{m.name} · {m.tier} · {m.member_no}</option>)}
+        </select>
+        <Btn size="sm" variant="outline" onClick={() => run()} disabled={busy}>{busy ? "Evaluating…" : "Re-evaluate"}</Btn>
+      </div>
+      {p && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3 text-center">
+          {[["Tier", p.tier], ["Miles", miles(p.miles)], ["Total spend", EUR(p.totalSpend)], ["Bookings", p.bookings], ["Offline (PSS)", p.pssCount]].map(([k, v]) => (
+            <div key={k} className="rounded-lg bg-surface-mute p-2"><div className="text-[9px] uppercase tracking-wide text-ink-faint">{k}</div><div className="text-[14px] font-bold v2-num">{v}</div></div>
+          ))}
+        </div>
+      )}
+      <div className="text-[10px] font-bold uppercase tracking-wide text-ink-slate mb-1.5">Qualifying segments</div>
+      <div className="flex flex-wrap gap-2">
+        {(!data || (data.segments || []).length === 0) && <span className="text-[12px] text-ink-faint">No segments yet — book this member in the PSS app, then re-evaluate.</span>}
+        {(data?.segments || []).map(s => (
+          <span key={s.id} className="inline-flex flex-col rounded-lg border border-tap-green/40 bg-lime-tint/40 px-3 py-1.5">
+            <span className="text-[12px] font-bold text-tap-greenDeep">{s.name}</span>
+            <span className="text-[10px] text-ink-muted">{s.why}</span>
+          </span>
+        ))}
+      </div>
+      {data?.decided && (
+        <div className="mt-3 rounded-xl border border-line bg-surface-soft p-3">
+          <div className="text-[10px] uppercase tracking-wide text-ink-faint mb-1">Decided offer · from top segment “{data.decided.name}”</div>
+          <div className="text-[13px] font-bold">{data.decided.email?.title}</div>
+          <div className="text-[12px] text-ink-muted">{data.decided.email?.subject}</div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function DemoConsole({ shared, go }) {
   const [dbPath, setDbPath] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -362,7 +478,9 @@ export function DemoConsole({ shared, go }) {
         <Integrations />
         <SelfTest />
         <CdpBridge />
+        <UnifiedProfile />
         <Affinity />
+        <SegmentsPanel shared={shared} />
         <div className="grid lg:grid-cols-[1.6fr_1fr] gap-5 items-start">
           <DbInspector />
           <EmailCenter />

@@ -12,9 +12,9 @@ import { TapLogo } from "./shell.jsx";
 // login ignored the field and signed you in as whatever persona was last active — which is
 // why entering Daniel's email still showed Lars.)
 const ACCOUNTS = {
-  "daniel.ferreira@consultmail.pt": "daniel", "pt-884512": "daniel",
-  "sofia.marques@familymail.pt": "sofia", "pt-552037": "sofia",
-  "lars.andersen@globalconsult.de": "lars", "de-100294": "lars",
+  "daniel.ferreira@consultmail.pt": "daniel", "pt-884512": "daniel", "daniel": "daniel", "daniel ferreira": "daniel",
+  "sofia.marques@familymail.pt": "sofia", "pt-552037": "sofia", "sofia": "sofia", "sofia marques": "sofia",
+  "lars.andersen@globalconsult.de": "lars", "de-100294": "lars", "lars": "lars", "lars andersen": "lars",
 };
 const resolvePersona = (v) => ACCOUNTS[(v || "").trim().toLowerCase()] || null;
 
@@ -27,18 +27,28 @@ const DEMO = [
 ];
 
 export function LoginModal({ profile, onClose, onLogin }) {
-  const u = profile?.user;
-  const [email, setEmail] = useState(u?.email || "");
+  // Start blank. Do NOT prefill from the active persona — prefilling (and a prior
+  // effect that re-synced the field to profile.user.email) was overwriting the typed
+  // email with the currently-active member, so login kept defaulting to that member.
+  const [email, setEmail] = useState("");
   const [pw, setPw] = useState("demo");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (u?.email) setEmail(u.email); }, [u]);
+  const [err, setErr] = useState("");
   useEffect(() => {
     const esc = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
 
   // Resolve the entered identity → persona, then log in (parent switches the live record).
-  const submit = async (e) => { e?.preventDefault?.(); if (busy) return; setBusy(true); try { await onLogin(resolvePersona(email)); } finally { setBusy(false); } };
+  // If it doesn't match a known account, surface an error instead of falling through to
+  // onLogin(null) — which previously logged the user in as whoever was already active.
+  const submit = async (e) => {
+    e?.preventDefault?.(); if (busy) return;
+    const id = resolvePersona(email);
+    if (!id) { setErr("We couldn't match that email or member number to an account. Use a demo account below, or enter the member's email."); return; }
+    setErr(""); setBusy(true);
+    try { await onLogin(id); } finally { setBusy(false); }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -51,7 +61,8 @@ export function LoginModal({ profile, onClose, onLogin }) {
         <form className="mt-5 space-y-3" onSubmit={submit}>
           <label className="block">
             <span className="block text-[10px] font-bold tracking-wide uppercase text-ink-slate mb-1">Email or member number</span>
-            <input value={email} onChange={e => setEmail(e.target.value)} autoFocus
+            <input value={email} onChange={e => { setEmail(e.target.value); if (err) setErr(""); }} autoFocus
+              placeholder="name@email.com or member no."
               className="w-full bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] focus:border-tap-green outline-none" />
           </label>
           <label className="block">
@@ -63,6 +74,7 @@ export function LoginModal({ profile, onClose, onLogin }) {
             <label className="flex items-center gap-1.5 text-ink-muted"><input type="checkbox" defaultChecked className="accent-[#46a41a]" /> Keep me signed in</label>
             <a className="text-tap-greenDeep font-semibold">Forgot password?</a>
           </div>
+          {err && <div className="rounded-lg bg-tap-red/10 text-tap-red text-[12px] font-medium px-3 py-2">{err}</div>}
           <Btn size="lg" className="w-full" type="submit" disabled={busy}>{busy ? "Signing in…" : <>Log in <Icon name="arrow" size={14} /></>}</Btn>
         </form>
         <div className="mt-5 pt-4 border-t border-line">

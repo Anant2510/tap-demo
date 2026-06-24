@@ -283,7 +283,7 @@ export function Home({ shared, go }) {
               ))}
             </div>
           </div>
-          <div className="mt-6 rounded-2xl border border-tap-green/20 px-4 py-3 flex items-center gap-2 text-[12.5px] font-semibold text-lime" style={{ background: "linear-gradient(90deg, #133019, #1c5229)" }}><Icon name="spark" size={14} className="shrink-0" /> Earn up to 4,832 voa.miles on your Lisbon stopover hotel and experiences this trip.</div>
+          <div className="mt-6 rounded-2xl border border-tap-green/20 px-4 py-3 flex items-center gap-2 text-[12.5px] font-semibold text-lime" style={{ background: "linear-gradient(90deg, #133019, #1c5229)" }}><Icon name="spark" size={14} className="shrink-0" /> Earn up to {miles(Math.round((rec?.package?.total || pat.usualPrice || 250) * 12))} voa.miles on your Lisbon stopover hotel and experiences this trip.</div>
         </div>
       </section>
 
@@ -310,7 +310,7 @@ export function Home({ shared, go }) {
                 {resumable ? <>
                   <div className="font-bold text-[15px]">Resume booking</div>
                   <div className="text-[12px] text-ink-muted mt-1">{journey.origin} → {journey.dest} · stopped at {journey.stage}.{journey.seat ? ` Seat ${journey.seat} held.` : ""}</div>
-                  <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="green">{["search", "results", "seat", "extras", "review"].indexOf(journey.stage) + 1} of 5 done</Pill><Pill tone="slate">€2 fare delta</Pill></div>
+                  <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="green">{["search", "results", "seat", "extras", "review"].indexOf(journey.stage) + 1} of 5 done</Pill><Pill tone="slate">Fare held</Pill></div>
                   <Btn size="sm" variant="outline" className="mt-3 w-full" onClick={() => { api.post("/journey/resume", {}).catch(() => {}); go("cart"); }}>Continue →</Btn>
                 </> : <>
                   <div className="font-bold text-[15px]">Nothing in progress</div>
@@ -403,10 +403,14 @@ function buildTemplates(profile, cityOf) {
   const pat = profile.pattern || {}, hist = profile.history || [], seat = (profile.prefs?.seat || "").split(" ")[0];
   const out = [];
   if (pat.usualOutNo) out.push({ label: "Mon · early", route: `${pat.origin} → ${pat.dest}`, time: pat.usualDep || "", detail: `${pat.usualOutNo} · Hand bag · seat ${seat} · default card`, used: pat.matching || pat.last || 1 });
-  if (pat.usualBackNo) out.push({ label: "Thu · return", route: `${pat.dest} → ${pat.origin}`, time: "19:25", detail: `${pat.usualBackNo} · Evening · ${profile.prefs?.bag || "window seat"} · Fast Track`, used: hist.filter(h => h.flight_no === pat.usualBackNo).length || 1 });
+  if (pat.usualBackNo) out.push({ label: "Thu · return", route: `${pat.dest} → ${pat.origin}`, time: pat.usualBackDep || "", detail: `${pat.usualBackNo} · Evening · ${profile.prefs?.bag || "window seat"} · Fast Track`, used: hist.filter(h => h.flight_no === pat.usualBackNo).length || 1 });
   const counts = {}; hist.forEach(h => { if (h.route) counts[h.route] = (counts[h.route] || 0) + 1; });
   const third = Object.entries(counts).sort((a, b) => b[1] - a[1]).find(([r]) => r !== pat.topRoute);
-  if (third) out.push({ label: "Same-day", route: third[0].replace("→", " ↔ "), time: "07:10 / 20:55", detail: `Out & back · flex fare`, used: third[1] });
+  if (third) {
+    const deps = hist.filter(h => h.route === third[0]).map(h => h.dep_time).filter(Boolean).sort();
+    const sameDayTime = deps.length >= 2 ? `${deps[0]} / ${deps[deps.length - 1]}` : (deps[0] || "");
+    out.push({ label: "Same-day", route: third[0].replace("→", " ↔ "), time: sameDayTime, detail: `Out & back · flex fare`, used: third[1] });
+  }
   out.push({ label: "Weekly shuttle", route: `${pat.origin || "OPO"} ↔ ${pat.dest || "LIS"}`, time: "", detail: "Auto-rebook each week · pause anytime", shuttle: true });
   return out.slice(0, 4);
 }
