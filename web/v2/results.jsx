@@ -43,7 +43,10 @@ export function Results({ shared, params, go }) {
   // resolve this leg's route + date
   const origin = (leg === "inbound" ? params.dest : params.origin) || (leg === "inbound" ? "LIS" : "OPO");
   const dest = (leg === "inbound" ? params.origin : params.dest) || (leg === "inbound" ? "OPO" : "LIS");
-  const date = (leg === "inbound" ? params.ret : params.date) || "";
+  const _isoPlus = (n) => { const x = new Date("2026-06-15T00:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  const shiftISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const date = (leg === "inbound" ? params.ret : params.date) || _isoPlus(leg === "inbound" ? 5 : 3);
+  const retDate = params.ret || _isoPlus(5);
   const pax = +params.pax || 1, cabin = params.cabin || "Economy";
 
   const [flights, setFlights] = useState(null);
@@ -53,7 +56,7 @@ export function Results({ shared, params, go }) {
   const [sel, setSel] = useState(trip[leg]);
   const [showAll, setShowAll] = useState(false);
   const [held, setHeld] = useState(false);
-  const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 9999, wifi: false, useMiles: false });
+  const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false });
 
   useEffect(() => {
     setFlights(null); setExpanded(null);
@@ -113,7 +116,7 @@ export function Results({ shared, params, go }) {
   function pickFare(f, fare) {
     const choice = { flight: f, fare: fare.key, price: fare.price, leg, origin, dest, date };
     setLeg(leg, choice); setSel(choice);
-    Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret });
+    Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret || retDate });
     api.post("/journey", { origin, dest, date, stage: "seat", flight_no: f.flight_no, cabin: fare.key === "Executive" ? "Business" : "Economy", device: "Web app" }).catch(() => {});
   }
   function advance() {
@@ -131,7 +134,7 @@ export function Results({ shared, params, go }) {
           <Chip label="From" value={`${cityOf(origin)} · ${origin}`} />
           <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="p-2 rounded-full border border-line hover:bg-surface-mute text-tap-greenDeep" title="Swap origin and destination"><Icon name="swap" size={15} /></button>
           <Chip label="To" value={`${cityOf(dest)} · ${dest}`} />
-          <Chip label="Dates" value={type === "round" && params.ret ? `${fmtDate(params.date)} — ${fmtDate(params.ret)}`.replace(/ \d{4}/g, "") : fmtDate(date)} />
+          <Chip label="Dates" value={type === "round" ? `${fmtDate(date)} — ${fmtDate(retDate)}`.replace(/ \d{4}/g, "") : fmtDate(date)} />
           <Chip label="Pax" value={`${pax} adult · ${cabin === "Business" ? "Business" : "Eco"}`} />
           <Btn variant="outline" size="sm" className="ml-auto" onClick={() => go("home")}>Edit search</Btn>
         </div>
@@ -140,12 +143,12 @@ export function Results({ shared, params, go }) {
       {/* stepper — full booking journey */}
       <div className="bg-surface border-b border-line">
         <div className="mx-auto max-w-page px-6 py-4 flex items-center gap-2 overflow-x-auto v2-track text-[13px] font-semibold whitespace-nowrap">
-          {["Select flights", "Trip extras", "My Trip Basket", "Passenger details", "Payment"].map((s, i) => (
+          {["Select flights", "View & customize cart", "My Trip Basket", "Passenger details", "Payment"].map((s, i) => (
             <React.Fragment key={s}>
-              <span className={cx("shrink-0 flex items-center gap-1.5", i === 0 ? "text-ink" : "text-ink-faint")}>
-                <span className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-[11px]", i === 0 ? "bg-lime text-ink" : "bg-surface-mute text-ink-faint")}>{i + 1}</span>{s}
+              <span className={cx("shrink-0 flex items-center gap-1.5", i === 0 ? "text-ink font-bold" : "text-ink-faint")}>
+                <span className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-[11px]", i === 0 ? "bg-lime-tint text-tap-greenDeep ring-1 ring-lime" : "bg-surface-mute text-ink-faint")}>{i + 1}</span>{s}
               </span>
-              {i < 4 && <span className={cx("flex-1 min-w-[14px] h-px", i === 0 ? "bg-tap-green" : "bg-line-strong")} />}
+              {i < 4 && <span className={cx("flex-1 min-w-[14px] h-0.5 rounded-full", i === 0 ? "bg-ink-700" : "bg-line-strong")} />}
             </React.Fragment>
           ))}
         </div>
@@ -155,7 +158,7 @@ export function Results({ shared, params, go }) {
         {/* filters */}
         <aside className="space-y-5">
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink-muted hover:text-ink" onClick={() => setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 9999, wifi: false, useMiles: false })}>Clear all</button></div>
+            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false })}>Clear all</button></div>
             <FGroup title="Stops">
               <Chk label="Direct only" count={counts.direct} on={F.direct} set={v => setF({ ...F, direct: v })} />
               <Chk label="1 stop" count={counts.oneStop} on={F.oneStop} set={v => setF({ ...F, oneStop: v })} />
@@ -172,6 +175,11 @@ export function Results({ shared, params, go }) {
               <input type="range" min="0" max="24" value={F.depLo} onChange={e => setF({ ...F, depLo: Math.min(+e.target.value, F.depHi) })} className="w-full accent-[#46a41a]" />
               <input type="range" min="0" max="24" value={F.depHi} onChange={e => setF({ ...F, depHi: Math.max(+e.target.value, F.depLo) })} className="w-full accent-[#46a41a]" />
             </FGroup>
+            <FGroup title="Price range">
+              <div className="text-[12px] font-semibold mb-1 v2-num">{EUR(F.priceLo)} — {F.priceHi >= 800 ? "€800+" : EUR(F.priceHi)}</div>
+              <input type="range" min="0" max="800" step="10" value={F.priceLo} onChange={e => setF({ ...F, priceLo: Math.min(+e.target.value, F.priceHi) })} className="w-full accent-[#46a41a]" />
+              <input type="range" min="0" max="800" step="10" value={F.priceHi} onChange={e => setF({ ...F, priceHi: Math.max(+e.target.value, F.priceLo) })} className="w-full accent-[#46a41a]" />
+            </FGroup>
             <FGroup title="Airline">
               {["TAP Air Portugal", "TAP Express", "Partners"].map(a => <Chk key={a} label={a} count={counts.airline[a] || 0} on={F.airlines.has(a)} set={v => { const s = new Set(F.airlines); v ? s.add(a) : s.delete(a); setF({ ...F, airlines: s }); }} />)}
             </FGroup>
@@ -186,7 +194,9 @@ export function Results({ shared, params, go }) {
         {/* results */}
         <div className="space-y-4">
           {/* date strip */}
-          <Card className="p-1.5 flex gap-1 overflow-x-auto v2-track">
+          <Card className="p-1.5 flex items-stretch gap-1">
+            <button onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: shiftISO(date, -7) })} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Previous week">‹</button>
+            <div className="flex-1 flex gap-1 overflow-x-auto v2-track">
             {week.map(d => {
               const on = d.date === date;
               return <button key={d.date} onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: d.date })}
@@ -195,6 +205,8 @@ export function Results({ shared, params, go }) {
                 <div className={cx("text-[15px] font-bold v2-num", on ? "text-tap-greenDark" : "text-ink")}>{d.price ? EUR(d.price) : "—"}</div>
               </button>;
             })}
+            </div>
+            <button onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: shiftISO(date, 7) })} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Next week">›</button>
           </Card>
 
           {/* sort tabs */}
@@ -265,11 +277,12 @@ function Step({ n, title, sub, active, done, dim }) {
   );
 }
 const FGroup = ({ title, children, last }) => (
-  <div className={cx("py-3", !last && "border-b border-line")}><div className="text-[11px] font-bold uppercase tracking-wide text-ink-slate mb-2">{title}</div><div className="space-y-1.5">{children}</div></div>
+  <div className={cx("py-3", !last && "border-b border-line")}><div className="text-[13px] font-bold text-ink mb-2">{title}</div><div className="space-y-1.5">{children}</div></div>
 );
 const Chk = ({ label, count, on, set }) => (
   <label className="flex items-center gap-2 text-[13px] cursor-pointer">
-    <input type="checkbox" checked={on} onChange={e => set(e.target.checked)} className="accent-[#46a41a] w-4 h-4" />
+    <input type="checkbox" checked={on} onChange={e => set(e.target.checked)} className="peer sr-only" />
+    <span className={cx("w-[18px] h-[18px] rounded-md border-2 inline-flex items-center justify-center shrink-0 transition-colors", on ? "bg-lime-tint border-tap-green text-tap-green" : "bg-surface border-line-strong text-transparent")}><Icon name="check" size={12} className="stroke-[3]" /></span>
     <span className="flex-1">{label}</span><span className="text-[11px] text-ink-faint v2-num">{count}</span>
   </label>
 );

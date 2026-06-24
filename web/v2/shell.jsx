@@ -24,19 +24,20 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
-  const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 : 0) + (trip.extras?.length || 0);   // live items in the trip basket (0 once a booking is confirmed)
+  const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : 0);   // seeded extras don't count until a flight is chosen; 0 once a booking is confirmed
+  const bookActive = ["home", "results", "cart", "basket", "express", "passenger", "payment", "customize"].includes(route);
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
       <div className="mx-auto max-w-page px-6 h-16 flex items-center gap-6">
         <button onClick={() => go("home")} className="shrink-0"><TapLogo /></button>
         <nav className="hidden lg:flex items-center gap-1 ml-2">
-          {NAV.map(n => (
+          {NAV.map(n => { const on = n.key === "home" ? bookActive : route === n.key; return (
             <button key={n.key} onClick={() => go(n.key)}
               className={cx("px-3 py-2 text-[13px] font-medium transition-colors border-b-2",
-                route === n.key ? "text-ink font-semibold border-tap-green" : "text-ink-muted hover:text-ink border-transparent")}>
+                on ? "text-ink font-semibold border-tap-green" : "text-ink-muted hover:text-ink border-transparent")}>
               {n.label}
             </button>
-          ))}
+          ); })}
         </nav>
         <div className="ml-auto flex items-center gap-1">
           <button onClick={() => go("results")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="Search"><Icon name="search" /></button>
@@ -71,10 +72,10 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
       {mobileMenu && (
         <div className="lg:hidden border-t border-line bg-surface">
           <div className="mx-auto max-w-page px-4 py-2">
-            {NAV.map(n => (
+            {NAV.map(n => { const on = n.key === "home" ? bookActive : route === n.key; return (
               <button key={n.key} onClick={() => { setMobileMenu(false); go(n.key); }}
-                className={cx("w-full text-left px-3 py-2.5 rounded-lg text-[14px] font-medium", route === n.key ? "text-ink bg-surface-mute" : "text-ink-muted hover:text-ink hover:bg-surface-mute")}>{n.label}</button>
-            ))}
+                className={cx("w-full text-left px-3 py-2.5 rounded-lg text-[14px] font-medium", on ? "text-ink bg-surface-mute" : "text-ink-muted hover:text-ink hover:bg-surface-mute")}>{n.label}</button>
+            ); })}
             <div className="h-px bg-line my-1.5" />
             <button onClick={() => { setMobileMenu(false); go("wishlist"); }} className="w-full text-left px-3 py-2.5 rounded-lg text-[14px] text-ink-muted hover:bg-surface-mute flex items-center gap-2"><Icon name="heart" size={15} /> Wishlist</button>
             <button onClick={() => { setMobileMenu(false); go("basket"); }} className="w-full text-left px-3 py-2.5 rounded-lg text-[14px] text-ink-muted hover:bg-surface-mute flex items-center gap-2"><Icon name="cart" size={15} /> My Trip Basket{basketCount > 0 && <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-tap-red text-white text-[10px] font-bold inline-flex items-center justify-center">{basketCount}</span>}</button>

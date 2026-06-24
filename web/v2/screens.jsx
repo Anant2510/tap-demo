@@ -168,7 +168,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
       )}
 
       <div className="flex flex-wrap gap-4 mt-4 text-[12px] text-ink-muted">
-        {[["Traveler details saved", true], [`Default ${u.card_brand || "card"} ready`, true], [`${u.tier} benefits active`, true], ["Use miles available", (u.miles || 0) > 0]].map(([t, ok], i) => (
+        {[["Traveler details saved", true], [`Default ${u.card_brand || "Mastercard"} ready`, true], [`${u.tier} benefits active`, true], ["Use miles available", (u.miles || 0) > 0]].map(([t, ok], i) => (
           <span key={i} className="flex items-center gap-1.5"><Icon name="check" size={13} className={ok ? "text-tap-green" : "text-ink-faint"} /> {t}</span>
         ))}
       </div>
@@ -208,7 +208,7 @@ export function Home({ shared, go }) {
         </video>
         <div className="absolute inset-0 bg-black/15" />
         <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
-          <div className="rounded-3xl bg-surface/95 backdrop-blur-md border border-white/60 shadow-pop p-6 sm:p-8">
+          <div className="rounded-3xl bg-surface border border-line shadow-pop p-6 sm:p-8">
             <div className="flex items-start justify-between">
               <PersonalizedTag />
               <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-ink-muted text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
@@ -283,7 +283,7 @@ export function Home({ shared, go }) {
               ))}
             </div>
           </div>
-          <div className="mt-6 rounded-2xl border border-tap-green/20 px-4 py-3 flex items-center gap-2 text-[12.5px] font-semibold text-lime" style={{ background: "linear-gradient(90deg, #133019, #1c5229)" }}><Icon name="spark" size={14} className="shrink-0" /> Earn up to {miles(Math.round((rec?.package?.total || pat.usualPrice || 250) * 12))} voa.miles on your Lisbon stopover hotel and experiences this trip.</div>
+          <div className="mt-6 rounded-2xl border border-tap-green/20 px-4 py-3 flex items-center gap-2 text-[12.5px] font-semibold text-lime" style={{ background: "linear-gradient(90deg, #14331a, #2e7d33 80%, #46a41a)" }}><Icon name="spark" size={14} className="shrink-0" /> Earn up to {miles(Math.round((rec?.package?.total || pat.usualPrice || 250) * 12))} voa.miles on your Lisbon stopover hotel and experiences this trip.</div>
         </div>
       </section>
 
