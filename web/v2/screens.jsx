@@ -125,7 +125,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
   const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
   const swap = () => { setFrom(to); setTo(from); };
   const go2 = () => go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
-  const cell = "rounded-xl border border-line bg-surface/55 p-3 min-w-0";
+  const cell = "rounded-xl border border-line bg-surface-soft p-3 min-w-0";
   const lbl = "text-[9px] font-bold uppercase tracking-wide text-ink-faint";
   const bare = "w-full min-w-0 bg-transparent text-[15px] font-bold outline-none";
 
@@ -183,7 +183,7 @@ export function Home({ shared, go }) {
   const [bookings, setBookings] = useState([]);
   const [aiOn, setAiOn] = useState(false);          // TAP AI is OFF by default
   const tplRef = useRef(null);
-  const scrollTpl = (dir) => tplRef.current?.scrollBy({ left: dir * 280, behavior: "smooth" });
+  const scrollTpl = (dir) => tplRef.current?.scrollBy({ left: dir * 336, behavior: "smooth" });
   // High-contrast status badge for image overlays — solid/blurred white pill so it reads on any photo
   const overlayBadge = "absolute top-3 left-3 inline-flex items-center gap-1 rounded-full bg-white/95 backdrop-blur px-2.5 py-1 text-[11px] font-bold shadow-sm";
   useEffect(() => {
@@ -208,7 +208,7 @@ export function Home({ shared, go }) {
         </video>
         <div className="absolute inset-0 bg-black/15" />
         <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
-          <div className="rounded-3xl bg-surface/75 backdrop-blur-xl border border-white/50 shadow-pop p-6 sm:p-8">
+          <div className="rounded-3xl bg-surface/95 backdrop-blur-md border border-white/60 shadow-pop p-6 sm:p-8">
             <div className="flex items-start justify-between">
               <PersonalizedTag />
               <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-ink-muted text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
@@ -231,9 +231,9 @@ export function Home({ shared, go }) {
           </div>
           <div ref={tplRef} className="flex gap-4 overflow-x-auto v2-track snap-x pb-2 -mx-1 px-1">
             {buildTemplates(profile, cityOf).map((t, i) => (
-              <Card key={i} className="overflow-hidden shrink-0 w-[260px] snap-start">
-                <div className="h-28 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
-                <div className="p-3.5">
+              <Card key={i} className="overflow-hidden shrink-0 w-[320px] snap-start">
+                <div className="h-44 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
+                <div className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">{t.label}</span>
                     <span className="text-[10px] text-ink-faint">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span>
@@ -293,45 +293,45 @@ export function Home({ shared, go }) {
           <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Pick up where you left off</h2><span className="text-[11px] text-ink-faint">{journey?.updated_at ? "Updated " + timeAgo(journey.updated_at) : ""}</span></div>
           <div className="grid md:grid-cols-3 gap-4">
             {/* usual trip */}
-            <Card className="overflow-hidden">
-              <div className="h-40 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} src={imageFor(pat.dest || "LIS", cityOf(pat.dest || "LIS"))} className="absolute inset-0 w-full h-full" /><span className={cx(overlayBadge, "text-tap-greenDeep")}><Icon name="home" size={11} /> Usual trip</span></div>
-              <div className="p-4">
+            <Card className="overflow-hidden flex flex-col">
+              <div className="h-40 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} src={imageFor("usual-" + (pat.dest || "LIS"), cityOf(pat.dest || "LIS"))} className="absolute inset-0 w-full h-full" /><span className={cx(overlayBadge, "text-tap-greenDeep")}><Icon name="home" size={11} /> Usual trip</span></div>
+              <div className="p-4 flex flex-col flex-1">
                 <div className="font-bold text-[15px]">Book {cityOf(pat.origin || "OPO")} → {cityOf(pat.dest || "LIS")}</div>
                 <div className="text-[12px] text-ink-muted mt-1">{pat.recommendedLabel} {pat.usualDep} · fare from {EUR(pat.usualPrice)} · hand bag only.</div>
                 <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="slate">2 taps</Pill><Pill tone="slate">Default card</Pill><Pill tone="slate">{miles(u.miles)} mi avail.</Pill></div>
-                <div className="h-px bg-line my-3" />
-                <div className="flex items-center justify-between"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from</div><div className="text-[18px] font-black v2-num">{EUR(rec?.package?.total || pat.usualPrice)}</div></div><Btn size="sm" onClick={() => go("express")}>Book Now →</Btn></div>
+                <div className="mt-auto"><div className="h-px bg-line my-3" />
+                <div className="flex items-center justify-between"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from</div><div className="text-[18px] font-black v2-num">{EUR(rec?.package?.total || pat.usualPrice)}</div></div><Btn size="sm" onClick={() => go("express")}>Book Now →</Btn></div></div>
               </div>
             </Card>
             {/* resume */}
-            <Card className="overflow-hidden">
-              <div className="h-40 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} src={imageFor(journey?.dest || "OPO", cityOf(journey?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, resumable ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {resumable ? "In-progress" : "No draft"}</span></div>
-              <div className="p-4">
+            <Card className="overflow-hidden flex flex-col">
+              <div className="h-40 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} src={imageFor("resume-" + (journey?.dest || "OPO"), cityOf(journey?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, resumable ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {resumable ? "In-progress" : "No draft"}</span></div>
+              <div className="p-4 flex flex-col flex-1">
                 {resumable ? <>
                   <div className="font-bold text-[15px]">Resume booking</div>
                   <div className="text-[12px] text-ink-muted mt-1">{journey.origin} → {journey.dest} · stopped at {journey.stage}.{journey.seat ? ` Seat ${journey.seat} held.` : ""}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="green">{["search", "results", "seat", "extras", "review"].indexOf(journey.stage) + 1} of 5 done</Pill><Pill tone="slate">Fare held</Pill></div>
-                  <Btn size="sm" variant="outline" className="mt-3 w-full" onClick={() => { api.post("/journey/resume", {}).catch(() => {}); go("cart"); }}>Continue →</Btn>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => { api.post("/journey/resume", {}).catch(() => {}); go("cart"); }}>Continue →</Btn></div></div>
                 </> : <>
                   <div className="font-bold text-[15px]">Nothing in progress</div>
                   <div className="text-[12px] text-ink-muted mt-1">Start a new search to begin a booking.</div>
-                  <Btn size="sm" variant="outline" className="mt-3 w-full" onClick={search}>New search →</Btn>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={search}>New search →</Btn></div></div>
                 </>}
               </div>
             </Card>
             {/* tomorrow / boarding */}
-            <Card className="overflow-hidden">
-              <div className="h-40 relative overflow-hidden"><Img seed={"trip-" + (upcoming?.flight?.dest || "OPO")} src={imageFor(upcoming?.flight?.dest || "OPO", cityOf(upcoming?.flight?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, upcoming ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {upcoming ? "Upcoming" : "No trips"}</span></div>
-              <div className="p-4">
+            <Card className="overflow-hidden flex flex-col">
+              <div className="h-40 relative overflow-hidden"><Img seed={"trip-" + (upcoming?.flight?.dest || "OPO")} src={imageFor("trip-" + (upcoming?.flight?.dest || "OPO"), cityOf(upcoming?.flight?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, upcoming ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {upcoming ? "Upcoming" : "No trips"}</span></div>
+              <div className="p-4 flex flex-col flex-1">
                 {upcoming ? <>
                   <div className="font-bold text-[15px]">{upcoming.flight_no} · {upcoming.flight?.origin} → {upcoming.flight?.dest}</div>
                   <div className="text-[12px] text-ink-muted mt-1">Boarding {upcoming.flight?.dep} · seat {upcoming.seat || "—"}. {upcoming.days_to_go === 0 ? "Today." : upcoming.days_to_go === 1 ? "Tomorrow." : "On time."}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="slate">Check-in soon</Pill><Pill tone="slate">Mobile pass</Pill></div>
-                  <Btn size="sm" variant="outline" className="mt-3 w-full" onClick={() => go("basket")}>Manage trip →</Btn>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => go("basket")}>Manage trip →</Btn></div></div>
                 </> : <>
                   <div className="font-bold text-[15px]">No upcoming trips</div>
                   <div className="text-[12px] text-ink-muted mt-1">Book your usual to get going.</div>
-                  <Btn size="sm" variant="outline" className="mt-3 w-full" onClick={() => go("express")}>Book usual →</Btn>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => go("express")}>Book usual →</Btn></div></div>
                 </>}
               </div>
             </Card>
