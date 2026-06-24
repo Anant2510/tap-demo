@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS destinations (
 );
 CREATE TABLE IF NOT EXISTS baskets (
   id INTEGER PRIMARY KEY, user_id INTEGER, flight_no TEXT, items_json TEXT,
-  status TEXT DEFAULT 'open', updated_at TEXT
+  snapshot_json TEXT, status TEXT DEFAULT 'open', updated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS fare_locks (
   id INTEGER PRIMARY KEY, user_id INTEGER, flight_no TEXT, locked_price REAL, expires_at TEXT, status TEXT DEFAULT 'active'
@@ -93,15 +93,58 @@ CREATE TABLE IF NOT EXISTS wa_messages (
   id INTEGER PRIMARY KEY, direction TEXT, wa_id TEXT, msg_type TEXT, body TEXT,
   payload_json TEXT, status TEXT, created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS members (
+  member_no TEXT PRIMARY KEY, email TEXT, full_name TEXT, first_name TEXT,
+  tier TEXT, miles INTEGER, affinity TEXT, affinity_label TEXT, home_airport TEXT
+);
 `);
 
 // users.wa_id stores the last WhatsApp sender so the portal can push proactively
 try { db.exec("ALTER TABLE users ADD COLUMN wa_id TEXT"); } catch {}
 
+// members.phone — PSS / partner-channel customers register with email + mobile, so the
+// same number resolves them for transaction/offer emails and the WhatsApp flow.
+try { db.exec("ALTER TABLE members ADD COLUMN phone TEXT"); } catch {}
+
 // Per-app event attribution: tag each event with the originating frontend (v1 / v2) so
 // each Demo Console shows only its own app's events. No-op if the column already exists.
 try { db.exec("ALTER TABLE events ADD COLUMN app TEXT DEFAULT 'v1'"); } catch (e) { /* already migrated */ }
 try { db.exec("ALTER TABLE emails ADD COLUMN app TEXT DEFAULT 'v1'"); } catch (e) { /* already migrated */ }
+
+// ── PSS (Passenger Service System) integration ───────────────────────────────
+// Third-party bookings/transactions land via the governed /api/pss/ingest path.
+// Additive, idempotent migrations (same try/catch ALTER pattern used above):
+//  • bookings.source / pss_ref  — distinguish web vs PSS-origin records (mirrors X-App)
+//  • events.source/delivery/idem_key — the events table doubles as the CDP outbox:
+//      delivery = pending|sent|failed, retried by the forwarder; idem_key dedupes replays
+//  • pss_ingest_log — one row per processed PSS event so re-delivered webhooks are no-ops
+try { db.exec("ALTER TABLE bookings ADD COLUMN source TEXT DEFAULT 'web'"); } catch {}
+try { db.exec("ALTER TABLE bookings ADD COLUMN pss_ref TEXT"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN source TEXT DEFAULT 'web'"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN delivery TEXT"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN idem_key TEXT"); } catch {}
+db.exec(`CREATE TABLE IF NOT EXISTS pss_ingest_log (
+  id INTEGER PRIMARY KEY, idem_key TEXT UNIQUE, pss_ref TEXT, event_type TEXT, booking_id INTEGER, created_at TEXT
+);`);
+
+// PSS bookings stamp the member they belong to. The unified, multi-row profile +
+// identity stitching + segments live in cdp_profiles (see cdp-profile.js).
+try { db.exec("ALTER TABLE bookings ADD COLUMN member_no TEXT"); } catch {}
+
+// ── CDP unified profile store (Phase 3) ──────────────────────────────────────
+// A local mirror of the Adobe RT-CDP profile: one row per resolved identity
+// (multi-row, unlike the single-active users record), accumulating touches from
+// BOTH channels (pss = offline/partner, web = online). identities_json holds the
+// stitched identity graph; segments_json is recomputed on every touch. This is
+// what makes "offline + online stitched into one 360° profile → segment → offer"
+// real and queryable without refactoring the single-active-user operational model.
+db.exec(`CREATE TABLE IF NOT EXISTS cdp_profiles (
+  id INTEGER PRIMARY KEY, loyalty_id TEXT UNIQUE, email TEXT, ecid TEXT, name TEXT, tier TEXT, affinity TEXT,
+  identities_json TEXT, channels_json TEXT, segments_json TEXT,
+  bookings INTEGER DEFAULT 0, pss_events INTEGER DEFAULT 0, web_events INTEGER DEFAULT 0,
+  total_spend REAL DEFAULT 0, miles INTEGER DEFAULT 0, lounge_flag INTEGER DEFAULT 0, stitched INTEGER DEFAULT 0,
+  first_seen TEXT, last_seen TEXT
+);`);
 
 const now = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
@@ -329,9 +372,21 @@ function seedBookings(persona) {
 }
 
 function seed(personaId) {
+  seedMembersDirectory();
   const c = db.prepare("SELECT COUNT(*) n FROM users").get().n;
   if (c > 0) return;
   seedPersonaData(personaId || process.env.PERSONA || DEFAULT_PERSONA);
+}
+
+// The members directory holds ALL personas (not just the live id=1 record), so PSS
+// bookings for any member resolve, accrue miles, and can be segmented. Idempotent.
+function seedMembersDirectory() {
+  const ins = db.prepare(`INSERT OR REPLACE INTO members (member_no,email,full_name,first_name,tier,miles,affinity,affinity_label,home_airport)
+    VALUES (?,?,?,?,?,?,?,?,?)`);
+  for (const p of Object.values(PERSONAS)) {
+    const u = p.user;
+    ins.run(u.member_no, u.email, u.full_name, u.first_name, u.tier, u.miles, u.affinity, u.affinity_label, u.home_airport);
+  }
 }
 
 // Inserts everything for ONE persona into the live customer record (user_id=1).

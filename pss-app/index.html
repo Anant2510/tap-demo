@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>TAP · PSS — Reservations &amp; Loyalty Core</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🛰️</text></svg>"/>
+<style>
+  :root{
+    --bg:#0b1016; --panel:#121a24; --panel-2:#0e151d; --line:#1f2b38; --line-2:#2b3a4b;
+    --ink:#e7eef6; --ink-mut:#8da2b8; --ink-faint:#5c708a;
+    --amber:#f2b13c; --amber-d:#c98a1e; --cyan:#3fd0c9; --green:#46d17a; --red:#ff6b6b;
+    --mono:'SF Mono',ui-monospace,'Roboto Mono',Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(120% 80% at 100% 0,#14202c,transparent 60%),var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px}
+  a{color:var(--cyan)}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 18px 60px}
+  header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e1620,#0b1016)}
+  .top{max-width:1120px;margin:0 auto;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .logo{font-weight:800;letter-spacing:.5px;font-size:16px;display:flex;align-items:center;gap:8px}
+  .logo b{color:var(--amber)}
+  .tag{font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:2px;text-transform:uppercase}
+  .sysdot{width:8px;height:8px;border-radius:99px;background:var(--green);box-shadow:0 0 8px var(--green)}
+  .api{margin-left:auto;display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--ink-mut)}
+  .api input{background:#0a1119;border:1px solid var(--line-2);color:var(--ink);border-radius:7px;padding:5px 8px;font-family:var(--mono);font-size:11px;width:230px}
+  h1{font-size:20px;margin:22px 0 2px}
+  .sub{color:var(--ink-mut);font-size:12px;margin-bottom:18px}
+  .grid{display:grid;grid-template-columns:1.05fr .95fr;gap:16px;align-items:start}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .card h2{font-size:13px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .card h2 .k{font-family:var(--mono);font-size:9px;color:var(--ink-faint);letter-spacing:1.5px;text-transform:uppercase;margin-left:auto}
+  label{display:block;margin-bottom:10px}
+  label .l{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-mut);margin-bottom:4px}
+  input,select{width:100%;background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:13px;font-family:var(--sans)}
+  input:focus,select:focus{outline:none;border-color:var(--amber)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 12px}
+  .chip{font-size:12px;font-weight:600;padding:6px 11px;border-radius:99px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink-mut);cursor:pointer;user-select:none}
+  .chip.on{background:rgba(242,177,60,.14);border-color:var(--amber-d);color:var(--amber)}
+  .btn{width:100%;background:var(--amber);color:#1b1404;border:0;border-radius:9px;padding:11px;font-weight:800;font-size:13px;cursor:pointer}
+  .btn:disabled{opacity:.55;cursor:default}
+  .mono{font-family:var(--mono)}
+  .idline{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:12px;color:var(--ink-mut);margin-bottom:12px}
+  .idline b{color:var(--ink)}
+  /* pipeline */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:6px 0 12px}
+  .step{flex:1;min-width:96px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;position:relative}
+  .step .lbl{font-family:var(--mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-faint)}
+  .step .v{font-size:12px;margin-top:3px;color:var(--ink)}
+  .step.ok{border-color:rgba(70,209,122,.5)} .step.ok .lbl{color:var(--green)}
+  .step.warn{border-color:rgba(242,177,60,.5)} .step.warn .lbl{color:var(--amber)}
+  .step.err{border-color:rgba(255,107,107,.5)} .step.err .lbl{color:var(--red)}
+  .ok-banner{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;color:var(--green);margin-bottom:8px}
+  .muted{color:var(--ink-mut);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{ text-align:left;color:var(--ink-faint);font-family:var(--mono);font-size:10px;letter-spacing:.5px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:7px 8px;border-bottom:1px solid var(--line)}
+  td.r,th.r{text-align:right}
+  .empty{color:var(--ink-faint);padding:14px 8px}
+  .refresh{background:transparent;border:1px solid var(--line-2);color:var(--ink-mut);border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer;margin-left:auto}
+  .err-box{background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.4);color:var(--red);border-radius:9px;padding:10px;font-size:12px}
+  .hint{font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div class="logo"><span class="sysdot"></span> <span>TAP <b>PSS</b></span> <span class="tag">Reservations · Loyalty Core</span></div>
+    <div class="api">API
+      <input id="api" placeholder="https://flytap-backend (blank = same origin)"/>
+      <span id="apistat">●</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <h1>Reservation desk</h1>
+  <div class="sub">A standalone Passenger Service System. Bookings created here are written to the PSS store (Supabase), ingested into FlyTAP's SQLite, and streamed to Adobe RT-CDP under the member's identity — where they stitch with the member's online activity.</div>
+
+  <div class="grid">
+    <!-- LEFT: new reservation -->
+    <div class="card">
+      <h2>New reservation <span class="k">offline / partner channel</span></h2>
+
+      <label><span class="l">Member (loyalty identity used for stitching)</span>
+        <select id="member"></select>
+      </label>
+      <div class="idline" id="idline">Select a member…</div>
+      <div id="adhoc" style="display:none;border:1px dashed var(--line);border-radius:10px;padding:10px;margin:8px 0">
+        <div class="row">
+          <label><span class="l">Full name</span><input id="ad_name" placeholder="e.g. Maria Silva"/></label>
+          <label><span class="l">Email — required · stitch key &amp; login</span><input id="ad_email" placeholder="maria.silva@example.com"/></label>
+        </div>
+        <div class="row">
+          <label><span class="l">Mobile — required · for emails, SMS &amp; WhatsApp</span><input id="ad_phone" placeholder="+351 91 234 5678"/></label>
+          <label><span class="l">Loyalty ID <span style="text-transform:none;letter-spacing:0;color:var(--ink-faint)">— optional · blank = new prospect</span></span><input id="ad_loyalty" placeholder="(blank for a first-time customer)"/></label>
+        </div>
+      </div>
+
+      <div class="row">
+        <label><span class="l">Origin</span><input id="origin" value="OPO" maxlength="3"/></label>
+        <label><span class="l">Destination</span><input id="dest" value="LIS" maxlength="3"/></label>
+      </div>
+      <div class="row3">
+        <label><span class="l">Travel date</span><input id="date" type="date"/></label>
+        <label><span class="l">Flight</span><input id="flight" value="TP1927"/></label>
+        <label><span class="l">Seat</span><input id="seat" value="4C"/></label>
+      </div>
+      <div class="row3">
+        <label><span class="l">Cabin</span>
+          <select id="cabin"><option>Economy</option><option>Business</option></select>
+        </label>
+        <label><span class="l">Fare amount (€)</span><input id="amount" type="number" value="540"/></label>
+        <label><span class="l">Miles earned</span><input id="miles" type="number" value="1200"/></label>
+      </div>
+
+      <span class="l" style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-mut);margin-bottom:4px">Ancillaries / partner services</span>
+      <div class="chips" id="chips"></div>
+
+      <button class="btn" id="book">Create reservation →</button>
+      <div class="hint">Tip: book here as the member you'll log in as on the FlyTAP site. Same email/loyalty ID → Adobe stitches the PSS booking with the web session into one 360° profile.</div>
+    </div>
+
+    <!-- RIGHT: result pipeline -->
+    <div class="card">
+      <h2>Ingestion pipeline <span class="k" id="pipe-k">awaiting booking</span></h2>
+      <div id="result"><div class="muted">Create a reservation to see it flow PSS → Supabase → SQLite → Adobe RT-CDP.</div></div>
+      <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+        <button class="refresh" id="recheck" style="margin:0">↻ Re-check 360° profile segments</button>
+        <div id="segout" class="hint" style="margin-top:8px">After booking the same member on the FlyTAP website, re-check to watch <b style="color:var(--cyan)">Cross-Channel Booker</b> qualify.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- bottom: ledger -->
+  <div class="card" style="margin-top:16px">
+    <h2>PSS reservations ledger <button class="refresh" id="refresh">↻ refresh</button></h2>
+    <table>
+      <thead><tr><th>PNR</th><th>Flight</th><th>Date</th><th class="r">Fare</th><th>PSS ref</th></tr></thead>
+      <tbody id="ledger"><tr><td class="empty" colspan="5">No reservations yet.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+  var qp = new URLSearchParams(location.search);
+  var API = qp.get("api");
+  if (API == null) { try { API = localStorage.getItem("pss_api") || ""; } catch(e){ API = ""; } }
+  var apiEl = document.getElementById("api");
+  apiEl.value = API;
+  apiEl.addEventListener("change", function(){ API = apiEl.value.replace(/\/$/,""); try{ localStorage.setItem("pss_api", API); }catch(e){} ping(); loadMembers(); loadLedger(); });
+
+  function url(p){ return (API||"") + p; }
+  function j(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }
+  function get(p){ return fetch(url(p)).then(j); }
+  function post(p,b){ return fetch(url(p),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})}).then(j); }
+
+  function ping(){
+    var el = document.getElementById("apistat");
+    get("/api/health").then(function(){ el.style.color="var(--green)"; }).catch(function(){ el.style.color="var(--red)"; });
+  }
+
+  // members
+  var MEMBERS = [];
+  function loadMembers(){
+    get("/api/pss/members").then(function(m){
+      MEMBERS = m||[];
+      var sel = document.getElementById("member");
+      sel.innerHTML = '<option value="__adhoc__">✦ New customer — no FlyTAP history</option>'
+        + MEMBERS.map(function(x){ return '<option value="'+x.id+'">'+x.name+' — '+x.tier+'</option>'; }).join("");
+      onMember();
+    }).catch(function(){
+      document.getElementById("member").innerHTML = '<option value="__adhoc__">✦ New customer — no FlyTAP history</option>';
+      onMember();
+    });
+  }
+  function isAdhoc(){ return document.getElementById("member").value === "__adhoc__"; }
+  function curMember(){
+    if (isAdhoc()) return { id:"__adhoc__", member_no:(val("ad_loyalty")||"").trim(), email:(val("ad_email")||"").trim(), phone:(val("ad_phone")||"").trim(), name:(val("ad_name")||"").trim()||"New customer", home:"" };
+    var id=document.getElementById("member").value; return MEMBERS.find(function(x){return x.id===id;})||{};
+  }
+  function onMember(){
+    var adhoc = isAdhoc();
+    document.getElementById("adhoc").style.display = adhoc ? "block" : "none";
+    if (adhoc){
+      var em=(val("ad_email")||"").trim(), ph=(val("ad_phone")||"").trim(), ln=(val("ad_loyalty")||"").trim();
+      document.getElementById("idline").innerHTML = (em||ph)
+        ? ('New prospect · <span class="mono">'+(em||'—')+'</span> · <span class="mono">'+(ph||'no mobile')+'</span>'+(ln?' · loyalty <b>'+ln+'</b>':' · no prior history'))
+        : 'Enter email + mobile to book a brand-new customer (no FlyTAP history yet).';
+      return;
+    }
+    var m = curMember();
+    document.getElementById("idline").innerHTML = m.member_no ?
+      ('Loyalty <b>'+m.member_no+'</b> · <span class="mono">'+m.email+'</span>'+(m.phone?' · <span class="mono">'+m.phone+'</span>':'')+' · home '+(m.home||'—')) : 'Select a member…';
+    if (m.home){ document.getElementById("origin").value = m.home; document.getElementById("dest").value = (m.home==="LIS"?"OPO":(m.home==="FRA"?"JFK":"LIS")); }
+  }
+  document.getElementById("member").addEventListener("change", onMember);
+  ["ad_email","ad_loyalty","ad_name","ad_phone"].forEach(function(id){ var e=document.getElementById(id); if(e) e.addEventListener("input", onMember); });
+
+  // ancillary chips
+  var ANC = [["Lounge","Lounge access"],["Hotel","Hotel — partner"],["Car","Airport transfer"],["Insurance","Travel insurance"]];
+  var picked = {Lounge:true,Hotel:true,Car:false,Insurance:false};
+  var chips = document.getElementById("chips");
+  function renderChips(){
+    chips.innerHTML="";
+    ANC.forEach(function(a){
+      var b=document.createElement("button");
+      b.className="chip"+(picked[a[0]]?" on":""); b.textContent=(picked[a[0]]?"✓ ":"")+a[0];
+      b.onclick=function(){ picked[a[0]]=!picked[a[0]]; renderChips(); };
+      chips.appendChild(b);
+    });
+  }
+  renderChips();
+
+  // default date = today + 14d
+  (function(){ var d=new Date(); d.setDate(d.getDate()+14); document.getElementById("date").value=d.toISOString().slice(0,10); })();
+
+  function step(lbl,v,state){ return '<div class="step '+(state||'')+'"><div class="lbl">'+lbl+'</div><div class="v">'+v+'</div></div>'; }
+
+  function render(res){
+    var R = document.getElementById("result");
+    document.getElementById("pipe-k").textContent = res.ok ? "delivered" : "error";
+    if(!res.ok){ R.innerHTML='<div class="err-box">Failed: '+(res.error||"unknown")+'</div>'; return; }
+    var sup = res.supabase||{};
+    var supState = sup.configured ? (sup.ok?"ok":"err") : "warn";
+    var supVal = sup.configured ? (sup.ok?"row written":"write failed") : "local (no creds)";
+    var cdpOk = res.cdp==="sent";
+    var segs = res.segments || [];
+    var offerLabel = res.offer ? res.offer.replace(/^(pss_|seg_)/,"").replace(/_/g," ") : null;
+    var segHtml = segs.length
+      ? segs.map(function(s){ return '<span style="display:inline-block;background:rgba(63,208,201,.12);border:1px solid rgba(63,208,201,.4);color:var(--cyan);border-radius:99px;padding:2px 9px;font-size:11px;margin:0 4px 4px 0;font-family:var(--mono)">'+s+'</span>'; }).join("")
+      : '<span style="color:var(--ink-faint)">none resolved — set the profile source to Adobe RT-CDP to see audiences</span>';
+    R.innerHTML =
+      '<div class="ok-banner">✓ Reservation '+(res.booking&&res.booking.pnr?res.booking.pnr:"")+' created &amp; delivered to CDP</div>'+
+      '<div class="flow">'+
+        step("PSS","booking #"+(res.bookingId||"—"),"ok")+
+        step("Supabase",supVal,supState)+
+        step("SQLite","source=pss","ok")+
+        step("RT-CDP",cdpOk?"streamed · stitched":"queued (retry)",cdpOk?"ok":"warn")+
+        step("Offer",offerLabel||"no match",res.offer?"ok":"")+
+      '</div>'+
+      '<div class="muted">Identity → Adobe RT-CDP: <span class="mono" style="color:var(--cyan)">'+(res.persona&&res.persona.email||"—")+'</span> / <span class="mono">'+(res.persona&&res.persona.member_no||"—")+'</span>'+
+      (res.stitchedTo? ' · matched local profile <b style="color:var(--ink)">'+res.stitchedTo.name+'</b>':'')+'.</div>'+
+      '<div class="muted" style="margin-top:6px">Segments on unified profile: '+segHtml+'</div>'+
+      (res.offer? '<div class="muted">Offer <b style="color:var(--ink)">'+offerLabel+'</b> triggered <span class="mono">via '+(res.offerVia||"rule")+'</span></div>' : '')+
+      '<div class="hint">Now open the FlyTAP site, log in with <span class="mono">'+(res.persona&&res.persona.email||"this email")+'</span> and search/book — Adobe recognises the same person and personalises from the unified profile.'+
+      ((res.persona&&res.persona.phone)?' Or send a WhatsApp from <span class="mono">'+res.persona.phone+'</span> to the TAP number — the flow resolves this same registered identity.':'')+'</div>';
+  }
+
+  function book(){
+    var btn=document.getElementById("book");
+    var m=curMember();
+    if (isAdhoc() && (!m.email || !m.phone)){ document.getElementById("result").innerHTML='<div class="err-box">Email and mobile number are both required for a new customer.</div>'; document.getElementById("pipe-k").textContent="error"; return; }
+    btn.disabled=true; btn.textContent="Creating…";
+    var ancillaries = ANC.filter(function(a){return picked[a[0]];}).map(function(a){return {name:a[1]};});
+    var body = {
+      loyalty_id:m.member_no||null, email:m.email, full_name:m.name, phone:m.phone||null,
+      origin:val("origin"), destination:val("dest"), travel_date:val("date"),
+      flight_no:val("flight"), seat:val("seat"), cabin:val("cabin"),
+      amount:Number(val("amount"))||0, miles_earned:Number(val("miles"))||0,
+      ancillaries:ancillaries, channel:"PSS · Reservations desk"
+    };
+    post("/api/pss/book", body).then(function(res){ render(res); loadLedger(); })
+      .catch(function(e){ render({ok:false,error:String(e.message||e)}); })
+      .finally(function(){ btn.disabled=false; btn.textContent="Create reservation →"; });
+  }
+  function val(id){ return document.getElementById(id).value; }
+  document.getElementById("book").addEventListener("click", book);
+
+  function recheck(){
+    var m = curMember();
+    var out = document.getElementById("segout");
+    // Email-only prospect (no loyalty number): read the unified profile by email.
+    if (!m.member_no && m.email){
+      out.innerHTML = '<span style="color:var(--ink-faint)">checking '+m.email+'…</span>';
+      get("/api/cdp/profile?email="+encodeURIComponent(m.email)).then(function(p){
+        if(!p || p.found===false){ out.innerHTML='<span style="color:var(--ink-faint)">No unified profile yet for '+m.email+' — create the PSS reservation first.</span>'; return; }
+        var segs=(p.segments||[]);
+        var chips = segs.length
+          ? segs.map(function(s){ var nm=(typeof s==="string"?s:(s.name||"")); return '<span style="display:inline-block;background:rgba(63,208,201,.12);border:1px solid rgba(63,208,201,.4);color:var(--cyan);border-radius:99px;padding:2px 9px;font-size:11px;margin:0 4px 4px 0;font-family:var(--mono)">'+nm+'</span>'; }).join("")
+          : '<span style="color:var(--ink-faint)">no segments yet — cold-start profile (online 0)</span>';
+        out.innerHTML =
+          '<div style="margin-bottom:6px">'+(p.name||m.name)+' · <span class="mono">offline '+(p.offline||0)+' · online '+(p.online||0)+' · max €'+(p.maxTrip||0)+'</span></div>'+
+          chips +
+          '<div style="margin-top:7px;color:var(--ink-faint)">First-touch profile. Log in on the FlyTAP site with <span class="mono">'+m.email+'</span>, search/book, then re-check — new online activity stitches onto this same profile.</div>';
+      }).catch(function(){ out.innerHTML='<span style="color:var(--red)">request failed</span>'; });
+      return;
+    }
+    if(!m.member_no){ out.textContent="Select a member, or enter an email for a new customer."; return; }
+    out.innerHTML = '<span style="color:var(--ink-faint)">checking '+m.member_no+'…</span>';
+    get("/api/segments/"+encodeURIComponent(m.member_no)).then(function(r){
+      if(!r.ok){ out.innerHTML='<span style="color:var(--red)">'+(r.error||"unknown member")+'</span>'; return; }
+      var p=r.profile||{}, segs=(r.segments||[]);
+      var chips = segs.length
+        ? segs.map(function(s){ return '<span title="'+(s.rationale||"")+'" style="display:inline-block;background:rgba(63,208,201,.12);border:1px solid rgba(63,208,201,.4);color:var(--cyan);border-radius:99px;padding:2px 9px;font-size:11px;margin:0 4px 4px 0;font-family:var(--mono)">'+s.name+'</span>'; }).join("")
+        : '<span style="color:var(--ink-faint)">no segments yet</span>';
+      var cross = segs.some(function(s){ return s.id==="cross_channel_booker"; });
+      out.innerHTML =
+        '<div style="margin-bottom:6px">'+(p.name||m.name)+' · <span class="mono">offline '+(p.offline||0)+' · online '+(p.online||0)+' · max €'+(p.maxTrip||0)+'</span></div>'+
+        chips +
+        (cross ? '<div style="margin-top:7px;color:var(--green);font-weight:700">✓ Cross-Channel Booker — online + offline stitched into one 360° profile</div>' : '');
+    }).catch(function(){ out.innerHTML='<span style="color:var(--red)">request failed</span>'; });
+  }
+  document.getElementById("recheck").addEventListener("click", recheck);
+
+  function loadLedger(){
+    get("/api/pss/bookings").then(function(rows){
+      var tb=document.getElementById("ledger");
+      if(!rows||!rows.length){ tb.innerHTML='<tr><td class="empty" colspan="5">No reservations yet.</td></tr>'; return; }
+      tb.innerHTML = rows.map(function(b){
+        return '<tr><td style="font-weight:700">'+b.pnr+'</td><td>'+(b.flight_no||"")+'</td><td>'+(b.flight_date||"")+
+          '</td><td class="r mono">€'+(b.total!=null?b.total:"—")+'</td><td class="mono" style="color:var(--ink-faint)">'+(b.pss_ref||"")+'</td></tr>';
+      }).join("");
+    }).catch(function(){});
+  }
+  document.getElementById("refresh").addEventListener("click", loadLedger);
+
+  ping(); loadMembers(); loadLedger();
+})();
+</script>
+</body>
+</html>

@@ -22,6 +22,10 @@ const whatsapp = require("./whatsapp");
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
 const { appCtx, currentApp } = require("./appctx");
+const pss = require("./pss");   // PSS (3rd-party) ingestion → SQLite + RT-CDP
+const cdpProfile = require("./cdp-profile");   // unified profile + identity stitching + segments
+const segments = require("./segments");   // per-member local segment engine
+const cdpAudiences = require("./cdp-audiences");   // Adobe RT-CDP audience reads + publish
 
 const app = express();
 
@@ -40,7 +44,8 @@ if (BASE_PATH) {
 }
 
 app.use(cors());
-app.use(express.json());
+// Capture the raw body (used by the PSS webhook to verify its HMAC signature).
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf ? buf.toString("utf8") : ""; } }));
 app.use(express.urlencoded({ extended: false }));   // Twilio posts x-www-form-urlencoded
 // Tag every request with its originating frontend. v2 sends "X-App: v2"; the legacy app
 // sends nothing → defaults to "v1". Wrapping next() in the ALS context means all downstream
@@ -61,7 +66,8 @@ const maskCardProduct = (p) => p ? String(p).replace(BRAND_RE, "••••") :
 const maskUserCard = (u) => {
   if (!u || typeof u !== "object") return u;
   const r = { ...u };
-  if ("card_brand" in r) r.card_brand = "••••";
+  // Card brand (Visa/Mastercard/Amex) is not sensitive — show it. Only the number, last-4
+  // and expiry are masked.
   if ("card_last4" in r) r.card_last4 = "••••";
   if ("card_exp" in r) r.card_exp = "••/••";
   if ("card_product" in r) r.card_product = maskCardProduct(r.card_product);
@@ -177,6 +183,7 @@ app.get("/api/search", (req, res) => {
   scheduleSearchFollowup(origin, dest, date, stored);
   log("flight_search", { origin, dest, date, results: stored.length });
   cdpEvents.emit("results", liveIdentity(), { origin, destination: dest, travelDate: date, cabin: "Economy", channel: "Web app", abandoned: false });
+  cdpProfile.record({ identity: liveIdentity(), channel: "web", type: "search", dest });   // online touch → unified profile
   res.json({ ok: true, origin, dest, date, route, flights: stored });
 });
 
@@ -304,6 +311,7 @@ app.get("/api/profile", (req, res) => {
     usualOut, usualBack,
     usualOutNo: topFlight || "", usualBackNo: backFlight || "",
     usualDep: topOut?.dep_time || "",
+    usualBackDep: backRow?.dep_time || "",
     usualPrice,
     recommendedDate, recommendedLabel,
     destCounts,
@@ -431,7 +439,10 @@ app.get("/api/ancillaries", (req, res) => {
     let reason = null, recommended = false;
     if (bought >= Math.ceil(totalTrips * 0.6)) { recommended = true; reason = `You added this on ${bought} of your last ${totalTrips} trips`; }
     else if (bought > 0) { reason = `Added on ${bought} past trip${bought > 1 ? "s" : ""}`; }
-    return { ...a, bought, trips: totalTrips, reason, recommended };
+    const signals = bought > 0
+      ? [`Purchased on ${bought} of your last ${totalTrips} completed trips (bookings.items_json)`]
+      : [];
+    return { ...a, bought, trips: totalTrips, reason, signals, recommended };
   }));
 });
 
@@ -473,7 +484,14 @@ app.get("/api/destinations", async (req, res) => {
       reason = `You searched ${d.city} ${searched}× in the last week — still comparing options?`;
     else if (d.tag) reason = `Suggested because: ${d.tag.toLowerCase()}.`;
     else reason = `A popular route from your home airport.`;
-    return { ...d, origin: home, flown, booked, searched, purposes, reason, contentSource: fromAem ? "aem" : "local" };
+    // Discrete supporting facts (each maps to a DB table) so the "Why this?" control can show
+    // exactly what drove the recommendation — and the same rows can be inspected in the database.
+    const signals = [];
+    if (flown) signals.push(`Flown to ${d.city} ${flown}× — ${purposes.join("/").toLowerCase() || "on record"} (travel_history)`);
+    if (booked) signals.push(`Booked ${d.city} ${booked}× (bookings)`);
+    if (searched) signals.push(`Searched ${d.city} ${searched}× recently (searches)`);
+    if (!signals.length) signals.push(d.tag ? `Catalog match: ${d.tag} (destinations)` : `Popular from ${cityName(home)} (routes)`);
+    return { ...d, origin: home, flown, booked, searched, purposes, reason, signals, contentSource: fromAem ? "aem" : "local" };
   }));
 });
 
@@ -481,17 +499,31 @@ app.get("/api/destinations", async (req, res) => {
 app.get("/api/aem/status", (req, res) => { res.json(aem.status()); });
 
 /* ── Persistent basket ───────────────────────────────────────── */
+const _safeJSON = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
 app.get("/api/basket", (req, res) => {
-  const b = db.prepare("SELECT * FROM baskets WHERE user_id=1 AND status='open' ORDER BY id DESC LIMIT 1").get();
-  res.json(b ? { ...b, items: JSON.parse(b.items_json) } : null);
+  // Latest basket that's either still in progress ('open') or explicitly emptied ('cleared').
+  // The web app uses the status to decide: resume an abandoned basket vs. respect a clear vs. seed.
+  const b = db.prepare("SELECT * FROM baskets WHERE user_id=1 AND status IN ('open','cleared') ORDER BY id DESC LIMIT 1").get();
+  if (!b) return res.json(null);
+  res.json({ ...b, items: _safeJSON(b.items_json, []), snapshot: _safeJSON(b.snapshot_json, null) });
 });
 app.post("/api/basket", (req, res) => {
-  const { flight_no, items } = req.body;
+  const { flight_no, items, snapshot } = req.body;
   db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
-  const r = db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,updated_at) VALUES (1,?,?,?)")
-    .run(flight_no, JSON.stringify(items || []), now());
+  const r = db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,snapshot_json,updated_at) VALUES (1,?,?,?,?)")
+    .run(flight_no, JSON.stringify(items || []), snapshot ? JSON.stringify(snapshot) : null, now());
   log("basket_saved", { flight_no, items });
   res.json({ id: Number(r.lastInsertRowid), ok: true });
+});
+// Explicit "Clear basket": supersede the open basket and drop a 'cleared' marker so the
+// member isn't re-seeded a recommended basket on their next visit — only an explicit add
+// (which inserts a fresh 'open' basket) brings items back.
+app.post("/api/basket/clear", (req, res) => {
+  db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
+  db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,snapshot_json,status,updated_at) VALUES (1,?,?,?, 'cleared', ?)")
+    .run(req.body?.flight_no || null, "[]", null, now());
+  log("basket_cleared", {});
+  res.json({ ok: true });
 });
 
 /* ── Fare lock & Time-to-Think hold ──────────────────────────── */
@@ -542,6 +574,8 @@ app.post("/api/pay", async (req, res) => {
   cancelAllSearchFollowups();   // converted — don't chase with abandonment emails
   const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
   cdpEvents.emit("booked", liveIdentity(), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
+  cdpProfile.record({ identity: liveIdentity(), channel: "web", type: "booked", spend: Number(total) || 0,
+    lounge: (items || []).some(i => /lounge/i.test(i.name || i.label || i)) });   // online booking → unified profile
   res.json({ ok: true, pnr, email });
 });
 
@@ -652,8 +686,16 @@ app.post("/api/bookings/cancel", async (req, res) => {
 app.get("/api/whatsapp/webhook", (_req, res) => res.status(200).send("TAP WhatsApp webhook OK"));
 app.post("/api/whatsapp/webhook", async (req, res) => {
   res.set("Content-Type", "text/xml").status(200).send("<Response></Response>");  // ack fast, no TwiML reply
-  try { await whatsapp.handleIncoming({ from: req.body.From, text: req.body.Body }); }
-  catch (e) { log("wa_webhook_error", { error: e.message }); }
+  // WhatsApp is a V2 channel in this build: run the handler inside v2 app-context so its event
+  // writes (and any currentApp()-based deep links) attribute to / target the V2 site. Identity
+  // is resolved generically from the sender's number, so ANY DB-registered user works — not just
+  // the live persona. The pre-resolved identity is passed through for the handler to use.
+  try {
+    await appCtx.run({ app: "v2" }, async () => {
+      const known = pss.resolveByPhone(req.body.From);
+      await whatsapp.handleIncoming({ from: req.body.From, text: req.body.Body, app: "v2", identity: known || null });
+    });
+  } catch (e) { log("wa_webhook_error", { error: e.message }); }
 });
 
 app.post("/api/rebook", async (req, res) => {
@@ -1525,6 +1567,121 @@ app.get("/api/offers/today", (req, res) => {
   });
 });
 
+/* Personalized offer tiles — every tile is derived from the member's own DB history
+   (users · travel_history · bookings) and, when the Adobe RT-CDP module is wired, from real
+   audience membership. Each tile carries a reason + an explicit list of signals naming the
+   exact source (DB table or RT-CDP audience) so the "Why this?" control and the admin
+   personalization ledger can show precisely what drove it. Degrades to DB-only when CDP is off. */
+async function buildOfferTiles(identity) {
+  const u = db.prepare("SELECT first_name, tier, miles, home_airport, member_no, affinity_label FROM users WHERE id=1").get() || {};
+  const home = u.home_airport || "OPO";
+  const tier = u.tier || "Gold";
+  const milesBal = u.miles || 0;
+  const milesPerk = tier === "Platinum" ? "Triple miles" : tier === "Silver" ? "25% bonus miles" : "Double miles";
+  const routeRow = db.prepare("SELECT route, COUNT(*) c FROM travel_history WHERE user_id=1 GROUP BY route ORDER BY c DESC LIMIT 1").get();
+  const flownRoute = routeRow ? routeRow.route : null;
+  const flownCount = routeRow ? routeRow.c : 0;
+  const bookedRow = db.prepare("SELECT f.dest d, COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' GROUP BY f.dest ORDER BY c DESC LIMIT 1").get();
+  const topDest = bookedRow ? bookedRow.d : (flownRoute ? flownRoute.split("→")[1] : "LIS");
+  const topDestCity = cityName(topDest);
+  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status!='cancelled'").all();
+  const aCounts = {};
+  past.forEach(b => { try { JSON.parse(b.items_json || "[]").forEach(x => aCounts[x] = (aCounts[x] || 0) + 1); } catch { } });
+  let topAnc = null, topAncN = 0;
+  db.prepare("SELECT code,name FROM ancillaries WHERE price>0").all().forEach(a => { if ((aCounts[a.code] || 0) > topAncN) { topAncN = aCounts[a.code]; topAnc = a; } });
+  let localSegs = [], audiences = [], cdpOn = false;
+  try { localSegs = (segments.evaluate(u.member_no).segments) || []; } catch { }
+  try { audiences = await cdpAudiences.audiencesFor({ loyaltyId: u.member_no, email: liveIdentity().email }); cdpOn = cdpAudiences.cdpWired(); } catch { }
+  const topSeg = localSegs[0];
+  const affinitySeg = localSegs.find(s => /affinity/i.test(s.id));
+  const adobeAffinity = audiences.find(a => /football|golf|music|sport|live|fan/i.test(a));
+  const tiles = [];
+  tiles.push({
+    id: "miles_hotel", icon: "home", badge: `Because you're ${tier}`, via: "Loyalty (DB)",
+    title: `Use miles to discount your ${topDestCity} hotel`,
+    detail: `Apply 8,000 mi to any 3-night stay in ${topDestCity} · save up to €80 instantly.`,
+    value: "8,000 mi", cta: "Apply", action: "miles",
+    reason: `${tier} member with ${milesBal.toLocaleString()} miles · ${topDestCity} is your most-visited destination`,
+    signals: [`${tier} tier · ${milesBal.toLocaleString()} tap.miles available (users)`,
+      bookedRow ? `${topDestCity} booked ${bookedRow.c}× (bookings)` : `${topDestCity} on record (travel_history)`],
+  });
+  if (flownRoute) {
+    const [ro, rd] = flownRoute.split("→");
+    tiles.push({
+      id: "upgrade_route", icon: "plane", badge: "Limited · next trip", via: "Travel history (DB)",
+      title: `Upgrade ${cityName(ro)}–${cityName(rd)} to Business with miles`,
+      detail: `20% mileage discount when upgrading on your existing booking.`,
+      value: "42,000 mi", cta: "Upgrade", action: "miles",
+      reason: `${cityName(ro)}–${cityName(rd)} is your most-flown route (${flownCount} trips on record)`,
+      signals: [`Most-flown route ${flownRoute} · ${flownCount} trips (travel_history)`],
+    });
+  }
+  tiles.push({
+    id: "affinity_partner", icon: "star",
+    badge: cdpOn && adobeAffinity ? "RT-CDP audience" : (affinitySeg ? "Affinity offer" : "Partner offer"),
+    via: cdpOn && adobeAffinity ? "Adobe RT-CDP" : "Segment engine (DB)",
+    title: topAnc ? `${milesPerk} on your usual ${topAnc.name}` : `Earn ${tier === "Platinum" ? "3×" : "2×"} miles at partner hotels`,
+    detail: topAnc ? `Bonus miles when you add ${topAnc.name} — you book it most trips.` : `Triple miles when booking partner hotels through voa stay.`,
+    value: tier === "Platinum" ? "3× MI" : "2× MI", cta: "Activate", action: "miles",
+    reason: adobeAffinity ? `Adobe RT-CDP audience "${adobeAffinity}"` : (affinitySeg ? affinitySeg.why : (topAnc ? `You buy ${topAnc.name} on most trips` : `${tier} partner-earn benefit`)),
+    signals: [
+      ...(adobeAffinity ? [`Adobe RT-CDP audience: ${adobeAffinity}`] : []),
+      ...(affinitySeg ? [`Segment: ${affinitySeg.name} — ${affinitySeg.why} (segment engine)`] : []),
+      ...(topAnc ? [`${topAnc.name} bought ${topAncN}× across your trips (bookings)`] : []),
+      ...(topSeg && !affinitySeg ? [`Top segment: ${topSeg.name} — ${topSeg.why}`] : []),
+    ].filter(Boolean),
+  });
+  return { tier, home, cdpOn, audiences, segments: localSegs, tiles };
+}
+app.get("/api/offers/tiles", async (req, res) => {
+  try { res.json(await buildOfferTiles(liveIdentity())); }
+  catch (e) { res.json({ tiles: [], error: String(e) }); }
+});
+
+/* Admin personalization ledger — per recommendation surface, the computed reason + the EXACT
+   supporting rows that drove it, plus the raw DB records and RT-CDP audiences. Read-only;
+   lets a demo show the customer the database evidence behind every personalization. */
+app.get("/api/admin/personalization", async (req, res) => {
+  const u = db.prepare("SELECT member_no, email, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get() || {};
+  const home = u.home_airport || "OPO";
+  let localSegs = [], audiences = [], cdpOn = false;
+  try { localSegs = (segments.evaluate(u.member_no).segments) || []; } catch { }
+  try { audiences = await cdpAudiences.audiencesFor({ loyaltyId: u.member_no, email: u.email }); cdpOn = cdpAudiences.cdpWired(); } catch { }
+  const travel = db.prepare("SELECT route, trip_date, dep_time, purpose FROM travel_history WHERE user_id=1 ORDER BY trip_date DESC LIMIT 30").all();
+  const searchRows = db.prepare("SELECT origin, dest, travel_date, device, created_at FROM searches WHERE user_id=1 ORDER BY id DESC LIMIT 30").all();
+  const bookingRows = db.prepare("SELECT id, pnr, flight_no, flight_date, seat, items_json, status, source FROM bookings WHERE user_id=1 ORDER BY id DESC LIMIT 30").all()
+    .map(b => ({ id: b.id, pnr: b.pnr, flight_no: b.flight_no, flight_date: b.flight_date, seat: b.seat, status: b.status, source: b.source, items: _safeJSON(b.items_json, []) }));
+  const surfaces = [];
+  const ot = await buildOfferTiles(liveIdentity());
+  surfaces.push({ surface: "Home · offer tiles", items: ot.tiles.map(t => ({ title: t.title, via: t.via, reason: t.reason, signals: t.signals })) });
+  const destItems = db.prepare("SELECT code, city, tag FROM destinations").all().map(d => {
+    const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=1 AND route LIKE ?").all(`%→${d.code}`);
+    const booked = db.prepare("SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?").get(d.code).c;
+    const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=1 AND dest=?").get(d.code).c;
+    const score = flownRows.length * 3 + booked * 2 + searched;
+    return { city: d.city, flown: flownRows.length, booked, searched, score };
+  }).filter(d => d.score > 0).sort((a, b) => b.score - a.score).slice(0, 6)
+    .map(d => ({ title: d.city, reason: `flown ${d.flown}× · booked ${d.booked}× · searched ${d.searched}×`,
+      signals: [d.flown ? `travel_history: ${d.flown} trip(s) to ${d.city}` : null, d.booked ? `bookings: ${d.booked} to ${d.city}` : null, d.searched ? `searches: ${d.searched} for ${d.city}` : null].filter(Boolean) }));
+  surfaces.push({ surface: "Home · picked for you (destinations)", items: destItems });
+  const ancPast = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all();
+  const totalTrips = ancPast.length || 1; const aCounts = {};
+  ancPast.forEach(b => { _safeJSON(b.items_json, []).forEach(c => aCounts[c] = (aCounts[c] || 0) + 1); });
+  const ancItems = db.prepare("SELECT code, name FROM ancillaries WHERE price>0").all()
+    .map(a => ({ a, bought: aCounts[a.code] || 0 })).filter(x => x.bought > 0).sort((a, b) => b.bought - a.bought)
+    .map(x => ({ title: x.a.name, reason: `bought on ${x.bought} of ${totalTrips} completed trips`, signals: [`bookings.items_json: ${x.a.code} present in ${x.bought} of last ${totalTrips} trips`] }));
+  surfaces.push({ surface: "Ancillary recommendations", items: ancItems });
+  surfaces.push({ surface: "Segments & RT-CDP audiences", items: [
+    ...audiences.map(a => ({ title: a, via: "Adobe RT-CDP", reason: "Live audience membership", signals: [`RT-CDP audience: ${a}`] })),
+    ...localSegs.map(s => ({ title: s.name, via: "Segment engine", reason: s.why, signals: [`segment ${s.id}: ${s.why}`] })),
+  ] });
+  res.json({
+    identity: { member_no: u.member_no, email: u.email, name: u.full_name, tier: u.tier, miles: u.miles, home_airport: home, affinity: u.affinity_label },
+    cdpOn, audiences, segments: localSegs, surfaces,
+    records: { travel_history: travel, searches: searchRows, bookings: bookingRows },
+  });
+});
+
 app.post("/api/offers/send", async (req, res) => {
   let offer, ai = "live";
   const u = db.prepare("SELECT first_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get() || {};
@@ -1631,8 +1788,10 @@ function toCdpTrack(type, payload, at) {
   };
 }
 
-app.get("/api/health", (req, res) =>
-  res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", ai: hasKey() ? "live" : "fallback mode", whatsapp: whatsapp.CONFIGURED() ? "configured — messages really send" : "not configured (messages logged to DB)" }));
+app.get("/api/health", (req, res) => {
+  const waOn = typeof whatsapp.CONFIGURED === "function" ? whatsapp.CONFIGURED() : !!whatsapp.CONFIGURED;
+  res.json({ ok: true, db: DB_PATH, smtp: SMTP_READY ? "configured" : "not configured (emails logged to DB)", ai: hasKey() ? "live" : "fallback mode", whatsapp: waOn ? "configured — messages really send" : "not configured (messages logged to DB)" });
+});
 
 /* ── Self-test: live system-health checks for the demo console ──
    Runs read-only validations against the real DB + search engine so the
@@ -1692,10 +1851,16 @@ app.get("/api/admin/selftest", (req, res) => {
 /* Reset for repeated demos */
 // Wipe ALL per-user data (keep shared airports/routes) and re-seed one persona.
 function reseedPersona(personaId) {
-  for (const t of ["baskets","fare_locks","holds","bookings","payments","emails","searches","wa_messages","travel_history","vouchers","preferences","destinations","ancillaries","synced_searches","flights","users"]) {
+  for (const t of ["baskets","fare_locks","holds","emails","searches","wa_messages","travel_history","vouchers","preferences","destinations","ancillaries","synced_searches","flights"]) {
     try { db.exec(`DELETE FROM ${t}`); } catch {}
   }
-  db.exec("DELETE FROM events WHERE type != 'db_seeded'");
+  // PSS-origin (offline / third-party) transactions are STICKY across persona switches,
+  // so the unified profile keeps reflecting offline data after a member logs in on the web.
+  // (The members directory is never cleared.)
+  try { db.exec("DELETE FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE source IS NOT 'pss')"); } catch {}
+  try { db.exec("DELETE FROM bookings WHERE source IS NOT 'pss'"); } catch {}
+  try { db.exec("DELETE FROM users"); } catch {}
+  db.exec("DELETE FROM events WHERE type != 'db_seeded' AND COALESCE(source,'') != 'pss' AND type NOT LIKE 'pss_%'");
   seedPersonaData(personaId);
 }
 
@@ -1825,6 +1990,142 @@ app.post("/api/admin/cdp/ingest", async (req, res) => {
   try { res.json(await cdpIngest.ingest(Object.keys(PERSONAS), { dryRun })); }
   catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
 });
+
+/* ── PSS (Passenger Service System) — 3rd-party bookings → SQLite + Adobe RT-CDP ──
+   The external PSS (Supabase) fires a signed webhook here on every booking. This is
+   the single governed ingest path: persist the transaction to SQLite, stream the
+   event to RT-CDP for identity stitching, and trigger any qualifying offer. */
+app.post("/api/pss/ingest", async (req, res) => {
+  const raw = req.rawBody != null ? req.rawBody : JSON.stringify(req.body || {});
+  const out = await pss.ingest(req.body, { rawBody: raw, signature: req.headers["x-pss-signature"] });
+  res.status(out.status || (out.ok ? 200 : 400)).json(out);
+});
+
+// Synthetic ingest for the demo — fires a realistic PSS booking for the ACTIVE persona
+// (so it stitches onto the live profile). No signature required. Body fields optional.
+app.post("/api/pss/test", async (req, res) => {
+  const u = db.prepare("SELECT member_no, email, full_name, home_airport FROM users WHERE id=1").get() || {};
+  const b = req.body || {};
+  const out = await pss.ingest({
+    event_type: b.event_type || "booked",
+    pss_ref: b.pss_ref || ("PSS-" + Date.now()),
+    pnr: b.pnr || ("PSS" + Math.random().toString(36).slice(2, 7).toUpperCase()),
+    loyalty_id: u.member_no, email: u.email, full_name: u.full_name,
+    origin: b.origin || u.home_airport || "OPO", destination: b.destination || "LIS",
+    travel_date: b.travel_date || searchToday(), flight_no: b.flight_no || "TP1927",
+    seat: b.seat || "4C", cabin: b.cabin || "Economy",
+    amount: b.amount != null ? b.amount : 540, currency: "EUR",
+    miles_earned: b.miles_earned != null ? b.miles_earned : 1200,
+    ancillaries: b.ancillaries || [{ name: "Lounge access" }, { name: "Hotel — partner" }],
+    channel: b.channel || "PSS · Partner site",
+  }, { skipVerify: true });
+  res.json(out);
+});
+
+// Demo-panel booking trigger: builds a PSS booking for the ACTIVE persona, writes it to
+// the Supabase PSS store (if configured), then ingests synchronously so the panel gets an
+// immediate stitch/offer result. (The Supabase webhook later re-posts it → deduped no-op.)
+app.post("/api/pss/book", async (req, res) => {
+  const b = req.body || {};
+  // Identity: explicit (sent by the standalone PSS app) or fall back to the active persona.
+  let ident;
+  if (b.loyalty_id || b.email) {
+    ident = { member_no: b.loyalty_id || null, email: b.email || null, full_name: b.full_name || null, phone: b.phone || null, home_airport: null };
+    // If a known member/user was named but no phone was passed, reuse their stored number.
+    if (!ident.phone) {
+      const known = db.prepare("SELECT phone FROM users WHERE member_no=? OR lower(email)=lower(?)").get(b.loyalty_id || "", b.email || "")
+        || db.prepare("SELECT phone FROM members WHERE member_no=? OR lower(email)=lower(?)").get(b.loyalty_id || "", b.email || "");
+      if (known && known.phone) ident.phone = known.phone;
+    }
+  } else {
+    const u = db.prepare("SELECT member_no, email, full_name, phone, home_airport FROM users WHERE id=1").get() || {};
+    ident = { member_no: u.member_no, email: u.email, full_name: u.full_name, phone: u.phone, home_airport: u.home_airport };
+  }
+  const rec = {
+    event_type: "booked",
+    pss_ref: b.pss_ref || ("PSS-" + Date.now()),
+    pnr: b.pnr || ("PSS" + Math.random().toString(36).slice(2, 7).toUpperCase()),
+    loyalty_id: ident.member_no, email: ident.email, full_name: ident.full_name, phone: ident.phone,
+    origin: b.origin || ident.home_airport || "OPO", destination: b.destination || "LIS",
+    travel_date: b.travel_date || searchToday(), flight_no: b.flight_no || "TP1927",
+    seat: b.seat || "4C", cabin: b.cabin || "Economy",
+    amount: b.amount != null ? b.amount : 540, currency: "EUR",
+    miles_earned: b.miles_earned != null ? b.miles_earned : 1200,
+    ancillaries: Array.isArray(b.ancillaries) ? b.ancillaries : [{ name: "Lounge access" }, { name: "Hotel — partner" }],
+    channel: b.channel || "PSS · Partner site",
+  };
+  const supabase = await pss.pushToSupabase(rec).catch((e) => ({ configured: true, ok: false, error: String(e) }));
+  const out = await pss.ingest(rec, { skipVerify: true });
+  res.json({ ...out, pnr: rec.pnr,
+    booking: { pnr: rec.pnr, origin: rec.origin, destination: rec.destination, travel_date: rec.travel_date, flight_no: rec.flight_no, amount: rec.amount },
+    persona: { member_no: ident.member_no, email: ident.email, name: ident.full_name, phone: ident.phone }, supabase });
+});
+
+// Segment membership for a member's unified (offline + online) profile — drives the
+// "which audiences does this 360° profile qualify for" view in the PSS app / demo.
+app.get("/api/segments/:memberNo", async (req, res) => {
+  const memberNo = req.params.memberNo;
+  const out = segments.evaluate(memberNo);
+  // Real Adobe audiences take precedence when the cdp module is wired; else local engine.
+  const audiences = await cdpAudiences.audiencesFor({ loyaltyId: memberNo });
+  const local = (out.segments || []).map((s) => ({ ...s, source: "local" }));
+  if (audiences.length) {
+    const adobe = audiences.map((name) => ({ id: "adobe:" + name, name, why: "Adobe RT-CDP audience", source: "adobe" }));
+    out.segments = [...adobe, ...local.filter((s) => !audiences.includes(s.name))];
+    out.source = "adobe";
+    out.adobeAudiences = audiences;
+  } else {
+    out.segments = local;
+    out.source = "local";
+  }
+  res.json(out);
+});
+
+// Members the standalone PSS app can book as (loyalty id + email = the stitch keys).
+app.get("/api/pss/members", (_req, res) => {
+  res.json(Object.values(PERSONAS).map((p) => ({
+    id: p.id, name: p.user.full_name, member_no: p.user.member_no,
+    email: p.user.email, tier: p.user.tier, home: p.user.home_airport, phone: p.user.phone,
+  })));
+});
+
+// Read PSS-origin bookings (Demo Console / verification).
+app.get("/api/pss/bookings", (_req, res) => {
+  res.json(db.prepare(`SELECT b.id,b.pnr,b.flight_no,b.flight_date,b.seat,b.status,b.source,b.pss_ref,p.total
+    FROM bookings b LEFT JOIN payments p ON p.booking_id=b.id WHERE b.source='pss' ORDER BY b.id DESC`).all());
+});
+
+// Resolve the unified profile's segments (+ mapped offer) for a member — handy to show
+// post-stitch that the 360° profile now qualifies for audiences. ?member=daniel|sofia|lars
+// (defaults to the active persona).
+app.get("/api/pss/segments", async (req, res) => {
+  let ident;
+  const pid = req.query.member;
+  if (pid && PERSONAS[pid]) ident = { loyalty_id: PERSONAS[pid].user.member_no, email: PERSONAS[pid].user.email };
+  else { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; ident = { loyalty_id: u.member_no, email: u.email }; }
+  const segments = await pss.resolveSegments({ loyaltyId: ident.loyalty_id, email: ident.email });
+  const offer = pss.matchSegmentOffer(segments);
+  res.json({ identity: ident, segments, offer: offer ? { label: offer.label, via: offer.via } : null });
+});
+
+// Manually retry CDP delivery for any queued PSS events.
+app.post("/api/pss/flush", async (_req, res) => { res.json(await pss.flushOutbox()); });
+
+// ── Unified CDP profile (Phase 3): the stitched 360° view + segments + offer ──
+// Defaults to the active persona's identity; pass ?loyaltyId= / ?email= for any profile.
+app.get("/api/cdp/profile", async (req, res) => {
+  const id = { loyaltyId: req.query.loyaltyId || null, email: req.query.email || null };
+  if (!id.loyaltyId && !id.email) { const u = liveIdentity(); id.loyaltyId = u.loyaltyId; id.email = u.email; }
+  res.json((await cdpProfile.getProfileLive(id)) || { found: false, identity: id });
+});
+app.get("/api/cdp/profiles", (_req, res) => res.json(cdpProfile.listProfiles()));
+
+// Retry queued PSS→CDP deliveries periodically (no-op when nothing is pending).
+setInterval(() => { pss.flushOutbox().catch(() => {}); }, Number(process.env.PSS_FLUSH_MS) || 30000).unref?.();
+
+// Standalone PSS reservations app (a separate system in the demo) — served at /pss.
+// It can also be hosted independently; it targets the backend via a configurable API base.
+app.use("/pss", express.static(path.join(__dirname, "..", "pss-app")));
 
 app.get("/{*splat}", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "index.html")));
 
