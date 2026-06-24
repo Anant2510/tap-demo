@@ -24,3 +24,15 @@ button{font-family:inherit}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @keyframes v2fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .v2-in{animation:v2fade .4s ease both}
+
+/* dual-handle range slider (Departure window / Price range) */
+.dual-range-wrap{position:relative;height:20px;display:flex;align-items:center}
+.dual-range-track{position:absolute;left:0;right:0;height:4px;border-radius:9999px;background:#dcdcd8}
+.dual-range-fill{position:absolute;height:4px;border-radius:9999px;background:#46a41a}
+.dual-range{-webkit-appearance:none;appearance:none;position:absolute;left:0;width:100%;height:20px;margin:0;background:transparent;pointer-events:none}
+.dual-range::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #46a41a;box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:pointer}
+.dual-range::-moz-range-thumb{pointer-events:auto;width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #46a41a;box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:pointer}
+.dual-range::-webkit-slider-runnable-track{background:transparent;border:none}
+.dual-range::-moz-range-track{background:transparent;border:none}
+.dual-range:focus{outline:none}
+.dual-range:focus::-webkit-slider-thumb{box-shadow:0 0 0 4px rgba(70,164,26,.2)}

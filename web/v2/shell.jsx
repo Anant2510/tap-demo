@@ -27,21 +27,21 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : 0);   // seeded extras don't count until a flight is chosen; 0 once a booking is confirmed
   const bookActive = ["home", "results", "cart", "basket", "express", "passenger", "payment", "customize"].includes(route);
   return (
-    <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
+    <header className="sticky top-0 z-40 bg-surface-2/95 backdrop-blur border-b border-line">
       <div className="mx-auto max-w-page px-6 h-16 flex items-center gap-6">
         <button onClick={() => go("home")} className="shrink-0"><TapLogo /></button>
         <nav className="hidden lg:flex items-center gap-1 ml-2">
           {NAV.map(n => { const on = n.key === "home" ? bookActive : route === n.key; return (
             <button key={n.key} onClick={() => go(n.key)}
-              className={cx("px-3 py-2 text-[13px] font-medium transition-colors border-b-2",
-                on ? "text-ink font-semibold border-tap-green" : "text-ink-muted hover:text-ink border-transparent")}>
-              {n.label}
+              className={cx("px-3 py-2 text-[13px] font-medium transition-colors border-b-2 inline-flex items-center gap-1",
+                on ? "text-ink font-semibold border-tap-green" : "text-ink-700 hover:text-ink border-transparent")}>
+              {n.label}{n.key === "extras" && <Icon name="chevron" size={13} />}
             </button>
           ); })}
         </nav>
         <div className="ml-auto flex items-center gap-1">
           <button onClick={() => go("results")} className="p-2 rounded-lg text-ink-muted hover:bg-surface-mute" title="Search"><Icon name="search" /></button>
-          <button className="hidden lg:inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-muted hover:bg-surface-mute">PT · EUR</button>
+          <button className="hidden lg:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink-700 hover:bg-surface-mute"><Icon name="globe" size={15} /> PT · EUR <Icon name="chevron" size={13} /></button>
           <button onClick={() => go("wishlist")} className="hidden lg:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="Wishlist"><Icon name="heart" size={16} /> Wishlist</button>
           <button onClick={() => go("basket")} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="My Trip Basket">
             <Icon name="cart" size={16} /><span className="hidden lg:inline">My Trip Basket</span>

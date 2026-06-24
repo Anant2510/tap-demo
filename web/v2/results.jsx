@@ -56,7 +56,7 @@ export function Results({ shared, params, go }) {
   const [sel, setSel] = useState(trip[leg]);
   const [showAll, setShowAll] = useState(false);
   const [held, setHeld] = useState(false);
-  const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false });
+  const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false });
 
   useEffect(() => {
     setFlights(null); setExpanded(null);
@@ -80,12 +80,12 @@ export function Results({ shared, params, go }) {
   }, [origin, dest, date]);
 
   const counts = useMemo(() => {
-    const c = { direct: 0, oneStop: 0, twoStop: 0, airline: {}, brand: { Basic: 0, Classic: 0, Plus: 0, Executive: 0 }, wifi: 0, useMiles: 0 };
+    const c = { direct: 0, oneStop: 0, twoStop: 0, airline: {}, brand: { Basic: 0, Classic: 0, Plus: 0, Executive: 0 }, wifi: 0, useMiles: 0, refundable: 0 };
     (flights || []).forEach(f => {
       if (f._m.stops === 0) c.direct++; else if (f._m.stops === 1) c.oneStop++; else c.twoStop++;
       c.airline[f._m.airline] = (c.airline[f._m.airline] || 0) + 1;
       if (f._m.features.includes("WiFi")) c.wifi++;
-      c.useMiles++; ["Basic", "Classic", "Plus", "Executive"].forEach(b => c.brand[b]++);
+      c.useMiles++; c.refundable++; ["Basic", "Classic", "Plus", "Executive"].forEach(b => c.brand[b]++);
     });
     return c;
   }, [flights]);
@@ -98,7 +98,8 @@ export function Results({ shared, params, go }) {
       const cheapest = Math.min(...[...F.brands].map(b => f._fares.find(x => x.key === b)?.price ?? Infinity));
       return stopOK && F.airlines.has(m.airline) && dep >= F.depLo && dep <= F.depHi
         && cheapest >= F.priceLo && cheapest <= F.priceHi
-        && (!F.wifi || m.features.includes("WiFi"));
+        && (!F.wifi || m.features.includes("WiFi"))
+        && (!F.refundable || ["Classic", "Plus", "Executive"].some(b => F.brands.has(b)));
     });
     const cls = f => f._fares.find(x => x.key === "Classic").price;
     if (sort === "Cheapest") v = [...v].sort((a, b) => a.price - b.price);
@@ -112,6 +113,12 @@ export function Results({ shared, params, go }) {
   const lowest = useMemo(() => (flights || []).reduce((m, f) => Math.min(m, f.price), Infinity), [flights]);
   const fastest = useMemo(() => (flights || []).reduce((m, f) => Math.min(m, durMins(f.duration)), 999), [flights]);
   const earliest = useMemo(() => (flights || []).map(f => f.dep).sort()[0], [flights]);
+
+  // Always surface fares on the top "Best" flight so a fare is visible to pick on every leg.
+  // Keyed on the fetched list + leg, so it re-opens on a new search/leg but doesn't fight manual collapses.
+  useEffect(() => {
+    if (flights && flights.length) setExpanded(view[0]?.flight_no ?? null);
+  }, [flights, leg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function pickFare(f, fare) {
     const choice = { flight: f, fare: fare.key, price: fare.price, leg, origin, dest, date };
@@ -158,7 +165,7 @@ export function Results({ shared, params, go }) {
         {/* filters */}
         <aside className="space-y-5">
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false })}>Clear all</button></div>
+            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false })}>Clear all</button></div>
             <FGroup title="Stops">
               <Chk label="Direct only" count={counts.direct} on={F.direct} set={v => setF({ ...F, direct: v })} />
               <Chk label="1 stop" count={counts.oneStop} on={F.oneStop} set={v => setF({ ...F, oneStop: v })} />
@@ -171,14 +178,10 @@ export function Results({ shared, params, go }) {
               })}
             </FGroup>
             <FGroup title="Departure window">
-              <div className="text-[12px] font-semibold mb-1 v2-num">{String(F.depLo).padStart(2, "0")}:00 — {String(F.depHi).padStart(2, "0")}:00</div>
-              <input type="range" min="0" max="24" value={F.depLo} onChange={e => setF({ ...F, depLo: Math.min(+e.target.value, F.depHi) })} className="w-full accent-[#46a41a]" />
-              <input type="range" min="0" max="24" value={F.depHi} onChange={e => setF({ ...F, depHi: Math.max(+e.target.value, F.depLo) })} className="w-full accent-[#46a41a]" />
+              <DualRange min={0} max={24} lo={F.depLo} hi={F.depHi} onLo={v => setF({ ...F, depLo: v })} onHi={v => setF({ ...F, depHi: v })} fmtLo={`${String(F.depLo).padStart(2, "0")}:00`} fmtHi={`${String(F.depHi).padStart(2, "0")}:00`} />
             </FGroup>
             <FGroup title="Price range">
-              <div className="text-[12px] font-semibold mb-1 v2-num">{EUR(F.priceLo)} — {F.priceHi >= 800 ? "€800+" : EUR(F.priceHi)}</div>
-              <input type="range" min="0" max="800" step="10" value={F.priceLo} onChange={e => setF({ ...F, priceLo: Math.min(+e.target.value, F.priceHi) })} className="w-full accent-[#46a41a]" />
-              <input type="range" min="0" max="800" step="10" value={F.priceHi} onChange={e => setF({ ...F, priceHi: Math.max(+e.target.value, F.priceLo) })} className="w-full accent-[#46a41a]" />
+              <DualRange min={0} max={800} step={10} lo={F.priceLo} hi={F.priceHi} onLo={v => setF({ ...F, priceLo: v })} onHi={v => setF({ ...F, priceHi: v })} fmtLo={EUR(F.priceLo)} fmtHi={F.priceHi >= 800 ? "€800+" : EUR(F.priceHi)} />
             </FGroup>
             <FGroup title="Airline">
               {["TAP Air Portugal", "TAP Express", "Partners"].map(a => <Chk key={a} label={a} count={counts.airline[a] || 0} on={F.airlines.has(a)} set={v => { const s = new Set(F.airlines); v ? s.add(a) : s.delete(a); setF({ ...F, airlines: s }); }} />)}
@@ -186,6 +189,7 @@ export function Results({ shared, params, go }) {
             <FGroup title="Inclusions" last>
               <Chk label="Bag included" count={counts.brand.Classic} on={false} set={() => {}} />
               <Chk label="Wi-Fi onboard" count={counts.wifi} on={F.wifi} set={v => setF({ ...F, wifi: v })} />
+              <Chk label="Refundable" count={counts.refundable} on={F.refundable} set={v => setF({ ...F, refundable: v })} />
               <Chk label="Use miles" count={counts.useMiles} on={F.useMiles} set={v => setF({ ...F, useMiles: v })} />
             </FGroup>
           </Card>
@@ -286,6 +290,20 @@ const Chk = ({ label, count, on, set }) => (
     <span className="flex-1">{label}</span><span className="text-[11px] text-ink-faint v2-num">{count}</span>
   </label>
 );
+const DualRange = ({ min, max, step = 1, lo, hi, onLo, onHi, fmtLo, fmtHi }) => {
+  const span = (max - min) || 1; const pct = v => ((v - min) / span) * 100;
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[13px] font-semibold v2-num text-ink mb-2"><span>{fmtLo}</span><span>{fmtHi}</span></div>
+      <div className="dual-range-wrap">
+        <div className="dual-range-track" />
+        <div className="dual-range-fill" style={{ left: pct(lo) + "%", right: (100 - pct(hi)) + "%" }} />
+        <input type="range" min={min} max={max} step={step} value={lo} onChange={e => onLo(Math.min(+e.target.value, hi))} className="dual-range" style={{ zIndex: lo >= max - step ? 5 : 3 }} aria-label="Minimum" />
+        <input type="range" min={min} max={max} step={step} value={hi} onChange={e => onHi(Math.max(+e.target.value, lo))} className="dual-range" style={{ zIndex: 4 }} aria-label="Maximum" />
+      </div>
+    </div>
+  );
+};
 
 function Badge({ children, tone = "slate" }) {
   const tones = { lime: "bg-lime-tint text-tap-greenDark", green: "bg-tap-green/10 text-tap-greenDeep", gold: "bg-[#F6E9B8] text-[#7a5c00]", dark: "bg-surface-dark text-white", slate: "bg-surface-mute text-ink-muted" };
@@ -326,7 +344,10 @@ function FlightCard({ f, expanded, sel, lowest, onToggle, onPick }) {
           {classic.milesOpt && <div className="text-[11px] font-semibold text-tap-greenDeep">OR {miles(classic.milesOpt.mi)} MI + {EUR(classic.milesOpt.cash)}</div>}
           <div className="text-[10px] text-ink-faint">{expanded ? "FROM" : "1 adult · Eco Classic"}</div>
           <div className="text-[24px] font-bold v2-num">{EUR(expanded ? f.price : classic.price)}</div>
-          <button onClick={onToggle} className="text-[12px] font-semibold text-tap-greenDeep mt-1">{expanded ? "Hide fares ↑" : "See 4 fares ↓"}</button>
+          <div className="flex items-center gap-2 justify-end mt-1.5">
+            <button onClick={onToggle} className="text-[12px] font-semibold text-tap-greenDeep">{expanded ? "Hide fares ↑" : "See 4 fares ↓"}</button>
+            <Btn size="sm" variant={isSelected ? "outline" : "primary"} onClick={() => onPick(f, classic)}>{isSelected ? "Selected ✓" : "Select →"}</Btn>
+          </div>
         </div>
       </div>
 
