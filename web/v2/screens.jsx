@@ -113,6 +113,25 @@ export function Homepage({ shared, go }) {
 
 /* ─────────────────────────── HOME (returning user · Daniel) ─────────────────────────── */
 /* editable, functional hero search (route editable · trip-type + pay-with-miles work) */
+function HomeAIPanel({ go, aiOn, onToggle }) {
+  const [q, setQ] = useState("");
+  const cats = ["Book Flights", "Book Hotels", "Book Experiences", "Book Cabs & Transfers", "Check Flight Status", "Manage Trips", "More.."];
+  const submit = () => go("ai");
+  return (
+    <div className="mt-5">
+      <div className="flex items-center justify-center gap-2 text-[17px] font-bold"><Icon name="spark" size={18} className="text-tap-green" /> Enhance your travel journey</div>
+      <div className="flex flex-wrap justify-center gap-2 mt-5">
+        {cats.map(c => <button key={c} onClick={submit} className="rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] font-medium shadow-sm hover:border-tap-green hover:text-tap-greenDeep transition-colors">{c}</button>)}
+      </div>
+      <div className="mt-5 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="e.g. Book Thursday 06:10 LIS → OPO with miles" className="flex-1 bg-transparent text-[14px] outline-none placeholder:text-ink-faint" />
+        <button className="text-ink-muted hover:text-ink shrink-0" title="Voice input"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v4" /></svg></button>
+        <button onClick={submit} className="w-10 h-10 rounded-full bg-surface-dark text-white inline-flex items-center justify-center shrink-0 hover:bg-ink-strong" title="Ask TAP AI"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="9" width="2.5" height="6" rx="1.25" /><rect x="9" y="5" width="2.5" height="14" rx="1.25" /><rect x="14" y="7" width="2.5" height="10" rx="1.25" /><rect x="19" y="10" width="2.5" height="4" rx="1.25" /></svg></button>
+      </div>
+    </div>
+  );
+}
+
 function HeroSearch({ u, pat, cityOf, airports, go }) {
   const retDefault = (() => { if (!pat.recommendedDate) return ""; const d = new Date(pat.recommendedDate); d.setDate(d.getDate() + 5); return d.toISOString().slice(0, 10); })();
   const [type, setType] = useState("round");
@@ -126,28 +145,28 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
   const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
   const swap = () => { setFrom(to); setTo(from); };
   const go2 = () => go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
-  const cell = "rounded-xl border border-line bg-surface-soft p-3 min-w-0";
+  const cell = "p-3 min-w-0";
   const lbl = "text-[9px] font-bold uppercase tracking-wide text-ink-faint";
   const bare = "w-full min-w-0 bg-transparent text-[15px] font-bold outline-none";
 
   return (
     <div className="mt-5">
-      <div className="flex gap-1 overflow-x-auto v2-track text-[13px] font-semibold pb-3">
-        {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 rounded-full px-3.5 py-1.5 transition-colors", i === 0 ? "bg-lime-tint text-tap-greenDeep" : "text-ink-muted hover:text-ink hover:bg-surface-mute")}>{t}</button>)}
+      <div className="flex gap-1 overflow-x-auto v2-track text-[13px] font-semibold border-b border-line">
+        {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-3.5 py-2 border-b-2 -mb-px transition-colors", i === 0 ? "border-tap-green text-tap-greenDeep" : "border-transparent text-ink-muted hover:text-ink")}>{t}</button>)}
       </div>
-      <div className="flex items-center justify-between flex-wrap gap-3 mt-3">
-        <div className="flex gap-4 text-[12px] font-semibold">
+      <div className="flex items-center justify-between flex-wrap gap-3 mt-4">
+        <div className="flex gap-1 text-[12px] font-semibold bg-surface-soft rounded-full p-1">
           {[["round", "Round trip"], ["oneway", "One way"], ["multi", "Multi-city"]].map(([k, l]) => (
-            <button key={k} onClick={() => setType(k)} className={cx("pb-0.5 border-b-2", type === k ? "border-tap-green text-ink" : "border-transparent text-ink-muted")}>{l}</button>
+            <button key={k} onClick={() => setType(k)} className={cx("px-3 py-1 rounded-full transition-colors", type === k ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink")}>{l}</button>
           ))}
         </div>
         <button onClick={() => setPayMiles(v => !v)} className="flex items-center gap-2 text-[12px] font-semibold text-ink-muted">Pay with Miles <Icon name="spark" size={13} className={payMiles ? "text-tap-green" : "text-ink-faint"} /><span className={cx("w-9 h-5 rounded-full relative transition-colors", payMiles ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", payMiles ? "right-0.5" : "left-0.5")} /></span></button>
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-3 mt-3">
+      <div className="mt-3 rounded-2xl border border-line overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-line">
         <div className={cx(cell, "lg:col-span-3 relative")}>
-          <div className={lbl}>Frequent route · editable</div>
-          <div className="flex items-center gap-2 mt-1"><select value={from} onChange={e => setFrom(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select><button onClick={swap} className="text-tap-green shrink-0" title="Swap"><Icon name="arrow" size={14} /></button><select value={to} onChange={e => setTo(e.target.value)} className={cx(bare, "appearance-none cursor-pointer text-right")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+          <div className={lbl}>Frequent route · prefilled</div>
+          <div className="flex items-center gap-2 mt-1"><select value={from} onChange={e => setFrom(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select><button onClick={swap} className="text-tap-green shrink-0" title="Swap"><Icon name="swap" size={14} /></button><select value={to} onChange={e => setTo(e.target.value)} className={cx(bare, "appearance-none cursor-pointer text-right")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
           <div className="text-[10px] text-ink-faint mt-0.5">{cityOf(from)} → {cityOf(to)}</div>
         </div>
         <div className={cx(cell, "lg:col-span-3")}>
@@ -157,13 +176,13 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
         </div>
         <div className={cx(cell, "lg:col-span-2")}><div className={lbl}>Passenger</div><select value={pax} onChange={e => setPax(+e.target.value)} className={cx(bare, "mt-1")}>{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Adult{n > 1 ? "s" : ""}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">{u.first_name} · saved</div></div>
         <div className={cx(cell, "lg:col-span-2")}><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">Preferred</div></div>
-        <div className="lg:col-span-2 flex"><Btn size="lg" className="w-full h-full" onClick={go2}>Search flight</Btn></div>
+        <button onClick={go2} className="lg:col-span-2 bg-tap-green text-white font-bold text-[14px] flex items-center justify-center gap-1.5 py-3.5 hover:bg-tap-greenDeep transition-colors">Search flight <Icon name="arrow" size={15} /></button>
       </div>
       {type === "multi" && (
         <div className="grid lg:grid-cols-12 gap-3 mt-3">
-          <div className={cx(cell, "lg:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-          <div className={cx(cell, "lg:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-          <div className={cx(cell, "lg:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
+          <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+          <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+          <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
           <div className="lg:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
         </div>
       )}
@@ -219,7 +238,7 @@ export function Home({ shared, go }) {
             <div className="text-ink-muted text-[14px] mt-3">Bom dia, {u.first_name}.</div>
             <h1 className="text-[34px] font-black text-ink tracking-tight">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
             {aiOn
-              ? <AIConcierge shared={shared} go={go} embedded onToggleOff={() => setAiOn(false)} />
+              ? <HomeAIPanel go={go} aiOn={aiOn} onToggle={() => setAiOn(false)} />
               : <HeroSearch u={u} pat={pat} cityOf={cityOf} airports={airports} go={go} />}
           </div>
         </div>

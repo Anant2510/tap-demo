@@ -1,6 +1,7 @@
 // FlyTAP v2 — shell: top navigation + footer + page layout.
 import React, { useState, useEffect } from "react";
 import { Avatar, Btn, Icon, TierBadge, cx } from "./ui.jsx";
+import { miles } from "./lib.js";
 import { trip, onTripChange } from "./trip.js";
 
 export const TapLogo = ({ onDark = false }) => (
@@ -24,6 +25,8 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [curMenu, setCurMenu] = useState(false);
+  const [cur, setCur] = useState("PT · EUR");
   const [, _basketTick] = useState(0);
   useEffect(() => onTripChange(() => _basketTick(n => n + 1)), []); // re-render the badge the moment the basket changes
   const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : 0);   // 0 once booked or with no chosen flight; otherwise flight + add-ons (matches the basket page)
@@ -43,7 +46,12 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
         </nav>
         <div className="ml-auto flex items-center gap-1">
           <button onClick={() => go("results")} className="p-2 rounded-lg text-ink hover:bg-surface-mute" title="Search"><Icon name="search" /></button>
-          <button className="hidden lg:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink hover:bg-surface-mute"><Icon name="globe" size={15} /> PT · EUR <Icon name="chevron" size={13} /></button>
+          <div className="relative hidden lg:block">
+            <button onClick={() => setCurMenu(m => !m)} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink hover:bg-surface-mute"><Icon name="globe" size={15} /> {cur} <Icon name="chevron" size={13} /></button>
+            {curMenu && <div className="absolute right-0 mt-2 w-44 bg-surface rounded-xl border border-line shadow-pop py-1 text-[13px] z-50">
+              {["PT · EUR", "EN · EUR", "EN · USD", "EN · GBP", "BR · BRL"].map(c => <button key={c} onClick={() => { setCur(c); setCurMenu(false); }} className={cx("w-full text-left px-3 py-2 hover:bg-surface-mute flex items-center justify-between", c === cur && "font-semibold text-tap-greenDeep")}>{c}{c === cur && <Icon name="check" size={13} />}</button>)}
+            </div>}
+          </div>
           <button onClick={() => go("wishlist")} className="hidden lg:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="Wishlist"><Icon name="heart" size={16} /> Wishlist</button>
           <button onClick={() => go("basket")} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="My Trip Basket">
             <Icon name="cart" size={16} /><span className="hidden lg:inline">My Trip Basket</span>
@@ -59,11 +67,31 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
                   <span className="text-ink-faint text-[10px]">▾</span>
                 </button>
                 {menu && (
-                  <div className="absolute right-0 mt-2 w-44 bg-surface rounded-xl border border-line shadow-pop py-1 text-[13px]">
-                    <button onClick={() => { setMenu(false); go("miles"); }} className="w-full text-left px-3 py-2 hover:bg-surface-mute">Miles & Go</button>
-                    <button onClick={() => { setMenu(false); go("manage"); }} className="w-full text-left px-3 py-2 hover:bg-surface-mute">My trips</button>
-                    <div className="h-px bg-line my-1" />
-                    <button onClick={() => { setMenu(false); onLogout?.(); }} className="w-full text-left px-3 py-2 hover:bg-surface-mute text-ink-muted">Log out</button>
+                  <div className="absolute right-0 mt-2 w-[300px] bg-surface rounded-2xl border border-line shadow-pop overflow-hidden text-[13px]">
+                    <div className="p-4 text-white flex items-center gap-3" style={{ background: "linear-gradient(110deg,#b8860b,#caa53d)" }}>
+                      <span className="w-11 h-11 rounded-full bg-white/90 text-[#8a6d12] inline-flex items-center justify-center text-[14px] font-bold">{(user.first_name || "D")[0]}{((user.full_name || "").split(" ")[1] || "")[0] || ""}</span>
+                      <div className="flex-1 min-w-0"><div className="font-bold text-[15px] leading-tight">{user.full_name || user.first_name}</div><div className="text-[11px] text-white/80 truncate">{user.email || "you@email.com"}</div></div>
+                      <span className="shrink-0 text-[10px] font-bold bg-white text-[#8a6d12] rounded px-2 py-1 whitespace-nowrap">{user.tier?.toUpperCase() || "GOLD"} · {miles(user.miles || 42180)} mi</span>
+                    </div>
+                    <div className="max-h-[60vh] overflow-y-auto py-1">
+                      {[["Account", [["user", "My profile", "Personal info, passport, contacts", "manage"], ["star", "TAP Miles&Go", `${miles(user.miles || 42180)} mi · ${user.tier || "Gold"} tier`, "miles"], ["doc", "Payment methods", "2 cards saved", "manage"]]],
+                        ["Travel", [["plane", "My trips", "2 upcoming · Lisbon–Porto", "manage"], ["check", "Check-in & boarding passes", "Opens 24h before departure", "manage"], ["seat", "Travel preferences", "Seat, meal, assistance", "manage"], ["globe", "Saved travelers", "3 companions", "manage"]]],
+                        ["Settings", [["info", "Notifications", "Push, SMS, email", "manage"], ["globe", "Language & region", "EN · Portugal (EUR)", "manage"], ["info", "Help & support", "24/7 contact", "ai"]]]
+                      ].map(([sec, items]) => (
+                        <div key={sec}>
+                          <div className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint">{sec}</div>
+                          {items.map(([ic, t, s, r]) => (
+                            <button key={t} onClick={() => { setMenu(false); go(r); }} className={cx("w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-mute", t === "TAP Miles&Go" && "bg-lime-tint/40")}>
+                              <Icon name={ic} size={16} className="text-ink-muted shrink-0" />
+                              <span className="flex-1 min-w-0"><span className="block font-semibold text-ink">{t}</span><span className="block text-[11px] text-ink-faint truncate">{s}</span></span>
+                              <span className="text-ink-faint text-[12px]">›</span>
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                      <div className="h-px bg-line my-1" />
+                      <button onClick={() => { setMenu(false); onLogout?.(); }} className="w-full flex items-center gap-2 px-4 py-3 text-left text-tap-red font-semibold hover:bg-surface-mute"><Icon name="refresh" size={15} /> Sign out</button>
+                    </div>
                   </div>
                 )}
               </div>
