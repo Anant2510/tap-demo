@@ -78,7 +78,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
               {groups[s].map(e => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
             </div>
           ))}
-          {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-2 text-[11px] font-semibold text-ink-muted hover:text-tap-red inline-flex items-center gap-1"><Icon name="x" size={11} /> Clear basket</button>}
+          {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-3 w-full rounded-full border border-line-strong py-2 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center gap-1.5"><Icon name="x" size={12} /> Clear basket</button>}
           <div className="mt-2.5 space-y-1 text-[12px]">
             <div className="flex items-center justify-between"><span className="text-ink-muted">Subtotal extras</span><span className="font-semibold v2-num text-ink">{eur2(t.extras)}</span></div>
             <div className="flex items-center justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num text-ink">{eur2(t.taxes)}</span></div>
@@ -93,7 +93,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         <Btn size="lg" className="w-full mt-4" disabled={disabled} onClick={onCta}>{cta}</Btn>
         {step === 2 && <div className="text-[11px] text-ink-muted text-center mt-2 flex items-center justify-center gap-1"><Icon name="globe" size={11} className="text-ink-faint" /> You'll be able to adjust all items on the next step.</div>}
         {note && <div className="text-[11px] text-ink-faint text-center mt-2">{note}</div>}
-        {secondary && <button onClick={onSecondary} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">{secondary} <Icon name="arrow" size={13} /></button>}
+        {secondary && <button onClick={onSecondary} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">{secondary}{!/^[←]/.test(String(secondary)) && <Icon name="arrow" size={13} />}</button>}
       </Card>
 
       {showMiles && (
@@ -168,6 +168,13 @@ function CartView({ go, mode = "cart", shared }) {
   const add = (code, name, price, cat) => { toggleExtra({ code, name, price, cat }); save(); r(); };
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
   const seat = trip.extras.find(e => e.cat === "Seats & baggage");
+  const pax = trip.pax || 1;
+  const tripDays = (() => { try { if (trip.date && trip.ret) { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); if (d > 0) return d; } } catch { } return 5; })();
+  const catCount = (cat) => trip.extras.filter(e => e.cat === cat).length;
+  const catBadge = (cat) => { const n = catCount(cat); return n ? `${n} added` : null; };
+  const [meal, setMeal] = useState("Standard meal");
+  const [allHotels, setAllHotels] = useState(false);
+  const [ins, setIns] = useState("plus");
 
   const SeatType = ({ code, name, sub, price }) => {
     const on = code === "std" ? !seat : hasExtra(code);
@@ -190,40 +197,54 @@ function CartView({ go, mode = "cart", shared }) {
   ); };
   const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec }) => { const on = hasExtra(code); return (
     <div className={cx("flex gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-      <Img seed={"hotel-" + code} src={imageFor("hotel-" + code)} alt={name} className="w-20 h-16 rounded-lg shrink-0" />
-      <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <Pill tone="lime">Recommended</Pill>}</div>
-        <div className="flex flex-wrap gap-1 mt-1">{tags.map(t => <Pill key={t} tone="slate">{t}</Pill>)}</div>
+      <Img seed={"hotel-" + code} src={imageFor("hotel-" + code)} alt={name} className="w-28 h-20 rounded-lg shrink-0 object-cover" />
+      <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">{tags.map(t => <span key={t} className="text-[10px] uppercase tracking-wide text-ink-faint">{t}</span>)}</div>
         <div className="text-[11px] text-ink-muted mt-1">★ {rating} Excellent · {reviews} reviews</div></div>
       <div className="text-right"><div className="text-[13px] font-bold v2-num">From {EUR(pn)}<span className="text-[11px] font-medium text-ink-faint">/night</span></div><div className="text-[11px] text-ink-faint v2-num">{EUR(total)} total</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, total, "Hotels")}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
     </div>
   ); };
-  const Row = ({ code, name, sub, price, unit, cat, tag }) => { const on = hasExtra(code); return (
-    <div className={cx("flex items-center gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-      <Toggle on={on} set={() => add(code, name, price, cat)} />
-      <div className="flex-1"><div className="text-[13px] font-semibold flex items-center gap-2">{name}{tag && <Pill tone="slate">{tag}</Pill>}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
-      <div className="text-right"><div className="text-[13px] font-bold v2-num">{eur2(price)}</div>{unit && <div className="text-[10px] text-ink-faint">{unit}</div>}</div>
-    </div>
-  ); };
-  const Plan = ({ code, name, kicker, price, total, points, sel, badge, proceed }) => {
-    const isPlus = code === "ins-plus";
-    const on = isPlus ? hasExtra("ins-plus") : !hasExtra("ins-plus");
-    const handle = () => {
-      if (isPlus) { if (!hasExtra("ins-plus")) add("ins-plus", "Travel Insurance · Plus × 2", 76, "Insurance"); }
-      else { const e = trip.extras.find(x => x.code === "ins-plus"); if (e) { toggleExtra(e); api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(x => x.code) }).catch(() => {}); r(); } }
+  const Row = ({ code, name, sub, rate, unit, cat, tag }) => {
+    const on = hasExtra(code);
+    const mult = unit === "per person" ? pax : unit === "per day" ? tripDays : 1;
+    const total = rate * mult;
+    const multLabel = unit === "per person" ? `× ${pax} = ${eur2(total)}` : unit === "per day" ? `${tripDays} days = ${eur2(total)}` : unit === "per car" ? "per car" : "";
+    return (
+      <div className={cx("flex items-center gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
+        <Img seed={"xfer-" + code} src={imageFor(code)} alt={name} className="w-20 h-16 rounded-lg shrink-0 object-cover" />
+        <div className="flex-1"><div className="text-[13px] font-semibold flex items-center gap-2">{name}{tag && <span className="text-[9px] font-bold uppercase tracking-wide text-ink-faint bg-surface-mute rounded px-1.5 py-0.5">{tag}</span>}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
+        <div className="text-right shrink-0">
+          <div className="text-[14px] font-bold v2-num">{eur2(rate)}</div>
+          {multLabel && <div className="text-[10px] text-ink-faint v2-num">{multLabel}</div>}
+          <Btn size="sm" variant="outline" className="mt-1" onClick={() => add(code, name, total, cat)}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
+        </div>
+      </div>
+    );
+  };
+  const Plan = ({ v, name, kicker, price, total, points, badge }) => {
+    const on = ins === v;
+    const select = () => {
+      setIns(v);
+      const cur = trip.extras.find(x => x.code === "ins-plus" || x.code === "ins-std");
+      if (cur) toggleExtra(cur);
+      if (v === "plus") toggleExtra({ code: "ins-plus", name: `Travel Insurance · Plus × ${pax}`, price: 38 * pax, cat: "Insurance" });
+      else if (v === "standard") toggleExtra({ code: "ins-std", name: `Travel Insurance · Standard × ${pax}`, price: 19 * pax, cat: "Insurance" });
+      save(); r();
     };
     return (
       <div className={cx("flex-1 rounded-xl border p-4 flex flex-col", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line")}>
-        <button onClick={handle} className="flex items-start gap-2.5 text-left w-full">
+        <button onClick={select} className="flex items-start gap-2.5 text-left w-full">
           <span className={cx("mt-0.5 w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2"><div className="text-[15px] font-bold leading-tight">{name}</div>{badge && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-white">{badge}</span>}</div>
+            <div className="flex items-center justify-between gap-2"><div className="text-[15px] font-bold leading-tight">{name}</div>{badge && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">{badge}</span>}</div>
             <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mt-0.5">{kicker}</div>
           </div>
         </button>
         <ul className="mt-3 space-y-1.5 text-[12px] flex-1">{points.map(([ok, p]) => <li key={p} className={cx("flex items-center gap-2", !ok && "text-ink-faint")}><Icon name={ok ? "check" : "x"} size={13} className={ok ? "text-tap-green" : "text-ink-faint"} /> {p}</li>)}</ul>
+        <div className="h-px bg-line my-3" />
         {price != null
-          ? <><div className="h-px bg-line my-3" /><div className="flex items-end justify-between"><div className="text-[18px] font-bold v2-num">{eur2(price)}<span className="text-[10px] font-medium text-ink-faint"> per traveler</span></div>{total != null && <div className="text-right"><div className="text-[14px] font-bold v2-num text-tap-greenDeep">{eur2(total)}</div><div className="text-[9px] uppercase tracking-wide text-ink-faint">Total · {trip.pax || 2} adults</div></div>}</div></>
-          : proceed && <><div className="h-px bg-line my-3" /><button onClick={handle} className={cx("w-full rounded-full border py-2 text-[13px] font-semibold inline-flex items-center justify-center gap-1.5", on ? "border-tap-green text-tap-greenDeep bg-surface" : "border-line text-ink-muted hover:border-tap-green")}><span className="text-[15px] leading-none">+</span> Proceed without insurance</button></>}
+          ? <div className="flex items-end justify-between"><div className="text-[18px] font-bold v2-num">{eur2(price)}<span className="text-[10px] font-medium text-ink-faint"> per traveler</span></div>{total != null && <div className="text-right"><div className="text-[14px] font-bold v2-num text-tap-greenDeep">{eur2(total)}</div><div className="text-[9px] uppercase tracking-wide text-ink-faint">Total · {pax} {pax > 1 ? "adults" : "adult"}</div></div>}</div>
+          : <div className="text-[12px] text-ink-muted">No charge — you confirm you're covered elsewhere.</div>}
       </div>
     );
   };
@@ -256,49 +277,67 @@ function CartView({ go, mode = "cart", shared }) {
               </label>
             </Module>
 
-            <Module n="03" kicker="Hotels" title="Stay in Lisbon" badge="1 added" sub="Recommended hotels for your dates." right={<button className="text-[12px] font-semibold text-tap-greenDeep">View all hotels →</button>}>
+            <Module n="03" kicker="Hotels" title="Stay in Lisbon" badge={catBadge("Hotels")} sub="Recommended hotels for your dates." right={<button onClick={() => setAllHotels(v => !v)} className="text-[12px] font-semibold text-tap-greenDeep">{allHotels ? "Show less ↑" : "View all hotels →"}</button>}>
               <div className="space-y-2">
                 <HotelRow code="hotel-memmo" name="Memmo Príncipe Real" stars={4} tags={["Near city centre", "Free cancellation", "Breakfast"]} rating="9.2" reviews="1,284" pn={80} total={640} rec />
                 <HotelRow code="hotel-bairro" name="Bairro Alto Suites" stars={4} tags={["City centre", "Free cancellation"]} rating="8.7" reviews="962" pn={68} total={544} />
                 <HotelRow code="hotel-quinta" name="Quinta da Marinha · Cascais" stars={4} tags={["Beach", "Pool", "Resort"]} rating="9.0" reviews="538" pn={120} total={960} />
+                {allHotels && <>
+                  <HotelRow code="hotel-tivoli" name="Tivoli Avenida Liberdade" stars={5} tags={["Avenida", "Spa", "Free cancellation"]} rating="9.4" reviews="2,015" pn={210} total={1680} />
+                  <HotelRow code="hotel-lx" name="LX Boutique Hotel" stars={4} tags={["Cais do Sodré", "River view"]} rating="8.5" reviews="744" pn={72} total={576} />
+                </>}
               </div>
             </Module>
 
-            <Module n="04" kicker="Cars & transfers" title="Getting to and from the airport" badge="1 added" sub="Pick how you move between LIS and your hotel.">
+            <Module n="04" kicker="Cars & transfers" title="Getting to and from the airport" badge={catBadge("Cars & transfers")} sub="Pick how you move between LIS and your hotel.">
               <div className="space-y-2">
-                <Row code="car-lis" name="Private transfer · LIS → hotel" sub="Sedan · meet & greet · up to 3 bags" price={25} unit="per car" cat="Cars & transfers" tag="1-way" />
-                <Row code="car-shuttle" name="Shared shuttle" sub="8-seat van · scheduled · 30 min wait max" price={30} unit="2 × €15" cat="Cars & transfers" tag="per person" />
-                <Row code="car-rental" name="Car rental from LIS" sub="Compact, automatic · free 24h cancellation" price={320} unit="8 days × €40" cat="Cars & transfers" tag="per day" />
+                <Row code="car-lis" name="Private transfer · LIS → hotel" sub="Sedan · meet & greet · up to 3 bags" rate={25} unit="per car" cat="Cars & transfers" tag="1-way" />
+                <Row code="car-shuttle" name="Shared shuttle" sub="8-seat van · scheduled · 30 min wait max" rate={15} unit="per person" cat="Cars & transfers" tag="per person" />
+                <Row code="car-rental" name="Car rental from LIS" sub="Compact, automatic · free 24h cancellation" rate={40} unit="per day" cat="Cars & transfers" tag="per day" />
               </div>
             </Module>
 
-            <Module n="05" icon="shield" kicker="Insurance" title="Protect your trip" badge="Plus · 2 pax" sub="Choose a plan that covers cancellation, medical, and baggage.">
-              <div className="flex flex-col sm:flex-row gap-3"><Plan code="ins-none" name="I already have coverage" kicker="My travel insurance is sorted" proceed points={[[true, "Health coverage"], [true, "Trip cancellation protection"], [true, "Baggage loss"], [false, "COVID-19 protection"], [false, "24/7 support service"]]} /><Plan code="ins-plus" name="Plus" kicker="Comprehensive cover" badge="Recommended" price={38} total={76} sel points={[[true, "Medical · €50K"], [true, "Trip cancellation"], [true, "Lost baggage"], [true, "COVID-19 cover"], [true, "24/7 concierge"]]} /></div>
+            <Module n="05" icon="shield" kicker="Insurance" title="Protect your trip" badge="Mandatory" sub="Choose a plan that covers cancellation, medical, and baggage.">
+              <div className="grid sm:grid-cols-3 gap-3">
+                <Plan v="none" name="I already have coverage" kicker="My travel insurance is sorted" points={[[true, "Health coverage"], [true, "Trip cancellation protection"], [true, "Baggage loss"], [false, "COVID-19 protection"], [false, "24/7 support service"]]} />
+                <Plan v="standard" name="Standard" kicker="Essential cover" price={19} total={19 * pax} points={[[true, "Medical · €25K"], [true, "Trip cancellation"], [true, "Lost baggage"], [false, "COVID-19 cover"], [false, "24/7 concierge"]]} />
+                <Plan v="plus" name="Plus" kicker="Comprehensive cover" badge="Recommended" price={38} total={38 * pax} points={[[true, "Medical · €50K"], [true, "Trip cancellation"], [true, "Lost baggage"], [true, "COVID-19 cover"], [true, "24/7 concierge"]]} />
+              </div>
+              {ins !== "none"
+                ? <button onClick={() => { setIns("none"); const cur = trip.extras.find(x => x.code === "ins-plus" || x.code === "ins-std"); if (cur) { toggleExtra(cur); save(); } r(); }} className="mt-3 w-full rounded-full border border-line-strong py-2.5 text-[13px] font-semibold text-ink-muted hover:border-tap-green hover:text-tap-greenDeep inline-flex items-center justify-center gap-1.5">Proceed without insurance</button>
+                : <div className="mt-3 text-[12px] text-tap-greenDeep font-semibold inline-flex items-center gap-1.5"><Icon name="check" size={14} /> Proceeding without TAP insurance — you confirm you're covered elsewhere.</div>}
             </Module>
 
-            <Module n="06" kicker="Lounge & priority" title="Relax and skip the queues" badge="TAP Lounge +2" sub="Quality time before the flight — drinks, food, fast-track lanes.">
+            <Module n="06" kicker="Lounge & priority" title="Relax and skip the queues" badge={catBadge("Lounge & services")} sub="Quality time before the flight — drinks, food, fast-track lanes.">
               <div className="space-y-2">
-                <Row code="lounge-opo" name="TAP Lounge · OPO" sub="Hot meals · drinks · showers · Wi-Fi · up to 3h pre-flight" price={90} cat="Lounge & services" tag="OPO outbound" />
-                <Row code="priority" name="Priority boarding" sub="Skip the queue · board first · stow your bag first" price={16} cat="Lounge & services" tag="both flights" />
-                <Row code="fasttrack" name="Fast-track security · LIS arrival" sub="Dedicated immigration lane on arrival in Lisbon" price={18} cat="Lounge & services" tag="LIS arrival" />
+                <Row code="lounge-opo" name="TAP Lounge · OPO" sub="Hot meals · drinks · showers · Wi-Fi · up to 3h pre-flight" rate={90} cat="Lounge & services" tag="OPO outbound" />
+                <Row code="priority" name="Priority boarding" sub="Skip the queue · board first · stow your bag first" rate={16} cat="Lounge & services" tag="both flights" />
+                <Row code="fasttrack" name="Fast-track security · LIS arrival" sub="Dedicated immigration lane on arrival in Lisbon" rate={18} cat="Lounge & services" tag="LIS arrival" />
               </div>
             </Module>
 
-            <Module n="07" kicker="Meals" title="Meals & onboard extras" sub="Pick a meal for each traveller. We confirm 24h before departure.">
+            <Module n="07" kicker="Meals" title="Meals & onboard extras" badge={catCount("Onboard") ? catBadge("Onboard") : null} sub="Pick a meal for each traveller. We confirm 24h before departure.">
               <div className="grid sm:grid-cols-4 gap-3">
-                {[["Standard meal", "Chef-curated 3-course", true, 0], ["Vegetarian", "Plant-based · seasonal", false, 0], ["Premium meal", "Tasting menu", false, 28], ["Skip meal", "No meal · sleep", false, 0]].map(([n, s, sel, p], i) => {
-                  const on = p ? hasExtra("meal-prem") : (i === 0 ? !hasExtra("meal-prem") : false);
-                  return <button key={n} onClick={() => p && add("meal-prem", "Premium meal × 2", 56, "Onboard")} className={cx("text-left rounded-xl border p-3 flex flex-col", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line")}><div className="flex items-start justify-between gap-2"><div className="text-[13px] font-bold">{n}</div><span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span></div><div className="text-[10px] text-ink-faint flex-1 mt-0.5">{s}</div><div className="h-px bg-line my-2" /><div className="text-[11px] font-semibold">{p ? <span className="v2-num">{eur2(p)} <span className="text-[10px] text-ink-faint font-normal">per pax</span></span> : <span className="text-tap-greenDeep">Included</span>}</div></button>;
+                {[["Standard meal", "Chef-curated 3-course", 0], ["Vegetarian", "Plant-based · seasonal", 0], ["Premium meal", "Tasting menu", 28], ["Skip meal", "No meal · sleep", 0]].map(([n, s, p]) => {
+                  const on = meal === n;
+                  const select = () => {
+                    setMeal(n);
+                    const e = trip.extras.find(x => x.code === "meal-prem");
+                    if (n === "Premium meal") { if (!hasExtra("meal-prem")) { toggleExtra({ code: "meal-prem", name: `Premium meal × ${pax}`, price: 28 * pax, cat: "Onboard" }); save(); } }
+                    else if (e) { toggleExtra(e); save(); }
+                    r();
+                  };
+                  return <button key={n} onClick={select} className={cx("text-left rounded-xl border p-3 flex flex-col", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line")}><div className="flex items-start justify-between gap-2"><div className="text-[13px] font-bold">{n}</div><span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span></div><div className="text-[10px] text-ink-faint flex-1 mt-0.5">{s}</div><div className="h-px bg-line my-2" /><div className="text-[11px] font-semibold">{p ? <span className="v2-num">{eur2(p)} <span className="text-[10px] text-ink-faint font-normal">per pax</span></span> : on ? <span className="text-tap-greenDeep">Included</span> : <span className="text-ink-faint font-normal">{n === "Skip meal" ? "No meal" : "Free"}</span>}</div></button>;
                 })}
               </div>
             </Module>
 
-            <Module n="08" kicker="Experiences" title="Experiences in Portugal" badge="1 added" sub="Curated tours and tastings for your dates. Skip the lines.">
+            <Module n="08" kicker="Experiences" title="Experiences in Portugal" badge={catBadge("Experiences")} sub="Curated tours and tastings for your dates. Skip the lines.">
               <div className="grid sm:grid-cols-3 gap-3">
                 {[["exp-belem", "Belém food walking tour", "3h · pastéis de Belém · small group · English guide", 65, "Experience"], ["exp-sintra", "Sintra full-day", "Pena Palace · Quinta da Regaleira · Cabo da Roca", 89, "Day trip · popular"], ["exp-douro", "Douro Valley wine tour", "Vineyards · tastings · river cruise · full day", 120, "Wine"], ["exp-fado", "Fado night experience", "Traditional Portuguese music · 3-course dinner · port wine", 75, "Night out"], ["exp-surf", "Surf lesson · Cascais", "2h · gear included · beginners welcome", 55, "Outdoor"], ["exp-train", "Lisbon–Porto train", "2h45 · 1st class · day-trip ready", 39, "Excursion"]].map(([code, name, sub, price, tag]) => {
                   const on = hasExtra(code); const tot = price * (trip.pax || 2);
                   const parts = String(tag).split("·").map(s => s.trim()); const popular = parts.some(p => /popular/i.test(p)); const catLabel = parts.filter(p => !/popular/i.test(p)).join(" · ") || parts[0];
-                  return <div key={code} className={cx("rounded-xl border overflow-hidden", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line")}><Img seed={"exp-" + code} src={imageFor(code)} alt={name} className="h-20 w-full" /><div className="p-3"><div className="flex items-center gap-1.5"><Pill tone="slate">{catLabel}</Pill>{popular && <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">Popular</span>}</div><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-end justify-between mt-2 gap-2"><div><div className="text-[14px] font-bold v2-num">{eur2(price)}</div><div className="text-[10px] text-ink-faint">per person</div>{on && <div className="text-[10px] text-ink-faint v2-num">× {trip.pax || 2} = {eur2(tot)}</div>}</div><Btn size="sm" variant="outline" className="shrink-0" onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add to cart"}</Btn></div></div></div>;
+                  return <div key={code} className={cx("rounded-xl border overflow-hidden", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line")}><Img seed={"exp-" + code} src={imageFor(code)} alt={name} className="h-28 w-full object-cover" /><div className="p-3"><div className="flex items-center gap-1.5"><Pill tone="slate">{catLabel}</Pill>{popular && <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">Popular</span>}</div><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-end justify-between mt-2 gap-2"><div><div className="text-[14px] font-bold v2-num">{eur2(price)}</div><div className="text-[10px] text-ink-faint">per person</div>{on && <div className="text-[10px] text-ink-faint v2-num">× {trip.pax || 2} = {eur2(tot)}</div>}</div><Btn size="sm" variant="outline" className="shrink-0" onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add to cart"}</Btn></div></div></div>;
                 })}
               </div>
             </Module>
@@ -319,40 +358,67 @@ export function Cart(props) { return <CartView {...props} mode="cart" />; }
 export function Basket(props) { return <CartView {...props} mode="basket" />; }
 
 /* ═══════════ PASSENGER DETAILS ═══════════ */
-function PaxCard({ idx, lead, prefill }) {
-  const [p, setP] = useState(prefill || {});
+const FLAG_CTRY = { Portugal: "🇵🇹", Brazil: "🇧🇷", Spain: "🇪🇸", France: "🇫🇷", Germany: "🇩🇪", "United Kingdom": "🇬🇧", Italy: "🇮🇹", "United States": "🇺🇸" };
+const FLAG_NAT = { Portuguese: "🇵🇹", Brazilian: "🇧🇷", Spanish: "🇪🇸", French: "🇫🇷", German: "🇩🇪", British: "🇬🇧", Italian: "🇮🇹", American: "🇺🇸" };
+const PHONE_CODES = [["+351", "🇵🇹"], ["+55", "🇧🇷"], ["+34", "🇪🇸"], ["+33", "🇫🇷"], ["+49", "🇩🇪"], ["+44", "🇬🇧"]];
+function FlagSelect({ value, onChange, options, err }) {
+  return <div className={cx("relative w-full bg-surface border rounded-xl", err ? "border-tap-red" : "border-line-strong")}>
+    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[15px] pointer-events-none">{options[value] || "🌐"}</span>
+    <select value={value || ""} onChange={e => onChange(e.target.value)} className="w-full bg-transparent pl-9 pr-7 py-2.5 text-[14px] text-ink outline-none appearance-none cursor-pointer">
+      <option value="" disabled>Select…</option>{Object.keys(options).map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[11px]">▾</span>
+  </div>;
+}
+// Input with valid (green check) / error (red border) feedback
+const VInput = ({ value, onChange, placeholder, err }) => (
+  <div className="relative">
+    <input value={value || ""} onChange={onChange} placeholder={placeholder} className={cx("w-full bg-surface border rounded-xl px-3 py-2.5 pr-8 text-[14px] text-ink placeholder:text-ink-faint outline-none focus:border-tap-green", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")} />
+    {value ? <Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /> : err ? <Icon name="x" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-red" /> : null}
+  </div>
+);
+
+function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
+  const [p, setP] = useState(lead && prefill ? prefill : {});
   const [saveDoc, setSaveDoc] = useState(true);
-  const f = (k) => ({ value: p[k] || "", onChange: e => { const v = { ...p, [k]: e.target.value }; setP(v); trip.passengers[idx] = v; } });
-  useEffect(() => { trip.passengers[idx] = p; }, []);
+  const f = (k) => ({ value: p[k] || "", onChange: e => { const v = { ...p, [k]: e.target.value }; setP(v); trip.passengers[idx] = v; onChange && onChange(); } });
+  const set = (k, val) => { const v = { ...p, [k]: val }; setP(v); trip.passengers[idx] = v; onChange && onChange(); };
+  const err = (k) => showErr && !(p[k] && String(p[k]).trim());
+  const src = prefill || profile || {};
+  const doPrefill = () => { const v = { ...p, title: src.title || (src.gender === "Female" ? "Ms" : "Mr"), first: src.first, last: src.last, dob: src.dob, gender: src.gender, nat: src.nat, doctype: "Passport", doc: src.doc, docctry: src.docctry, docexp: src.docexp || "22 / 11 / 2028" }; setP(v); trip.passengers[idx] = v; onChange && onChange(); };
+  useEffect(() => { trip.passengers[idx] = p; onChange && onChange(); }, []);
   return (
     <Card className="p-5">
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between gap-3 -mx-5 -mt-5 mb-4 px-5 py-4 bg-surface-soft rounded-t-2xl border-b border-line">
         <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{(p.first || "P")[0]}{(p.last || String(idx + 1))[0]}</span>
-          <div><div className="font-bold text-[15px] flex items-center gap-2">Passenger {idx + 1}{p.first ? " · " + p.first + " " + (p.last || "") : " · Add details"}<Pill tone="slate">Adult</Pill>{lead && <Pill tone="gold">{prefill.tier}</Pill>}</div><div className="text-[11px] text-ink-faint">{lead ? "Lead traveler · contact for this booking" : "Required to issue ticket"}</div></div></div>
-        <div className="flex items-center gap-2"><button className="text-[12px] font-semibold text-tap-greenDeep flex items-center gap-1"><Icon name="refresh" size={12} /> Prefill from profile</button><button className="text-[12px] text-ink-faint">Remove</button></div>
+          <div><div className="font-bold text-[15px] flex items-center gap-2">Passenger {idx + 1}{p.first ? " · " + p.first + " " + (p.last || "") : " · Add details"}<Pill tone="slate">Adult</Pill>{lead && <Pill tone="gold">{src.tier}</Pill>}</div><div className="text-[11px] text-ink-faint">{lead ? "Lead traveler · contact for this booking" : "Required to issue ticket"}</div></div></div>
+        <div className="flex items-center gap-2">
+          <button onClick={doPrefill} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green"><Icon name="refresh" size={12} /> Prefill from profile</button>
+          {!lead && <button onClick={() => onRemove && onRemove(idx)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink-muted hover:border-tap-red hover:text-tap-red"><Icon name="x" size={12} /> Remove</button>}
+        </div>
       </div>
       <Eyebrow className="mb-2">Identity · as shown on passport</Eyebrow>
       <div className="grid sm:grid-cols-3 gap-3">
-        <Field label={<>Title <Req /></>}><Input {...f("title")} placeholder="Ms" /></Field>
-        <Field label={<>First / middle names <Req /></>}><Input {...f("first")} /></Field>
-        <Field label={<>Last name <Req /></>}><Input {...f("last")} /></Field>
-        <Field label={<>Date of birth <Req /></>}><Input {...f("dob")} placeholder="DD / MM / YYYY" /></Field>
-        <Field label={<>Gender <Req /></>}><Input {...f("gender")} placeholder="Female" /></Field>
-        <Field label={<>Nationality <Req /></>}><Input {...f("nat")} /></Field>
+        <Field label={<>Title <Req /></>}><VInput {...f("title")} placeholder="Ms" err={err("title")} /></Field>
+        <Field label={<>First / middle names <Req /></>}><VInput {...f("first")} err={err("first")} /></Field>
+        <Field label={<>Last name <Req /></>}><VInput {...f("last")} err={err("last")} /></Field>
+        <Field label={<>Date of birth <Req /></>}><VInput {...f("dob")} placeholder="DD / MM / YYYY" err={err("dob")} /></Field>
+        <Field label={<>Gender <Req /></>}><VInput {...f("gender")} placeholder="Female" err={err("gender")} /></Field>
+        <Field label={<>Nationality <Req /></>}><FlagSelect value={p.nat} onChange={v => set("nat", v)} options={FLAG_NAT} err={err("nat")} /></Field>
       </div>
       <div className="flex items-center gap-1.5 mt-4 mb-2"><Eyebrow>Travel document</Eyebrow><Icon name="info" size={12} className="text-ink-faint" /><span className="text-[11px] text-ink-faint">Required to issue your boarding pass</span></div>
       <div className="grid sm:grid-cols-3 gap-3">
-        <Field label={<>Document type <Req /></>}><Input {...f("doctype")} placeholder="Passport" /></Field>
-        <Field label={<>Document number <Req /></>}><Input {...f("doc")} /></Field>
-        <Field label={<>Country of issue <Req /></>}><Input {...f("docctry")} placeholder="Brazil" /></Field>
+        <Field label={<>Document type <Req /></>}><VInput {...f("doctype")} placeholder="Passport" err={err("doctype")} /></Field>
+        <Field label={<>Document number <Req /></>}><VInput {...f("doc")} err={err("doc")} /></Field>
+        <Field label={<>Country of issue <Req /></>}><FlagSelect value={p.docctry} onChange={v => set("docctry", v)} options={FLAG_CTRY} err={err("docctry")} /></Field>
       </div>
       <div className="flex flex-wrap items-end gap-4 mt-3">
-        <Field label={<>Expiry date <Req /></>} className="w-44"><Input {...f("docexp")} placeholder="DD / MM / YYYY" /></Field>
-        <label className="flex items-center gap-2 text-[12px] text-ink-muted pb-2.5"><input type="checkbox" checked={saveDoc} onChange={e => setSaveDoc(e.target.checked)} className="accent-[#46a41a]" /> Save this document to my voa profile <span className="text-ink-faint">· encrypted</span></label>
+        <Field label={<>Expiry date <Req /></>} className="w-44"><VInput {...f("docexp")} placeholder="DD / MM / YYYY" err={err("docexp")} /></Field>
+        <label className="flex items-center gap-2 text-[12px] text-ink-muted pb-2.5"><input type="checkbox" checked={saveDoc} onChange={e => setSaveDoc(e.target.checked)} className="accent-[#46a41a]" /> Save this document to my TAP profile <span className="text-ink-faint">· Reuse for future trips — we'll encrypt it</span></label>
       </div>
       <Eyebrow className="mt-4 mb-2">Loyalty · optional — earn miles on this trip</Eyebrow>
       {lead
-        ? <div className="rounded-lg bg-lime-tint text-tap-greenDark px-3 py-2.5 flex items-center justify-between text-[12px]"><span className="flex items-center gap-2"><Icon name="plane" size={13} /> <b>TAP.miles applied</b> · {prefill.member} · {prefill.tier} tier — you'll earn {miles(prefill.earn || 2416)} tap.miles on this trip.</span><button className="font-semibold">Edit</button></div>
+        ? <div className="rounded-xl border border-tap-green/30 bg-lime-tint text-tap-greenDark px-4 py-3 flex items-center gap-3"><Icon name="plane" size={16} /><div className="flex-1"><div className="text-[13px] font-bold">TAP.miles applied</div><div className="text-[11px]">{src.member} · {src.tier} tier — you'll earn {miles(src.earn || 2416)} tap.miles on this trip.</div></div><button className="text-[12px] font-semibold shrink-0">Edit</button></div>
         : <div className="grid sm:grid-cols-[160px_1fr_auto] gap-3 items-end"><Field label="Program"><Input defaultValue="TAP.miles" /></Field><Field label="Membership number"><Input placeholder="Add Miles&Go number (optional)" /></Field><Btn variant="outline" size="sm">Apply membership</Btn></div>}
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-line"><div><div className="text-[13px] font-semibold">Special requests <span className="text-ink-faint font-normal">· optional</span></div><div className="text-[11px] text-ink-faint">Wheelchair, special meals, dietary preferences, traveling with a pet…</div></div><button className="text-[12px] font-semibold text-tap-greenDeep">Add request ▾</button></div>
     </Card>
@@ -365,56 +431,81 @@ export function Passenger({ shared, go }) {
   seedExtras();
   const u = shared.profile?.user || {};
   const last = (u.full_name || "").replace(u.first_name || "", "").trim() || "Silva";
-  const p1 = { title: u.gender === "Female" ? "Ms" : "Mr", first: u.first_name, last, dob: u.dob, gender: u.gender, nat: u.nationality, doctype: "Passport", doc: u.doc_id, docctry: u.nationality === "Portuguese" ? "Portugal" : "Brazil", docexp: "22 / 11 / 2028", member: u.member_no, tier: u.tier, earn: 2416 };
-  const [contact, setContact] = useState({ email: u.email || "daniel.silva@email.com", phone: u.phone || "(11) 99812-4471", country: "Brazil", city: "Porto", lang: "Português (BR)" });
-  const [tab, setTab] = useState("p1");
+  const natName = u.nationality === "Brazilian" ? "Brazilian" : "Portuguese";
+  const ctryName = natName === "Brazilian" ? "Brazil" : "Portugal";
+  const p1 = { title: u.gender === "Female" ? "Ms" : "Mr", first: u.first_name || "Daniel", last, dob: u.dob || "14 / 03 / 1985", gender: u.gender || "Male", nat: natName, doctype: "Passport", doc: u.doc_id || "PT 4821190", docctry: ctryName, docexp: "22 / 11 / 2028", member: u.member_no, tier: u.tier, earn: 2416 };
+  const [paxCount, setPaxCount] = useState(trip.pax || 1);
+  const [contact, setContact] = useState({ email: u.email || "daniel.silva@email.com", phoneCode: "+351", phone: u.phone ? String(u.phone).replace(/^\s*\+?\d{1,3}\s*/, "") : "91 442 7781", country: ctryName, city: "Porto", lang: "Português (BR)", fare: false });
+  const [tab, setTab] = useState("all");
   const [cons, setCons] = useState({ fare: true, hotel: true, stopover: false, analytics: true, ads: false });
-  useEffect(() => { trip.contact = contact; }, [contact]);
+  const [, force] = useState(0); const bump = () => force(x => x + 1);
+  useEffect(() => { trip.contact = contact; trip.pax = paxCount; }, [contact, paxCount]);
+
+  const REQ = ["title", "first", "last", "dob", "gender", "nat", "doctype", "doc", "docctry", "docexp"];
+  const paxComplete = (i) => { const d = trip.passengers[i] || {}; return REQ.every(k => d[k] && String(d[k]).trim()); };
+  const contactComplete = !!(contact.email && contact.phone && contact.country && contact.city);
+  const completeN = Array.from({ length: paxCount }).filter((_, i) => paxComplete(i)).length;
+  const allComplete = completeN === paxCount && contactComplete;
+  const firstIncomplete = Array.from({ length: paxCount }).findIndex((_, i) => !paxComplete(i));
+  const missingCount = (() => { let n = 0; for (let i = 0; i < paxCount; i++) { const d = trip.passengers[i] || {}; n += REQ.filter(k => !(d[k] && String(d[k]).trim())).length; } if (!contactComplete) n += 1; return n; })();
+  const showErr = !allComplete;
+  const addPax = () => { setPaxCount(c => c + 1); setTab("all"); };
+  const removePax = (i) => { trip.passengers.splice(i, 1); setPaxCount(c => Math.max(1, c - 1)); setTab("all"); };
+
   return (
     <div className="bg-surface-soft min-h-screen">
       <Stepper active={3} />
       <div className="mx-auto max-w-page px-6 py-6">
-        <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Passenger details</h1><Pill tone="slate">{trip.pax} traveler{trip.pax > 1 ? "s" : ""}</Pill></div>
+        <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Passenger details</h1><Pill tone="slate">{paxCount} traveler{paxCount > 1 ? "s" : ""}</Pill></div>
         <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Enter passenger information exactly as it appears on travel documents. We'll use this to issue tickets and send trip updates.</p>
-        <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{trip.pax > 1 ? " + " + (trip.pax - 1) : ""}</Chip></div>
+        <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{paxCount} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{paxCount > 1 ? " + " + (paxCount - 1) : ""}</Chip></div>
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-5 items-start">
           <div className="space-y-5">
-            <div className="flex items-center gap-2 text-[13px] font-semibold">
-              {[["all", "All"], ["p1", `Passenger 1 · ${u.first_name}`], ...(trip.pax > 1 ? [["p2", "Passenger 2"]] : [])].map(([k, l]) => (
+            <div className="flex items-center gap-2 text-[13px] font-semibold flex-wrap">
+              {[["all", "All"], ...Array.from({ length: paxCount }).map((_, i) => ["p" + (i + 1), `Passenger ${i + 1}` + (i === 0 ? ` · ${u.first_name}` : "")])].map(([k, l]) => (
                 <button key={k} onClick={() => setTab(k)} className={cx("px-3 py-1.5 rounded-full", tab === k ? "bg-surface-dark text-white" : "bg-surface border border-line text-ink-muted")}>{tab === k && k !== "all" && <span className="text-tap-green mr-1">●</span>}{l}</button>
               ))}
-              <span className="ml-auto text-[11px] text-ink-faint">0 of {trip.pax} complete · <span className="text-tap-greenDeep font-semibold">Autosaved</span></span>
+              <span className="ml-auto text-[11px] text-ink-faint">{completeN} of {paxCount} complete · <span className="text-tap-greenDeep font-semibold">Autosaved</span></span>
             </div>
-            {(tab === "all" || tab === "p1") && <PaxCard idx={0} lead prefill={p1} />}
-            {(tab === "all" || tab === "p2") && Array.from({ length: Math.max(0, trip.pax - 1) }).map((_, i) => <PaxCard key={i} idx={i + 1} />)}
+
+            {showErr && <div className="rounded-xl border border-tap-red/40 bg-tap-red/5 px-4 py-3 flex items-start gap-3"><span className="w-5 h-5 rounded-full bg-tap-red text-white inline-flex items-center justify-center text-[12px] font-bold shrink-0">!</span><div><div className="text-[13px] font-bold text-tap-red">Please complete required passenger and contact details</div><div className="text-[12px] text-ink-muted">{missingCount} field{missingCount !== 1 ? "s" : ""} need attention — required fields are highlighted below.</div></div></div>}
+
+            {Array.from({ length: paxCount }).map((_, i) => ((tab === "all" || tab === "p" + (i + 1)) &&
+              <PaxCard key={i} idx={i} lead={i === 0} prefill={i === 0 ? p1 : undefined} profile={p1} onRemove={removePax} showErr={showErr} onChange={bump} />))}
+
+            {tab === "all" && <button onClick={addPax} className="w-full rounded-xl border border-dashed border-line-strong py-3 text-[13px] font-semibold text-tap-greenDeep hover:border-tap-green hover:bg-lime-tint/30 inline-flex items-center justify-center gap-1.5"><span className="text-[15px] leading-none">+</span> Add another passenger</button>}
 
             <Card className="p-5">
-              <div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><Icon name="mail" size={15} className="text-ink-faint" /><div className="font-bold text-[15px]">Contact details for this booking</div></div><button className="text-[12px] font-semibold text-tap-greenDeep">Using your account · Change</button></div>
+              <div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><Icon name="mail" size={15} className="text-ink-faint" /><div className="font-bold text-[15px]">Contact details for this booking</div></div><button className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green"><Icon name="refresh" size={12} /> Using your account · Change</button></div>
               <p className="text-[11px] text-ink-muted mb-3">We'll send confirmation and important trip updates to this contact.</p>
               <div className="grid sm:grid-cols-2 gap-3">
-                <Field label={<>Email address <Req /></>}><Input value={contact.email} onChange={e => setContact({ ...contact, email: e.target.value })} /></Field>
-                <Field label={<>Mobile phone <Req /></>}><Input value={contact.phone} onChange={e => setContact({ ...contact, phone: e.target.value })} /></Field>
-                <Field label={<>Country <Req /></>}><Input value={contact.country} onChange={e => setContact({ ...contact, country: e.target.value })} /></Field>
-                <Field label={<>City <Req /></>}><Input value={contact.city} onChange={e => setContact({ ...contact, city: e.target.value })} /></Field>
+                <Field label={<>Email address <Req /></>}><VInput value={contact.email} onChange={e => setContact({ ...contact, email: e.target.value })} err={showErr && !contact.email} /></Field>
+                <Field label={<>Mobile phone <Req /></>}>
+                  <div className="flex gap-2">
+                    <div className="relative w-[96px] shrink-0"><span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none">{(PHONE_CODES.find(c => c[0] === contact.phoneCode) || PHONE_CODES[0])[1]}</span><select value={contact.phoneCode} onChange={e => setContact({ ...contact, phoneCode: e.target.value })} className="w-full bg-surface border border-line-strong rounded-xl pl-8 pr-2 py-2.5 text-[13px] outline-none appearance-none cursor-pointer">{PHONE_CODES.map(([c]) => <option key={c} value={c}>{c}</option>)}</select></div>
+                    <input value={contact.phone} onChange={e => setContact({ ...contact, phone: e.target.value })} className={cx("flex-1 bg-surface border rounded-xl px-3 py-2.5 text-[14px] outline-none focus:border-tap-green", showErr && !contact.phone ? "border-tap-red" : "border-line-strong")} />
+                  </div>
+                </Field>
+                <Field label={<>Country <Req /></>}><FlagSelect value={contact.country} onChange={v => setContact({ ...contact, country: v })} options={FLAG_CTRY} err={showErr && !contact.country} /></Field>
+                <Field label={<>City <Req /></>}><VInput value={contact.city} onChange={e => setContact({ ...contact, city: e.target.value })} err={showErr && !contact.city} /></Field>
                 <Field label="Preferred language"><Input value={contact.lang} onChange={e => setContact({ ...contact, lang: e.target.value })} /></Field>
               </div>
-              <label className="flex items-center gap-2 mt-3 text-[12px] text-ink-muted"><input type="checkbox" className="accent-[#46a41a]" /> Email me fare alerts and travel inspiration (optional)</label>
+              <div className="h-px bg-line my-4" />
+              <label className="flex items-start gap-2.5 text-[13px] text-ink-700"><input type="checkbox" checked={contact.fare} onChange={e => setContact({ ...contact, fare: e.target.checked })} className="accent-[#46a41a] mt-0.5" /><span>Email me fare alerts and travel inspiration <span className="text-ink-faint">(optional)</span><span className="block text-[11px] text-ink-faint">You can unsubscribe any time. We'll always send essential trip emails.</span></span></label>
             </Card>
 
+            <div className="rounded-2xl border border-tap-green/30 bg-lime-tint/40 p-4 flex items-start gap-3"><Icon name="lock" size={16} className="text-tap-greenDeep shrink-0 mt-0.5" /><div><div className="font-bold text-[14px] text-tap-greenDark">Your data, your choice</div><div className="text-[11px] text-ink-muted">GDPR-compliant · TAP only shares what you explicitly allow below. Encrypted end-to-end.</div></div></div>
             <Card className="p-5">
-              <div className="flex items-center gap-2 mb-1"><Icon name="lock" size={15} className="text-tap-green" /><div className="font-bold text-[15px]">Your data, your choice</div></div>
-              <p className="text-[11px] text-ink-muted mb-4">GDPR-compliant · TAP only shares what you explicitly allow below.</p>
-              <Eyebrow className="mb-3">Marketing & partner consents</Eyebrow>
+              <Eyebrow className="mb-3">Marketing &amp; partner consents</Eyebrow>
               <div className="divide-y divide-line">
                 {[["fare", "TAP fare alerts", "Personalised deals based on your routes"], ["hotel", "Hotel & car partners", "Booking.com & Hertz can email you matched offers"], ["stopover", "Stopover Portugal", "Destination guides & limited-time experiences"], ["analytics", "Anonymised analytics", "Helps TAP improve product (no personal data shared)"], ["ads", "Third-party advertising", "Personalised ads on social platforms"]].map(([k, t, s]) => (
                   <div key={k} className="flex items-center justify-between py-3"><div><div className="text-[13px] font-semibold">{t}</div><div className="text-[11px] text-ink-faint">{s}</div></div><Toggle on={cons[k]} set={v => setCons({ ...cons, [k]: v })} /></div>
                 ))}
               </div>
             </Card>
-            <div className="rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2.5 flex items-center gap-2"><Icon name="lock" size={13} /> Encrypted & GDPR-safe</div>
           </div>
-          <BasketSummary step={4} cta="Continue to payment →" onCta={() => go("payment")} note="Final review again on Step 4." secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
+          <BasketSummary step={4} cta="Continue to payment →" onCta={() => go("payment")} disabled={!allComplete} note={allComplete ? "Final review again on Step 4." : (firstIncomplete >= 0 ? `Complete Passenger ${firstIncomplete + 1} details to continue.` : "Complete contact details to continue.")} secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
         </div>
       </div>
     </div>
