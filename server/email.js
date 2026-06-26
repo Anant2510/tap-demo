@@ -10,6 +10,21 @@ const nodemailer = require("nodemailer");
 const { db, now } = require("./db");
 const { currentApp } = require("./appctx");
 
+// CDP forwarder (email + WhatsApp modules write events directly, outside server.js's log()).
+// Guarded require so it no-ops cleanly when the cdp-events module is absent (e.g. partial slice).
+let _cdpEvents = null; try { _cdpEvents = require("./cdp-events"); } catch { _cdpEvents = null; }
+function _cdpIdent() { try { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; return { loyaltyId: u.member_no, email: u.email }; } catch { return {}; } }
+function cdpForward(type, attrs, rowId) {
+  (async () => {
+    let ok = false;
+    try {
+      if (_cdpEvents && typeof _cdpEvents.streamEvent === "function") ok = (await _cdpEvents.streamEvent(type, _cdpIdent(), attrs || {})) !== false;
+      else if (_cdpEvents && typeof _cdpEvents.emit === "function") { _cdpEvents.emit(type, _cdpIdent(), attrs || {}); ok = true; }
+    } catch { ok = false; }
+    try { if (rowId) db.prepare("UPDATE events SET delivery=? WHERE id=?").run(ok ? "sent" : "pending", rowId); } catch { }
+  })();
+}
+
 const SMTP_READY = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 let transporter = null;
 if (SMTP_READY) {
@@ -142,17 +157,21 @@ const TEMPLATES = {
       cta: { label: "Open boarding pass" },
     }),
   }),
-  hold_confirmation: ({ f, total, expires }) => ({
-    subject: `Held for you — ${f.flight_no} at €${total.toFixed(2)} until ${expires}`,
-    html: wrap({
-      title: "Take your time. We'll hold it.",
-      accent: GOLD,
-      bodyHtml: `Your trip — flight, seat ${me().seat} and extras at <b>€${total.toFixed(2)}</b> — is held free for 48 hours (${me().tier} benefit).
+  hold_confirmation: ({ f, total, expires, duration, fee }) => {
+    const label = duration === "7d" ? "7 days" : duration === "48h" ? "48 hours" : "24 hours";
+    const deductible = duration === "7d" ? "" : " — fully deductible from your final fare";
+    return ({
+      subject: `Held for you — ${f.flight_no} locked for ${label} (€${(fee || 0).toFixed(2)} fee)`,
+      html: wrap({
+        title: "Take your time. We'll hold it.",
+        accent: GOLD,
+        bodyHtml: `Your fare on ${f.flight_no} — flight, seat ${me().seat} and current taxes — is locked at <b>€${(total || 0).toFixed(2)}</b> for <b>${label}</b>. Hold fee <b>€${(fee || 0).toFixed(2)}</b>${deductible}.
         ${flightRow(f)}
-        Price won't move. We'll nudge you 6 hours before the hold expires on <b>${expires}</b>.`,
-      cta: { label: "Complete booking" },
-    }),
-  }),
+        The price won't move even if fares rise. We'll remind you 6 hours before the hold expires on <b>${expires}</b>.`,
+        cta: { label: "Complete booking" },
+      }),
+    });
+  },
   cancelled: ({ b, pay }) => ({
     subject: `Cancelled ✓ ${b.pnr} — refund issued instantly`,
     html: wrap({
@@ -214,8 +233,9 @@ async function sendEmail(type, data) {
   }
   const r = db.prepare(`INSERT INTO emails (user_id,to_addr,subject,email_type,html,status,provider_id,created_at,app)
     VALUES (1,?,?,?,?,?,?,?,?)`).run(to, subject, type, html, status, providerId, now(), currentApp());
-  db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)")
+  const evRow = db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)")
     .run("email_" + type, JSON.stringify({ to, subject, status }), now(), currentApp());
+  cdpForward("email_" + type, { to, subject, status, channel: "Email" }, Number(evRow.lastInsertRowid));
   return { id: Number(r.lastInsertRowid), to, subject, status };
 }
 

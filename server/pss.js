@@ -297,7 +297,23 @@ async function flushOutbox(limit = 25) {
     db.prepare("UPDATE events SET delivery=? WHERE id=?").run(ok ? "sent" : "pending", row.id);
     if (ok) sent++;
   }
-  return { checked: pending.length, sent };
+  // One-shot retry for pending WEB events (everything that isn't a pss_* outbox row). These
+  // were forwarded best-effort at write time; if that attempt failed they're left 'pending'.
+  // We retry exactly once here, then move them to a terminal state ('sent' or 'failed') so they
+  // never loop — the pss_* rows above keep their continuous retry. The 60s age guard avoids
+  // racing an initial forward that may still be in-flight.
+  const ident = (() => { try { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; return { loyaltyId: u.member_no, email: u.email }; } catch { return {}; } })();
+  const cutoff = new Date(Date.now() - 60000).toISOString().replace("T", " ").slice(0, 19);
+  const web = db.prepare("SELECT * FROM events WHERE delivery='pending' AND type NOT LIKE 'pss_%' AND created_at < ? LIMIT ?").all(cutoff, limit);
+  let webSent = 0;
+  for (const row of web) {
+    let p; try { p = JSON.parse(row.payload_json || "{}"); } catch { p = {}; }
+    let ok = false;
+    try { ok = await forwardToCdp(row.type, p.identity || ident, p); } catch { ok = false; }
+    db.prepare("UPDATE events SET delivery=? WHERE id=?").run(ok ? "sent" : "failed", row.id);
+    if (ok) webSent++;
+  }
+  return { checked: pending.length, sent, webRetried: web.length, webSent };
 }
 
 /* ── 7 · Local offer rules ──────────────────────────────────────────────────

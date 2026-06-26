@@ -14,9 +14,23 @@
      bookings, rebooking, ancillaries, cancellations all hit the same
      database and feed the same personalization.
    ────────────────────────────────────────────────────────────── */
-const { db, now, searchToday, currentBooking, getDataSource } = require("./db");
+const { db, now, searchToday, currentBooking, getDataSource, PERSONAS } = require("./db");
 const { AIRPORTS } = require("./routes-data");
 const { phraseFromFacts } = require("./claude");
+
+// CDP forwarder for WhatsApp-channel events (written here, outside server.js's log()).
+let _cdpEvents = null; try { _cdpEvents = require("./cdp-events"); } catch { _cdpEvents = null; }
+function _cdpIdent() { try { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; return { loyaltyId: u.member_no, email: u.email }; } catch { return {}; } }
+function cdpForward(type, attrs, rowId) {
+  (async () => {
+    let ok = false;
+    try {
+      if (_cdpEvents && typeof _cdpEvents.streamEvent === "function") ok = (await _cdpEvents.streamEvent(type, _cdpIdent(), attrs || {})) !== false;
+      else if (_cdpEvents && typeof _cdpEvents.emit === "function") { _cdpEvents.emit(type, _cdpIdent(), attrs || {}); ok = true; }
+    } catch { ok = false; }
+    try { if (rowId) db.prepare("UPDATE events SET delivery=? WHERE id=?").run(ok ? "sent" : "pending", rowId); } catch { }
+  })();
+}
 
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 const SID = () => process.env.TWILIO_ACCOUNT_SID;
@@ -34,6 +48,26 @@ const waAddr = (n) => {
   return "whatsapp:" + s;
 };
 const bareNumber = (n) => String(n || "").replace(/^whatsapp:/, "");
+
+// Resolve an inbound WhatsApp sender to a known persona by their REGISTERED mobile, so any
+// registered member — not just whoever is currently seeded — gets their own 360° experience.
+// Matches on the trailing 9 digits to tolerate "whatsapp:+351 …" prefixes and spacing.
+const phoneTail = (s) => String(s || "").replace(/[^0-9]/g, "").slice(-9);
+function personaForPhone(from) {
+  const tail = phoneTail(from);
+  if (!tail) return null;
+  for (const id in PERSONAS) {
+    if (phoneTail((PERSONAS[id].user || {}).phone) === tail) return id;
+  }
+  return null;
+}
+// The persona currently seeded as the live customer (users.id=1) — authoritative, derived
+// from the seeded member number rather than any cached flag.
+function activePersonaId() {
+  const u = db.prepare("SELECT member_no FROM users WHERE id=1").get() || {};
+  for (const id in PERSONAS) if (PERSONAS[id].user.member_no === u.member_no) return id;
+  return null;
+}
 
 const logWA = (direction, wa_id, type, body, payload, status) =>
   db.prepare(`INSERT INTO wa_messages (direction,wa_id,msg_type,body,payload_json,status,created_at)
@@ -509,7 +543,8 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     }
     // Action actually happens here
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
-    db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
+    { const _waEv = db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
+      cdpForward("wa_checkin", { pnr: b.pnr, channel: "WhatsApp" }, Number(_waEv.lastInsertRowid)); }
     const facts = { action: "check_in", state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, dep: f.dep, seat: b.seat, group: boardingGroup(userTier()) };
     await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
       fallback: `🎫 Checked in for ${b.pnr} — ${b.flight_no} ${route}, ${b.flight_date}${f.dep ? " · departs " + f.dep : ""}. Boarding group ${boardingGroup(userTier())}, seat ${b.seat}. Boarding pass issued; it updates live if anything changes.` }));
@@ -710,8 +745,21 @@ Reply 1 to book this offer · 0 for menu`);
 async function handleIncoming({ from, text }) {
   if (!from) return;
   const bare = bareNumber(from);
+
+  // Make the conversation belong to whoever is texting: if their number maps to a known persona
+  // that isn't the one currently active, switch the live customer to it (same re-seed the
+  // website's persona picker uses), so each registered member gets their OWN 360° personalization
+  // — not just whoever happened to be seeded. Done first so the inbound log below survives the
+  // re-seed. Unknown numbers keep the active persona.
+  const pid = personaForPhone(from);
+  if (pid && pid !== activePersonaId()) {
+    try { await apiCall("POST", "/persona", { persona: pid }); } catch {}
+    clearDraft(from); clearConvo(from); delete menuContext[bare];
+  }
+
   logWA("in", from, "text", text, { from, text }, "received");
-  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_inbound',?,?)").run(JSON.stringify({ from: bare, text }), now());
+  { const _waEv = db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_inbound',?,?)").run(JSON.stringify({ from: bare, text }), now());
+    cdpForward("wa_inbound", { from: bare, text, channel: "WhatsApp" }, Number(_waEv.lastInsertRowid)); }
   db.prepare("UPDATE users SET wa_id=? WHERE id=1").run(bare);   // remember partner for proactive push
 
   const t = (text || "").trim().toLowerCase();

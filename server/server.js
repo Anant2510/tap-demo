@@ -53,8 +53,37 @@ app.use(express.urlencoded({ extended: false }));   // Twilio posts x-www-form-u
 app.use((req, _res, next) => { const h = String(req.headers["x-app"] || "").toLowerCase(); appCtx.run({ app: h === "v2" ? "v2" : "v1" }, next); });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
-const log = (type, payload) =>
-  db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload || {}), now(), currentApp());
+// Events that must NOT auto-forward to Adobe RT-CDP:
+//  · system / data-source / infra noise (kept on-box)
+//  · the five that already emit a richer, mapped CDP event at their own route — listing them
+//    here prevents a duplicate, lower-fidelity copy being sent under the raw log type.
+const CDP_NO_FORWARD = new Set([
+  "cdp_profile_hydrated", "datasource_switched",
+  // high-frequency read telemetry — kept on-box to avoid flooding RT-CDP ingestion
+  "api_flights_fetch", "api_flights_noroute", "api_recommendation_fetch", "api_profile_fetch",
+  "flight_search", "hold_created", "payment_captured", "booking_checkin", "journey_resumed",
+]);
+// Mirror a locally-logged event into RT-CDP under its own type name. Best-effort and
+// fire-and-forget so it never blocks or fails the local write / the request. Prefers the
+// awaitable streamEvent (so the row's delivery is recorded), falling back to emit; no-ops
+// cleanly when the CDP module is absent, leaving delivery 'pending' for visibility.
+function cdpForward(type, payload, rowId) {
+  if (CDP_NO_FORWARD.has(type)) return;
+  const attrs = Object.assign({ channel: "Web app" }, payload || {});
+  (async () => {
+    let ok = false;
+    try {
+      if (cdpEvents && typeof cdpEvents.streamEvent === "function") ok = (await cdpEvents.streamEvent(type, liveIdentity(), attrs)) !== false;
+      else if (cdpEvents && typeof cdpEvents.emit === "function") { cdpEvents.emit(type, liveIdentity(), attrs); ok = true; }
+    } catch { ok = false; }
+    try { db.prepare("UPDATE events SET delivery=? WHERE id=?").run(ok ? "sent" : "pending", rowId); } catch { }
+  })();
+}
+const log = (type, payload) => {
+  const info = db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload || {}), now(), currentApp());
+  cdpForward(type, payload, Number(info.lastInsertRowid));
+  return info;
+};
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 // Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
 const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
@@ -207,8 +236,10 @@ function scheduleSearchFollowup(origin, dest, date, flights) {
   const key = `${origin}-${dest}`;
   const app = currentApp();   // remember which frontend searched, so deferred emails tag correctly
   if (followupTimers[key]) { clearTimeout(followupTimers[key].followup); clearTimeout(followupTimers[key].offer); }
-  const tagEvent = (type, payload) =>
-    db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload), now(), app);
+  const tagEvent = (type, payload) => {
+    const info = db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload), now(), app);
+    cdpForward(type, payload, Number(info.lastInsertRowid));
+  };
   const runIn = (ms, fn) => setTimeout(() => appCtx.run({ app }, fn), ms);   // run callback in the right app-context
   followupTimers[key] = {
     followup: runIn(FOLLOWUP_MS, () => {
@@ -542,13 +573,23 @@ app.post("/api/fare-lock", (req, res) => {
 });
 
 app.post("/api/hold", async (req, res) => {
-  const { flight_no, items, total } = req.body;
-  const exp = "Fri 12 Jun, 09:00";
+  const { flight_no, items, total, duration, fee } = req.body;
+  const hours = duration === "7d" ? 168 : duration === "48h" ? 48 : 24;
+  const holdFee = Number(fee) || (duration === "7d" ? 39 : duration === "48h" ? 18 : 9);
+  const exp = new Date(Date.now() + hours * 3600e3).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   db.prepare("INSERT INTO holds (user_id,flight_no,items_json,total,expires_at,created_at) VALUES (1,?,?,?,?,?)")
-    .run(flight_no, JSON.stringify(items || []), total, exp, now());
-  log("hold_created", { flight_no, total, expires: exp });
-  const email = await sendEmail("hold_confirmation", { f: flightByNo(flight_no), total, expires: exp });
-  res.json({ ok: true, expires: exp, email });
+    .run(flight_no, JSON.stringify({ items: items || [], duration: duration || "48h", fee: holdFee }), total, exp, now());
+  log("hold_created", { flight_no, total, fee: holdFee, duration: duration || "48h", expires: exp });
+  // Record the hold as a personalization signal: stream a CDP event + unified-profile touch so
+  // segments, offer tiles and the ledger can react ("considering / price-sensitive booker").
+  const hf = flightByNo(flight_no);
+  try {
+    cdpEvents.emit("hold", liveIdentity(), { origin: hf && hf.origin, destination: hf && hf.dest, travelDate: hf && hf.flight_date, flightNumber: flight_no, cabin: "Economy", channel: "Web app", holdDuration: duration || "48h", holdFee, abandoned: true });
+    cdpProfile.record({ identity: liveIdentity(), channel: "web", type: "hold", dest: hf && hf.dest });
+  } catch { }
+  // Every hold decision triggers a confirmation email to the active customer.
+  const email = await sendEmail("hold_confirmation", { f: flightByNo(flight_no), total: Number(total) || 0, expires: exp, duration: duration || "48h", fee: holdFee });
+  res.json({ ok: true, expires: exp, fee: holdFee, email });
 });
 
 /* ── Payment → booking + confirmation email ──────────────────── */
@@ -1631,6 +1672,20 @@ async function buildOfferTiles(identity) {
       ...(topSeg && !affinitySeg ? [`Top segment: ${topSeg.name} — ${topSeg.why}`] : []),
     ].filter(Boolean),
   });
+  // Active fare hold → a complete-your-hold tile, surfaced first (strong intent signal).
+  const heldRow = db.prepare("SELECT flight_no, total, expires_at FROM holds WHERE user_id=1 AND status='active' ORDER BY id DESC LIMIT 1").get();
+  if (heldRow) {
+    const hf = db.prepare("SELECT dest FROM flights WHERE flight_no=?").get(heldRow.flight_no);
+    const hcity = hf ? cityName(hf.dest) : "your trip";
+    tiles.unshift({
+      id: "complete_hold", icon: "lock", badge: "Held · price locked", via: "Fare hold (DB)",
+      title: `Complete your held ${hcity} fare`,
+      detail: `Locked at €${Math.round(heldRow.total || 0)} until ${heldRow.expires_at} — finish before it expires.`,
+      value: "Locked", cta: "Resume", action: "cart",
+      reason: `You placed a fare hold on ${heldRow.flight_no}; price protected until ${heldRow.expires_at}`,
+      signals: [`Active fare hold on ${heldRow.flight_no} (holds)`, `Locked total €${Math.round(heldRow.total || 0)} · expires ${heldRow.expires_at}`],
+    });
+  }
   return { tier, home, cdpOn, audiences, segments: localSegs, tiles };
 }
 app.get("/api/offers/tiles", async (req, res) => {
@@ -1651,6 +1706,7 @@ app.get("/api/admin/personalization", async (req, res) => {
   const searchRows = db.prepare("SELECT origin, dest, travel_date, device, created_at FROM searches WHERE user_id=1 ORDER BY id DESC LIMIT 30").all();
   const bookingRows = db.prepare("SELECT id, pnr, flight_no, flight_date, seat, items_json, status, source FROM bookings WHERE user_id=1 ORDER BY id DESC LIMIT 30").all()
     .map(b => ({ id: b.id, pnr: b.pnr, flight_no: b.flight_no, flight_date: b.flight_date, seat: b.seat, status: b.status, source: b.source, items: _safeJSON(b.items_json, []) }));
+  const holdRows = db.prepare("SELECT flight_no, total, expires_at, status, created_at FROM holds WHERE user_id=1 ORDER BY id DESC LIMIT 10").all();
   const surfaces = [];
   const ot = await buildOfferTiles(liveIdentity());
   surfaces.push({ surface: "Home · offer tiles", items: ot.tiles.map(t => ({ title: t.title, via: t.via, reason: t.reason, signals: t.signals })) });
@@ -1675,10 +1731,15 @@ app.get("/api/admin/personalization", async (req, res) => {
     ...audiences.map(a => ({ title: a, via: "Adobe RT-CDP", reason: "Live audience membership", signals: [`RT-CDP audience: ${a}`] })),
     ...localSegs.map(s => ({ title: s.name, via: "Segment engine", reason: s.why, signals: [`segment ${s.id}: ${s.why}`] })),
   ] });
+  const activeHolds = holdRows.filter(h => h.status === "active");
+  if (activeHolds.length) surfaces.push({ surface: "Fare holds → complete-your-hold offer", items: activeHolds.map(h => ({
+    title: `Held ${h.flight_no}`, via: "Fare hold (DB)", reason: `Price locked until ${h.expires_at} — surfaced as a resume-your-hold tile`,
+    signals: [`holds: ${h.flight_no} active · total €${Math.round(h.total || 0)} · expires ${h.expires_at}`],
+  })) });
   res.json({
     identity: { member_no: u.member_no, email: u.email, name: u.full_name, tier: u.tier, miles: u.miles, home_airport: home, affinity: u.affinity_label },
     cdpOn, audiences, segments: localSegs, surfaces,
-    records: { travel_history: travel, searches: searchRows, bookings: bookingRows },
+    records: { travel_history: travel, searches: searchRows, bookings: bookingRows, holds: holdRows },
   });
 });
 
