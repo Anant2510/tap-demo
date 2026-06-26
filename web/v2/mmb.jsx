@@ -81,15 +81,29 @@ const SuccessHead = ({ title, sub }) => (
   </div>
 );
 
-const Crumb = ({ go, label = "Manage booking" }) => (
-  <button onClick={() => go("manage")} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1">
-    <Icon name="arrow" size={13} className="rotate-180" /> {label}
-  </button>
-);
+const Crumb = ({ go, label = "Manage booking", trail }) => {
+  if (trail && trail.length) return (
+    <nav className="flex items-center gap-1.5 text-[12px] text-ink-muted mb-3 flex-wrap">
+      {trail.map((t, i) => (
+        <span key={i} className="inline-flex items-center gap-1.5">
+          {i > 0 && <Icon name="chevR" size={12} className="text-ink-faint" />}
+          {t.page && i < trail.length - 1
+            ? <button onClick={() => go(t.page)} className="hover:text-ink transition-colors">{t.label}</button>
+            : <span className={i === trail.length - 1 ? "font-bold text-ink" : ""}>{t.label}</span>}
+        </span>
+      ))}
+    </nav>
+  );
+  return (
+    <button onClick={() => go("manage")} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1">
+      <Icon name="arrow" size={13} className="rotate-180" /> {label}
+    </button>
+  );
+};
 
 /* ═══════════ J1 · RETRIEVE + MANAGE HUB ═══════════ */
 export function ManageBooking({ shared, go }) {
-  const { booking, loading, err } = useActiveBooking();
+  const { booking, all, loading, err } = useActiveBooking();
   const airports = shared.airports;
   const u = shared.profile?.user || {};
   if (loading) return <Loading />;
@@ -105,10 +119,11 @@ export function ManageBooking({ shared, go }) {
   ];
   return (
     <div className="mx-auto max-w-page px-6 py-8">
+      <Crumb go={go} trail={[{ label: "My Trip", page: "home" }, { label: "Basket" }]} />
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <Eyebrow>Manage my booking</Eyebrow>
-          <h1 className="text-[30px] font-black mt-1">Your trip</h1>
+          <h1 className="text-[30px] font-black">Your basket</h1>
+          <div className="text-[13px] text-ink-muted mt-1">{(() => { const n = Math.max(1, (all || []).filter(b => (b.status || "confirmed") === "confirmed" && (b.days_to_go ?? 0) >= 0).length); return `${n} trip${n !== 1 ? "s" : ""} bundled`; })()} · you save {EUR(42)} with the multi-trip discount</div>
         </div>
         <div className="flex items-center gap-2">
           <Pill tone="red">PNR {booking.pnr}</Pill>
@@ -126,6 +141,12 @@ export function ManageBooking({ shared, go }) {
               <Pill tone="slate"><Icon name="user" size={10} /> {u.first_name || "Daniel"} {lastName(u)}</Pill>
               <Pill tone="slate">Seat {booking.seat || "4C"}</Pill>
               {(booking.items || []).slice(0, 5).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
+              {[["Edit", "manage"], ["Change dates", "rebook"], ["Seat selection", "seatchange"], ["Add ancillaries", "addextras"]].map(([lbl, page]) => (
+                <button key={lbl} onClick={() => go(page)} className="rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors">{lbl}</button>
+              ))}
+              <button onClick={() => go("rebook")} className="ml-auto rounded-full px-3 py-1.5 text-[12px] font-bold text-tap-red hover:underline">Remove</button>
             </div>
           </Card>
           <div className="grid sm:grid-cols-2 gap-4">
@@ -195,11 +216,13 @@ export function CabinUpgrade({ shared, go }) {
   );
   return (
     <div className="mx-auto max-w-content px-6 py-8">
-      <Crumb go={go} />
+      <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr} — ${cityOf(shared.airports, booking.flight?.origin)}–${cityOf(shared.airports, booking.flight?.dest)} · ${fmtDate(booking.flight_date)}`, page: "manage" }, { label: "Cabin upgrade" }]} />
       <h1 className="text-[26px] font-black">Upgrade your cabin</h1>
-      <p className="text-[13px] text-ink-muted mt-1">{cityOf(shared.airports, booking.flight?.origin)} → {cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)}</p>
-      <div className="grid sm:grid-cols-2 gap-4 mt-5">
-        <Card className="p-5 v2-in"><Eyebrow>Current</Eyebrow><div className="text-[18px] font-bold mt-1">Economy</div><ul className="text-[12px] text-ink-muted mt-3 space-y-1.5"><li>Standard seat</li><li>1 cabin bag</li><li>Earn 50% miles</li></ul></Card>
+      <p className="text-[13px] text-ink-muted mt-1">You're checked in. Pick fixed price or place a bid. New boarding pass auto-reissued.</p>
+      <div className="rounded-xl bg-surface-soft border border-line px-4 py-2.5 mt-5 text-[13px] flex items-center gap-2 flex-wrap">
+        <span className="text-ink-muted">Current:</span><span className="font-semibold">Economy · Seat {booking.seat || "24F"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
+      </div>
+      <div className="grid gap-4 mt-4">
         <Card className="p-5 ring-2 ring-tap-green/30 v2-in"><div className="flex items-center justify-between"><Eyebrow>Upgrade to</Eyebrow><Pill tone="gold">Executive</Pill></div><div className="text-[18px] font-bold mt-1">Executive</div><ul className="text-[12px] text-ink-muted mt-3 space-y-1.5"><li>Lie-flat seat + lounge</li><li>2 checked bags · fast track</li><li>Earn 125% miles</li></ul></Card>
       </div>
       <Card className="p-5 mt-4">

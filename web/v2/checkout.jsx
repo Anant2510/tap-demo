@@ -15,6 +15,14 @@ const CAT_ICON = { Hotels: "home", "Cars & transfers": "arrow", Insurance: "shie
 const CAT_SUB = (pax = 1, nights = 8) => ({ Hotels: `${nights} night${nights !== 1 ? "s" : ""} · ${pax} adult${pax > 1 ? "s" : ""}`, "Cars & transfers": "Private sedan · 1-way", Insurance: `${pax} traveler${pax > 1 ? "s" : ""}`, "Lounge & services": `Pre-flight · ${pax} adult${pax > 1 ? "s" : ""}`, Onboard: "Both flights", Experiences: `${pax} traveler${pax > 1 ? "s" : ""}`, "Seats & baggage": "Both flights", "Carbon offset": "This trip" });
 const CAT_QTY = { Insurance: true, "Lounge & services": true, Experiences: true };
 
+// Live session countdown — ticks every second so "price locked" reflects real remaining time (Split #4).
+function SessionTimer({ minutes = 15, prefix = "price locked", className }) {
+  const [s, setS] = useState(minutes * 60);
+  useEffect(() => { const id = setInterval(() => setS(x => (x > 0 ? x - 1 : 0)), 1000); return () => clearInterval(id); }, []);
+  const mm = String(Math.floor(s / 60)).padStart(2, "0"), ss = String(s % 60).padStart(2, "0");
+  return <span className={className}>{prefix} <span className="v2-num font-semibold">{mm}:{ss}</span></span>;
+}
+
 /* seed the default extras so the basket reads like the Figma. Each carries a source so the
    basket can classify them: system-recommended add-ons for Daniel's stopover + one auto-added
    default (insurance). Anything the member adds themselves comes in as source "user". */
@@ -50,7 +58,7 @@ const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-full bg
 const Req = () => <span className="text-tap-red">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
-function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped }) {
+function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped, footer }) {
   const t = tripTotals();
   const u = milesSwitch || {};
   const tier = u.tier || user?.tier || "Gold";
@@ -90,8 +98,12 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
             </div>
           ) : (
             <>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mt-3 mb-0.5">Anchor · Locked in from Step 1</div>
-              <SummaryItem icon="plane" name={`Flights · ${trip.origin}–${trip.dest}`} sub={`${trip.outbound?.flight?.flight_no || ""}${trip.inbound ? " / " + trip.inbound.flight.flight_no : ""} · ${trip.outbound?.fare || "Classic"}`} price={t.flights} qty={`${trip.pax} traveler${trip.pax > 1 ? "s" : ""}`} />
+              <div className="rounded-xl border border-line overflow-hidden mt-3">
+                <div className="bg-surface-soft px-3 py-2 flex items-baseline gap-1.5"><span className="text-[10px] font-bold uppercase tracking-wide text-ink">Anchor</span><span className="text-[11px] text-ink-faint">· Locked in from Step 1</span></div>
+                <div className="px-3 py-1.5">
+                  <SummaryItem icon="plane" name={`Flights · ${trip.origin}–${trip.dest}`} sub={`${trip.outbound?.flight?.flight_no || ""}${trip.inbound ? " / " + trip.inbound.flight.flight_no : ""} · ${trip.outbound?.fare || "Classic"}`} price={t.flights} qty={`${trip.pax} traveler${trip.pax > 1 ? "s" : ""}`} />
+                </div>
+              </div>
               {SOURCE_ORDER.filter(s => groups[s] && groups[s].length).map(s => (
                 <div key={s} className="mt-3">
                   <div className="flex items-center justify-between mb-0.5">
@@ -121,6 +133,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         {step === 2 && <div className="text-[11px] text-ink-muted text-center mt-2 flex items-center justify-center gap-1"><Icon name="globe" size={11} className="text-ink-faint" /> You'll be able to adjust all items on the next step.</div>}
         {note && <div className="text-[11px] text-ink-faint text-center mt-2">{note}</div>}
         {secondary && <button onClick={onSecondary} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">{secondary}{!/^[←]/.test(String(secondary)) && <Icon name="arrow" size={13} />}</button>}
+        {footer}
       </Card>
 
       {showMiles && (
@@ -682,7 +695,7 @@ export function Basket({ shared, go }) {
               <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
               <div className="text-[11px] text-ink-faint mt-3 flex items-center gap-1.5"><Icon name="lock" size={12} /> Secure checkout · Payments by Stripe · Encrypted card data</div>
               <Btn size="lg" className="w-full mt-3" onClick={() => go("passenger")}>Continue to passenger details →</Btn>
-              <div className="text-[11px] text-ink-faint text-center mt-2">We won't charge you anything yet · price locked 15:00</div>
+              <div className="text-[11px] text-ink-faint text-center mt-2">We won't charge you anything yet · <SessionTimer prefix="price locked" /></div>
               <div className="flex gap-2 mt-2">
                 <button onClick={() => go("cart")} className="flex-1 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">Continue browsing flights →</button>
                 {trip.extras.length > 0 && <button onClick={clear} title="Clear all extras" className="rounded-full border border-line-strong px-3 py-2.5 text-[13px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center"><Icon name="x" size={13} /></button>}
@@ -962,9 +975,14 @@ export function Payment({ shared, go }) {
                 <div className="text-[11px] text-ink-faint mb-3">Visa · Mastercard · American Express · Maestro · Elo</div>
                 <div className="grid gap-3">
                   <Field label={<>Cardholder name <Req /></>}><Input defaultValue={(u.full_name || "Daniel Silva").toUpperCase()} /></Field>
-                  <Field label={<>Card number <Req /></>}><Input defaultValue={`•••• •••• •••• ${u.card_last4 || "4242"}`} /></Field>
+                  <Field label={<>Card number <Req /></>}>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><svg width="22" height="14" viewBox="0 0 22 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.5" width="21" height="13" rx="2.5" fill="#fff" stroke="#dcdcd8"/><rect x="0" y="3" width="22" height="3" fill="#ed1c24"/><rect x="3" y="9.5" width="7" height="1.8" rx="0.9" fill="#9a9a9a"/></svg></span>
+                      <Input defaultValue={`XXXX XXXX XXXX ${u.card_last4 || "4242"}`} className="pl-11 v2-num tracking-wide" />
+                    </div>
+                  </Field>
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label={<>Expiry (MM / YY) <Req /></>}><Input defaultValue={u.card_exp || "09 / 28"} placeholder="MM / YY" /></Field>
+                    <Field label={<>Expiry date (MM / YY) <Req /></>}><div className="relative"><Input defaultValue={u.card_exp || "09 / 28"} placeholder="MM / YY" className="pr-8 v2-num" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div></Field>
                     <Field label={<span className="inline-flex items-center gap-1">CVC / CVV <Req /> <Icon name="info" size={11} className="text-ink-faint" /></span>}>
                       <div className="relative"><Input defaultValue="•••" className="pr-8" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div>
                       <div className="text-[10px] text-ink-faint mt-1">3 digits on back of card</div>
@@ -976,13 +994,13 @@ export function Payment({ shared, go }) {
               {method === "Miles & Go" && <div className="text-[13px]"><div className="font-bold text-[15px] mb-2 flex items-center gap-2"><Icon name="spark" size={14} className="text-tap-green" /> Pay with Miles &amp; Go</div><div className="rounded-xl border border-tap-green bg-lime-tint/40 p-4"><div className="flex items-center justify-between"><span>Balance</span><span className="font-bold v2-num">{miles(u.miles)} miles</span></div><div className="flex items-center justify-between mt-1.5"><span>Using for this trip</span><span className="font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span></div>{voucher_amt > 0 && <div className="flex items-center justify-between mt-1.5"><span>Voucher applied</span><span className="font-bold v2-num text-tap-greenDeep">−{EUR(voucher_amt)}</span></div>}<Divider className="my-2" /><div className="flex items-center justify-between font-bold"><span>Remaining on saved card</span><span className="v2-num">{EUR(card_amt)}</span></div></div></div>}
               {method === "Mix Method" && (() => {
                 const milesMax = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE));
-                const Comp = ({ on, title, sub, right, onToggle }) => (
+                const Comp = ({ on, title, sub, right, onToggle, onEdit }) => (
                   <div className={cx("rounded-xl border p-3.5", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-                    <div className="flex items-center gap-3"><button onClick={onToggle} className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[11px]", on ? "bg-tap-green" : "bg-surface-mute text-ink-faint")}>{on ? "✓" : ""}</button><div className="flex-1"><div className="text-[13px] font-bold">{title}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>{right}<button className="text-[12px] font-bold text-tap-red ml-1 shrink-0">Edit</button></div>
+                    <div className="flex items-center gap-3"><button onClick={onToggle} className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[11px]", on ? "bg-tap-green" : "bg-surface-mute text-ink-faint")}>{on ? "✓" : ""}</button><div className="flex-1"><div className="text-[13px] font-bold">{title}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>{right}<button onClick={onEdit || onToggle} className="text-[12px] font-bold text-tap-greenDeep ml-1 shrink-0 hover:underline">Edit</button></div>
                   </div>
                 );
                 return <div className="space-y-3"><div className="font-bold text-[15px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Payment Composer</div><p className="text-[12px] text-ink-muted">Mix card · miles · voucher · cashback. Live total updates as you adjust.</p>
-                  <Comp on={card_amt > 0} title={`Card · Visa •••• ${u.card_last4 || "4242"}`} sub="Available: unlimited" right={<span className="text-[13px] font-bold v2-num">{EUR(card_amt)}</span>} onToggle={() => { }} />
+                  <Comp on={card_amt > 0} title={`Card · Visa •••• ${u.card_last4 || "4242"}`} sub="Available: unlimited" right={<span className="text-[13px] font-bold v2-num">{EUR(card_amt)}</span>} onToggle={() => { }} onEdit={() => setMethod("Card")} />
                   <Comp on={mix.miles > 0} title="TAP miles" sub={`Balance ${miles(u.miles)} · 1mi=${EUR(MILES_RATE)}`} onToggle={() => setMix(m => ({ ...m, miles: m.miles > 0 ? 0 : milesMax }))} right={<span className="text-[13px] font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span>} />
                   <div className="px-3 -mt-1"><input type="range" min="0" max={milesMax} step="500" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: +e.target.value }))} className="w-full accent-[#46a41a]" /></div>
                   <Comp on={mix.voucher && voucher > 0} title={`Voucher${voucher ? " TAP-" + (shared.profile?.vouchers?.[0]?.code || "XYZ") : ""}`} sub={voucher ? `Eligible: ${EUR(voucher)}` : "No active voucher"} onToggle={() => voucher && setMix(m => ({ ...m, voucher: !m.voucher }))} right={<span className="text-[13px] font-bold v2-num">{EUR(voucher_amt)}</span>} />
@@ -997,14 +1015,15 @@ export function Payment({ shared, go }) {
                 return <div className="text-[13px]">
                   <div className="flex gap-4 text-[12px] font-semibold mb-3">{["Single Payer", "Split Equally", "Custom Split"].map(s => <button key={s} onClick={() => setSplitTab(s)} className={cx("pb-0.5 border-b-2", splitTab === s ? "border-tap-green text-tap-greenDeep" : "border-transparent text-ink-faint")}>{s}</button>)}</div>
                   {payers.map((p, i) => (
-                    <div key={i} className={cx("rounded-xl border p-3.5 mb-2.5", p.lead ? "border-tap-green bg-lime-tint/30" : "border-line")}>
-                      <div className="flex items-center justify-between"><div className="flex items-center gap-2.5"><span className="w-8 h-8 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{p.name[0]}</span><div><div className="font-bold">{p.name}</div><div className="text-[11px] text-ink-faint">{p.email}</div></div></div><div className="text-right"><div className="font-bold v2-num">{EUR(equal)} ({Math.round(100 / payers.length)}%)</div><div className={cx("text-[11px] font-semibold", p.status === "Pay now" ? "text-tap-greenDeep" : "text-ink-faint")}>{p.status === "Pay now" ? "● Ready to charge" : p.status}</div></div></div>
-                      {p.lead
-                        ? <div className="grid sm:grid-cols-3 gap-2 mt-3"><Input defaultValue={`···· ···· ···· ${p.card}`} className="sm:col-span-3 text-[13px]" /><Input defaultValue={u.card_exp || "12 / 28"} placeholder="MM/YY" className="text-[13px]" /><Input defaultValue="•••" placeholder="CVC" className="text-[13px]" /><Input defaultValue={p.name.replace(" (you)", "")} placeholder="Name" className="text-[13px]" /></div>
-                        : <div className="flex items-center justify-between mt-3 rounded-lg bg-surface-soft border border-line px-3 py-2 text-[12px]"><span className="text-ink-muted">Secure payment link · card ····{p.card}</span><button className="font-semibold text-tap-greenDeep">{p.status === "Link pending" ? "Send link" : "Resend"}</button></div>}
+                    <div key={i} className={cx("rounded-xl border p-3 mb-2.5 flex items-center gap-3 flex-wrap", p.lead ? "border-tap-green bg-lime-tint/20" : "border-line")}>
+                      <span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[13px] font-bold shrink-0">{p.name[0]}</span>
+                      <div className="min-w-0"><div className="font-bold leading-tight text-[13px]">{p.name}</div><div className="text-[11px] text-ink-faint truncate">{p.email}</div></div>
+                      <button className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red shrink-0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg> Remove</button>
+                      <div className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 ml-auto"><span className="font-bold v2-num text-[15px]">{EUR(equal)}</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+                      <div className="text-[12px] text-ink-muted shrink-0">{p.lead ? `Card •••• ${p.card}` : p.status}</div>
+                      <button className="text-[12px] font-bold text-tap-red shrink-0 hover:underline">{p.lead ? "Pay now" : p.status === "Link pending" ? "Send link" : "Resend"}</button>
                     </div>
                   ))}
-                  <div className="rounded-xl bg-surface-dark text-white p-3 text-[12px] flex items-start gap-2"><Icon name="info" size={14} className="mt-0.5 text-lime" /><div><b>Both charges happen at the same time.</b> If either card fails, the booking is cancelled and a full refund is issued. The demo confirms once the lead payer pays {EUR(t.total)}.</div></div>
                 </div>;
               })()}
               <div className="mt-4 rounded-xl border border-dashed border-line p-3 flex items-center gap-3 text-[12px]"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center"><Icon name="lock" size={14} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><Pill tone="slate"><Icon name="lock" size={10} /> 3-D Secure 2.0</Pill></div>
@@ -1015,7 +1034,12 @@ export function Payment({ shared, go }) {
               {[["lock", "PCI-DSS Level 1 · Stripe", "text-[#caa53d]"], ["shield", "3-D Secure 2.0", "text-tap-red"], ["clock", "Free 24h cancellation", "text-ink-muted"], ["star", "24/7 TAP Care", "text-tap-greenDeep"]].map(([ic, t2, col]) => <span key={t2} className="flex items-center gap-1.5"><Icon name={ic} size={14} className={col} /> {t2}</span>)}
             </Card>
           </div>
-          <BasketSummary step={4} grouped cta={busy ? "Processing…" : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy} onCta={pay} note="By paying you confirm fare conditions & privacy policy." secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method"} milesSwitch={method === "Mix Method" ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")} />
+          <BasketSummary step={4} grouped cta={busy ? "Processing…" : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy} onCta={pay} note="By paying you confirm fare conditions & privacy policy." secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method" || method === "Split Payment"} milesSwitch={(method === "Mix Method" || method === "Split Payment") ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")}
+            footer={<>
+              {method === "Split Payment" && <div className="mt-3 rounded-xl bg-[#eef4ff] border border-[#d6e3ff] px-3 py-2.5 text-[12px]"><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="text-[#3b6fd6]" /> Both charges happen at the same time</div><div className="text-ink-muted mt-0.5">If either card fails, booking is cancelled & full refund issued.</div></div>}
+              <div className="mt-2 rounded-xl bg-surface-soft border border-line px-3 py-2.5 flex items-start gap-2 text-[12px]"><Icon name="lock" size={13} className="text-tap-greenDeep mt-0.5 shrink-0" /><div><div className="font-bold">PCI-DSS Level 1</div><div className="text-ink-faint">Stripe encrypts and tokenises every card.</div></div></div>
+              <div className="text-[11px] text-ink-faint text-center mt-2"><SessionTimer prefix="No charge yet · price locked" /></div>
+            </>} />
         </div>
       </div>
     </div>
@@ -1032,42 +1056,56 @@ export function Confirmation({ shared, go }) {
   return (
     <div className="bg-surface-soft min-h-screen">
       <div className="mx-auto max-w-page px-6 py-8">
-        <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center"><Icon name="check" size={22} /></span><div><h1 className="text-[30px] font-black">Booking confirmed</h1><div className="text-[13px] text-ink-muted">PNR {trip.pnr} · receipt sent to {pay.email || u.email}</div></div></div>
+        <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center shrink-0"><Icon name="check" size={22} /></span><div><h1 className="text-[30px] font-black leading-tight">Booking Confirmed</h1><div className="text-[13px] text-ink-muted">PNR {trip.pnr} · Receipt sent to {pay.email || u.email}</div></div></div>
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-6">
             <Card className="p-5">
-              <div className="flex items-center gap-2 mb-3"><div className="font-bold text-[16px]">Your itinerary</div><Pill tone="red">PNR {trip.pnr}</Pill></div>
+              <div className="flex items-center gap-2 mb-3"><div className="font-bold text-[16px]">Your itinerary</div><span className="text-[11px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1">PNR {trip.pnr}</span></div>
               {[o, i].filter(Boolean).map((c, idx) => (
                 <div key={idx} className="rounded-2xl p-5 mb-2 flex flex-wrap items-center gap-4" style={{ background: "#f2ffdb" }}>
-                  <div><div className="text-[26px] font-black v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin} · Terminal 1</div></div>
-                  <div className="flex-1 min-w-[150px] text-center text-[11px] text-ink-muted">{c.flight.duration} · nonstop<div className="font-semibold text-ink mt-0.5">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="h-px bg-tap-green/40 my-1.5" />Seat 14A · gate info 90 min before</div>
-                  <div className="text-right"><div className="text-[26px] font-black v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest}</div></div>
+                  <div><div className="text-[26px] font-bold v2-num leading-none">{c.flight.dep}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.origin} · Terminal 1</div></div>
+                  <div className="flex-1 min-w-[170px] text-center text-[11px] text-ink-muted">{c.flight.duration} · nonstop<div className="h-px bg-ink/80 my-2" /><div className="font-bold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="mt-0.5">Seat {idx === 0 ? (trip.seat || "14A") : "14B"} · Gate info 90 min before</div></div>
+                  <div className="text-right"><div className="text-[26px] font-bold v2-num leading-none">{c.flight.arr}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.dest} · Terminal 1</div></div>
                 </div>
               ))}
-              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <Pill key={n} tone="slate"><Icon name="user" size={10} /> {p.first} {p.last} · {n === 0 ? (trip.seat || "14A") : (["14B", "14C", "14D"][n - 1] || "14A")}</Pill>)}<Pill tone="slate">Carry-on × {pax.length}</Pill><Pill tone="slate">Standard seat</Pill></div>
-              <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button>Add to Wallet</button><button>Add to Calendar</button><button>Download e-ticket</button></div>
-              <div className="text-[11px] text-ink-faint mt-3 pt-3 border-t border-line">Manage booking · check-in opens 24h before</div>
+              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="user" size={10} /> {p.first} {p.last} · {n === 0 ? (trip.seat || "14A") : (["14B", "14C", "14D"][n - 1] || "14A")}</span>)}<span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="bag" size={10} /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="seat" size={10} /> Standard seat</span><span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="leaf" size={10} /> Meal included</span></div>
+              <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button className="hover:underline">Add to Wallet</button><button className="hover:underline">Add to Calendar</button><button className="hover:underline">Download e-ticket</button></div>
+              <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
             <section>
               <h2 className="text-[20px] font-bold">Useful for your trip</h2>
               <p className="text-[12px] text-ink-faint mb-3">Limited · helpful · not pushy. Max 3 cards.</p>
               <div className="grid sm:grid-cols-2 gap-4">
                 {recs.slice(0, 4).map(d => (
-                  <Card key={d.code} className="overflow-hidden"><Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-28 w-full" /><div className="p-4"><div className="font-bold text-[14px]">{d.city}</div><div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 min-h-[28px]">{d.reason || d.tag}</div>{(d.reason || d.signals) && <WhyChip reason={d.reason} signals={d.signals} className="mt-1" />}<div className="flex items-center justify-between mt-2"><div><div className="text-[15px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div><Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn></div></div></Card>
+                  <Card key={d.code} className="overflow-hidden flex flex-col">
+                    <div className="relative">
+                      <Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-32 w-full object-cover" />
+                      <span className="absolute top-3 left-3 text-[10px] font-bold uppercase tracking-wide bg-white/90 text-ink rounded-md px-2 py-1 shadow-sm">{d.tag || "Experience"}</span>
+                    </div>
+                    <div className="p-4 flex flex-col flex-1">
+                      <div className="font-bold text-[15px]">{d.city}</div>
+                      <div className="text-[12px] text-ink-muted mt-1 flex-1">{d.reason || d.tag}</div>
+                      <div className="flex items-center justify-between mt-3">
+                        <div><div className="text-[18px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div>
+                        <Btn size="sm" variant="outline" className="rounded-full" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn>
+                      </div>
+                    </div>
+                  </Card>
                 ))}
               </div>
             </section>
           </div>
           <aside className="space-y-4">
             <Card className="p-5">
-              <div className="font-bold text-[16px] mb-3">Payment receipt</div>
+              <div className="font-bold text-[16px]">Payment Receipt</div>
+              <Divider className="my-3" />
               <div className="space-y-1.5 text-[13px]"><Row label={`Fare x${trip.pax}`} v={EUR(t.flights)} /><Row label="Taxes & fees" v={EUR(t.taxes)} />{t.extras ? <Row label="Extras" v={EUR(t.extras)} /> : null}{t.bundle ? <Row label="Bundle savings" v={"−" + EUR(t.bundle)} green /> : null}{pay.voucher_amt ? <Row label="Voucher" v={"−" + EUR(pay.voucher_amt)} green /> : null}{pay.miles_amt ? <Row label={`Miles (${miles(pay.miles_used)})`} v={"−" + EUR(pay.miles_amt)} green /> : null}</div>
               <Divider className="my-3" />
-              <div className="flex items-center justify-between"><div className="text-[12px] text-ink-faint">Paid · {pay.method || "Card"} {u.card_last4 ? "••" + u.card_last4 : ""}</div><div className="text-[24px] font-black text-tap-green v2-num">{EUR(pay.card_amt ?? t.total)}</div></div>
-              <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark px-3 py-2.5 text-[12px]"><div className="font-semibold flex items-center gap-1.5"><Icon name="spark" size={12} /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
-              <Btn variant="outline" className="w-full mt-3" onClick={() => go("basket")}>Download invoice (PDF) →</Btn>
+              <div className="rounded-lg bg-surface-soft border border-line px-3 py-2.5 flex items-center justify-between gap-2"><div className="text-[12px] font-semibold text-ink">Paid · {pay.method || "Card"} {u.card_last4 ? "••" + u.card_last4 : ""}</div><div className="text-[24px] font-black text-tap-green v2-num">{EUR(pay.card_amt ?? t.total)}</div></div>
+              <div className="mt-3 rounded-xl bg-lime-tint border border-tap-green/30 px-3 py-2.5"><div className="text-[13px] font-bold text-ink flex items-center gap-1.5"><Icon name="spark" size={13} className="text-tap-green" /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] text-ink-muted mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
+              <Btn variant="outline" className="w-full mt-3 rounded-full" onClick={() => go("basket")}>Download invoice (PDF) →</Btn>
             </Card>
-            <Card className="p-4 text-[12px] space-y-2.5"><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="clock" size={15} /></span><div><div className="font-semibold">Free 24h cancellation</div><div className="text-ink-faint">Full refund on flights & most extras.</div></div></div><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="star" size={15} /></span><div><div className="font-semibold">24/7 TAP Care</div><div className="text-ink-faint">Need help? Chat with us 24/7.</div></div></div></Card>
+            <Card className="p-4 text-[12px] space-y-2.5"><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="shield" size={15} /></span><div><div className="font-semibold">Free 24h cancellation</div><div className="text-ink-faint">Full refund on flights & most extras.</div></div></div><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="heart" size={15} /></span><div><div className="font-semibold">24/7 TAP Care</div><div className="text-ink-faint">Need help? Chat with us 24/7.</div></div></div></Card>
           </aside>
         </div>
       </div>
@@ -1124,7 +1162,7 @@ export function ExpressCheckout({ shared, go }) {
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
 
-  const Sec = ({ title, action, onAction, children }) => <Card className="p-5"><div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">{title}</div>{action && <button onClick={onAction} className="text-[12px] font-semibold text-tap-greenDeep">{action}</button>}</div>{children}</Card>;
+  const Sec = ({ title, action, onAction, children }) => <Card className="p-5"><div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">{title}</div>{action && <button onClick={onAction} className="text-[12px] font-semibold text-tap-greenDeep hover:underline underline-offset-2">{action}</button>}</div>{children}</Card>;
 
   return (
     <div className="bg-surface-soft min-h-screen">
@@ -1137,44 +1175,47 @@ export function ExpressCheckout({ shared, go }) {
             <div className="space-y-4">
               <Sec title={`Your trip · ${cityOf(origin)} ⇄ ${cityOf(dest)}`} action="Change flight" onAction={() => go("results", { origin, dest, date, ret: retDate, type: "round" })}>
                 {[o, i].filter(Boolean).map((c, idx) => (
-                  <div key={idx} className="py-2 border-t border-line first:border-0"><div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-1">{idx === 0 ? "Outbound" : "Return"} · {fmtDate(idx === 0 ? date : retDate).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="flex items-center gap-3"><div><div className="text-[18px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="h-px bg-line-strong my-1" /></div><div className="text-right"><div className="text-[18px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest}</div></div></div></div>
+                  <div key={idx} className="py-2.5 border-t border-line first:border-0">
+                    <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-surface-soft text-ink rounded-md px-2 py-0.5 mb-1.5">{idx === 0 ? "Outbound" : "Return"} · {fmtDate(idx === 0 ? date : retDate).replace(/(\w+) (\d+) \d+/, "$1 $2")}</span>
+                    <div className="flex items-center gap-3"><div><div className="text-[18px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="h-px bg-line-strong my-1" /><div className="font-semibold text-ink-muted">{c.flight.flight_no} · {c.flight.aircraft}</div></div><div className="text-right"><div className="text-[18px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest}</div></div></div>
+                  </div>
                 ))}
-                <div className="mt-2 pt-2 border-t border-line text-[12px] text-ink-muted">Fare: Classic · 23kg bag · seat select · 50% refund · changes for fee</div>
+                <div className="mt-2 pt-3 border-t border-line flex items-start justify-between gap-3"><div><div className="text-[13px] font-bold">Fare: Classic</div><div className="text-[11px] text-ink-muted mt-0.5">23kg bag · seat select · 50% refund · changes for fee</div></div><button className="text-[12px] font-semibold text-tap-greenDeep hover:underline underline-offset-2 shrink-0">See fare rules</button></div>
               </Sec>
               <Sec title="Passenger" action="Edit">
                 <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{(u.first_name || "D")[0]}</span><div><div className="font-bold text-[14px] flex items-center gap-2">{u.full_name || u.first_name} <Pill tone="gold">{u.tier} · {u.member_no}</Pill></div><div className="text-[11px] text-ink-faint">DOB {u.dob || "—"} · Passport ••••{(u.doc_id || "0000").slice(-4)} · Nationality {u.nationality || "PT"}</div><div className="text-[11px] text-tap-greenDeep font-semibold mt-0.5">Frequent flyer benefits applied: priority boarding, lounge</div></div></div>
               </Sec>
               <Sec title="Baggage" action="+ Add bag">
-                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Cabin bag · 8kg</div><div className="text-[11px] text-ink-faint">Included in fare</div></div><Pill tone="slate">Included</Pill></div>
-                <label className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Checked bag · 23kg ×1</div><div className="text-[11px] text-ink-faint">Outbound + return</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{EUR(25)}</span><input type="checkbox" checked={bag} onChange={e => setBag(e.target.checked)} className="accent-[#46a41a]" /></span></label>
+                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Cabin bag · 8kg</div><div className="text-[11px] text-ink-faint">Included in fare</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink rounded px-2 py-0.5">Included</span></div>
+                <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Checked bag · 23kg ×1</div><div className="text-[11px] text-ink-faint">Outbound + return</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{eur2(25)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">Added</span></span></div>
               </Sec>
               <Sec title="Payment method" action="+ Change">
-                <div className="flex items-center justify-between"><div className="text-[14px] font-semibold flex items-center gap-2">{u.first_name}'s Card <Pill tone="slate">VISA</Pill></div><Pill tone="green"><Icon name="lock" size={10} /> Encrypted</Pill></div>
-                <div className="text-[13px] v2-num mt-1">XXXX XXXX XXXX {u.card_last4 || "4242"}</div>
-                <div className="mt-3 rounded-xl border border-dashed border-line p-3 flex items-center gap-3 text-[12px]"><span className="w-8 h-8 rounded-lg bg-surface-mute inline-flex items-center justify-center"><Icon name="lock" size={13} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div></div><Pill tone="slate">3-D Secure 2.0</Pill></div>
+                <div className="flex items-center justify-between"><div className="text-[14px] font-semibold flex items-center gap-2">{u.first_name}'s Card <span className="text-[10px] font-bold tracking-wide bg-surface-mute text-ink rounded px-1.5 py-0.5">VISA</span></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5"><Icon name="lock" size={10} /> Encrypted</span></div>
+                <div className="text-[13px] v2-num mt-1 tracking-wide">XXXX XXXX XXXX {u.card_last4 || "4242"}</div>
+                <div className="mt-3 rounded-xl border border-dashed border-line bg-surface-soft p-3 flex items-center gap-3 text-[12px]"><span className="w-8 h-8 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="lock" size={13} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask for a code, push, or biometric.</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink-muted rounded px-2 py-0.5 shrink-0">3-D Secure 2.0</span></div>
               </Sec>
               <Sec title="Seat selection" action="Change seat">
-                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Outbound · {seatNo} (Window, extra legroom)</div><div className="text-[11px] text-ink-faint">{o.flight.flight_no} · {seat?.reason || "your usual"}</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{EUR(18)}</span><input type="checkbox" checked={seatUp} onChange={e => setSeatUp(e.target.checked)} className="accent-[#46a41a]" /></span></div>
-                <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Return · 14C (Aisle, standard)</div><div className="text-[11px] text-ink-faint">{i?.flight?.flight_no || ""}</div></div><Pill tone="lime">Free · {u.tier}</Pill></div>
+                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Outbound · {seatNo} (Window, extra legroom)</div><div className="text-[11px] text-ink-faint">{o.flight.flight_no} · {o.flight.aircraft} · Seat {seatNo}</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{eur2(18)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">Added</span></span></div>
+                <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Return · 14C (Aisle, standard)</div><div className="text-[11px] text-ink-faint">{i?.flight?.flight_no || ""}{i ? ` · ${i.flight.aircraft} · Seat 14C` : ""}</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink rounded px-2 py-0.5">Free · {u.tier}</span></div>
               </Sec>
               <Sec title="Contact details" action="Edit">
                 <div className="text-[13px]">{(u.email || "d•••@gmail.com").replace(/(.).+(@.+)/, "$1•••••$2")} · {u.phone || "+351 ••• 482"}</div>
                 <div className="text-[11px] text-ink-faint mt-0.5">Boarding pass, receipt and IROPS alerts go here.</div>
               </Sec>
-              <Card className="p-4"><label className="flex items-start gap-2.5 text-[13px]"><input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} className="accent-[#46a41a] mt-0.5" /><span>I've read and accept the <b>fare conditions</b> · <b>baggage rules</b> · <b>privacy policy</b>. {!agree && <Pill tone="red">Required</Pill>}</span></label></Card>
+              <Card className="p-4"><label className="flex items-start gap-2.5 text-[13px]"><input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} className="accent-ink mt-0.5 w-4 h-4" /><span className="flex-1"><span className="flex items-center gap-2 font-semibold">I accept the fare conditions {!agree && <span className="text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded px-1.5 py-0.5">Required</span>}</span><span className="block text-[11px] text-ink-muted mt-0.5">By continuing you agree to the <button className="text-tap-greenDeep hover:underline font-semibold">fare conditions</button> · <button className="text-tap-greenDeep hover:underline font-semibold">baggage rules</button> · <button className="text-tap-greenDeep hover:underline font-semibold">privacy policy</button>.</span></span></label></Card>
             </div>
             <aside className="space-y-4">
               <Card className="p-5">
                 <div className="text-[17px] font-bold mb-3">My trip basket</div>
-                <div className="space-y-2 text-[13px]"><Row label="Base fare · 1 adult" v={EUR(base)} /><Row label="Taxes & fees" v={EUR(taxes)} />{seatUp && <Row label={`Seat ${seatNo} · extra legroom`} v={EUR(seatCost)} />}{bag && <Row label="Checked bag 23kg" v={EUR(bagCost)} />}{carbon && <Row label="Carbon offset" v={EUR(carbonCost)} />}</div>
+                <div className="space-y-2 text-[13px]"><Row label="Base fare · 1 adult" v={eur2(base)} /><Row label="Taxes & fees" v={eur2(taxes)} />{seatUp && <Row label={`Seat ${seatNo} · extra legroom`} v={eur2(seatCost)} />}{bag && <Row label="Checked bag 23kg" v={eur2(bagCost)} />}{carbon && <Row label="Carbon offset" v={eur2(carbonCost)} />}</div>
                 <Divider className="my-3" />
-                <div className="flex items-end justify-between"><div className="text-[12px] text-ink-muted">Total to pay</div><div className="text-[26px] font-black v2-num">{EUR(total)}</div></div>
-                <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2">Earn {miles(earn)} miles · or pay {miles(Math.round(total * 0.9 / MILES_RATE))} mi + {EUR(Math.round(total * 0.1))}</div>
-                <div className="mt-3 flex gap-2"><input placeholder="Promo code" className="flex-1 bg-surface border border-line rounded-lg px-3 py-2 text-[12px] outline-none" /><Btn size="sm" variant="outline">Apply</Btn></div>
-                <div className="mt-3 rounded-lg bg-surface-mute text-ink-muted text-[12px] px-3 py-2 flex items-center gap-1.5"><span className="text-ink font-bold">●</span> Price held for 14:32 · won't change if you pay now</div>
-                <Btn size="lg" className="w-full mt-3" disabled={!agree || busy} onClick={pay}>{busy ? "Processing…" : `Pay ${EUR(total)} securely`}</Btn>
-                <div className="flex items-center justify-center gap-4 mt-2 text-[12px] font-semibold text-ink-muted"><button>Save & pay later</button><button onClick={() => go("payment")}>Use miles instead</button></div>
-                <div className="text-[10px] text-ink-faint text-center mt-2">PCI · Visa · Mastercard · Amex · MB WAY · Apple Pay · PayPal · Free 24h cancel</div>
+                <div className="flex items-center justify-between"><div className="text-[13px] font-bold text-ink">Total to pay</div><div className="text-[26px] font-black v2-num text-ink">{eur2(total)}</div></div>
+                <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2">Earn {miles(earn)} miles · or pay {miles(Math.round(total * 0.9 / MILES_RATE))} mi + {eur2(Math.round(total * 0.1))}</div>
+                <div className="mt-3 flex items-stretch rounded-lg border border-line-strong overflow-hidden focus-within:border-tap-green"><input placeholder="Promo code" className="flex-1 bg-surface px-3 py-2 text-[12px] outline-none" /><button className="px-4 text-[12px] font-bold text-tap-greenDeep border-l border-line-strong hover:bg-lime-tint">Apply</button></div>
+                <div className="mt-3 rounded-lg bg-[#fff4e0] border border-[#f5d98e] text-[#7a5a10] text-[12px] px-3 py-2 flex items-center gap-1.5"><span className="text-[#e8920a] text-[8px]">●</span> <SessionTimer minutes={15} prefix="Price held for" /> · won't change if you pay now</div>
+                <Btn size="lg" className="w-full mt-3" disabled={!agree || busy} onClick={pay}>{busy ? "Processing…" : `Pay ${eur2(total)} securely`}</Btn>
+                <div className="flex items-center justify-center gap-4 mt-2 text-[12px] font-semibold text-ink"><button className="hover:underline">Save &amp; pay later</button><button onClick={() => go("payment")} className="hover:underline">Use miles instead</button></div>
+                <div className="text-[10px] text-ink-faint text-center mt-2 leading-relaxed">PCI · Visa · Mastercard · Amex · MB WAY · Apple Pay · PayPal<br />Free 24h cancellation · Refundable taxes · 24/7 support</div>
               </Card>
             </aside>
           </div>
