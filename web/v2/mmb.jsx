@@ -33,6 +33,7 @@ function useActiveBooking() {
 }
 
 const cityOf = (airports, code) => (airports || []).find(a => a.code === code)?.city || code || "—";
+const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
 const lastName = (u) => u.last_name || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : "");
 // Friendly labels for the seeded extra codes stored on a booking's items_json.
 const EXTRA_LABEL = { seat: "Seat", bag: "Checked bag", meal: "Meal", wifi: "Wi-Fi", transfer: "Transfer", car: "Transfer", lounge: "Lounge", upgrade: "Cabin upgrade" };
@@ -143,7 +144,7 @@ export function ManageBooking({ shared, go }) {
               {(booking.items || []).slice(0, 5).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
-              {[["Edit", "manage"], ["Change dates", "rebook"], ["Seat selection", "seatchange"], ["Add ancillaries", "addextras"]].map(([lbl, page]) => (
+              {[["Edit", "manage"], ["Update flight", "addextras"], ["Change seat", "seatchange"], ["Check in", "checkin"], ["Change flight", "rebook"]].map(([lbl, page]) => (
                 <button key={lbl} onClick={() => go(page)} className="rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors">{lbl}</button>
               ))}
               <button onClick={() => go("rebook")} className="ml-auto rounded-full px-3 py-1.5 text-[12px] font-bold text-tap-red hover:underline">Remove</button>
@@ -166,7 +167,8 @@ export function ManageBooking({ shared, go }) {
         </div>
         <aside className="space-y-4">
           <Card className="p-5">
-            <div className="font-bold text-[15px] mb-2">Retrieve a booking</div>
+            <div className="font-bold text-[15px]">Retrieve your booking</div>
+            <div className="text-[11px] text-ink-muted mt-0.5 mb-3">Find any booking — direct, agent, or partner. Then check in, add extras, or change seats.</div>
             <div className="space-y-2.5">
               <Field label="Booking reference"><Input defaultValue={booking.pnr} /></Field>
               <Field label="Last name"><Input defaultValue={lastName(u)} placeholder="Surname" /></Field>
@@ -256,9 +258,9 @@ export function SeatChange({ shared, go }) {
   // Every cabin on the aircraft is selectable, so the full seat map (First / Executive /
   // Economy) is available — not just one section.
   const CABINS = {
-    First: { cols: ["A", "D"], rows: [1, 2], config: "1 – 1", desc: "Lie-flat First suite", extraRows: [1], exitRows: [] },
-    Executive: { cols: ["A", "B", "C", "D"], rows: [1, 2, 3, 4, 5, 6, 7, 8, 9], config: "1 – 2 – 1", desc: "Lie-flat Executive", extraRows: [1], exitRows: [1] },
-    Economy: { cols: ["A", "B", "C", "D", "E", "F"], rows: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], config: "3 – 3", desc: "Standard Economy", extraRows: [20, 26], exitRows: [20, 26] },
+    First: { cols: ["A", "D"], rows: [1, 2], config: "1 – 1", desc: "Lie-flat First suite", extraRows: [1], exitRows: [], aisleAfter: [0] },
+    Executive: { cols: ["A", "B", "C", "D"], rows: [1, 2, 3, 4, 5, 6, 7, 8, 9], config: "1 – 2 – 1", desc: "Lie-flat Executive", extraRows: [1], exitRows: [1], aisleAfter: [0, 2] },
+    Economy: { cols: ["A", "B", "C", "D", "E", "F"], rows: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], config: "3 – 3", desc: "Standard Economy", extraRows: [20, 26], exitRows: [20, 26], aisleAfter: [2] },
   };
   const cabinKey = cabin || cabinOfRow(curRow);
   const C = CABINS[cabinKey];
@@ -313,16 +315,17 @@ export function SeatChange({ shared, go }) {
             ))}
           </div>
           <div className="text-center text-[10px] uppercase tracking-widest text-ink-faint mb-3">Front of aircraft</div>
-          <div className="max-w-[380px] mx-auto">
-            <div className="flex items-center gap-1.5 mb-2"><span className="w-5 shrink-0" />{C.cols.map(col => <span key={col} className="flex-1 text-center text-[10px] text-ink-faint">{col}</span>)}</div>
-            <div className="space-y-1.5">
+          <div className="max-w-[400px] mx-auto">
+            <div className="flex items-center gap-2 mb-2"><span className="w-5 shrink-0" />{C.cols.map((col, ci) => <React.Fragment key={col}><span className="flex-1 text-center text-[10px] text-ink-faint">{col}</span>{C.aisleAfter?.includes(ci) && <span className="w-4 shrink-0" />}</React.Fragment>)}</div>
+            <div className="space-y-2.5">
               {C.rows.map(r => (
-                <div key={r} className="flex items-center gap-1.5">
+                <div key={r} className="flex items-center gap-2">
                   <span className="w-5 text-[10px] text-ink-faint text-right shrink-0">{r}</span>
-                  {C.cols.map(col => {
+                  {C.cols.map((col, ci) => {
                     const id = `${r}${col}`, isCur = id === curSeat, isTaken = taken.has(id) && !isCur, isSel = sel === id, extra = feeOf(id) > 0, isRec = rec?.seat === id && !isCur;
                     return (
-                      <button key={id} disabled={isTaken} title={isExit(id) ? "Exit row · extra legroom" : extra ? "Extra legroom" : ""} onClick={() => { setSel(id); setEligOk(false); }}
+                      <React.Fragment key={id}>
+                      <button disabled={isTaken} title={isExit(id) ? "Exit row · extra legroom" : extra ? "Extra legroom" : ""} onClick={() => { setSel(id); setEligOk(false); }}
                         className={cx("flex-1 h-10 rounded-lg text-[10px] font-bold leading-none flex flex-col items-center justify-center transition-colors",
                           isSel ? "bg-tap-green text-white"
                             : isCur ? "bg-lime-tint text-ink border border-tap-green/50"
@@ -332,6 +335,8 @@ export function SeatChange({ shared, go }) {
                                     : "bg-white border border-line-strong text-ink hover:border-tap-green")}>
                         <span>{id}</span>{isCur && <span className="text-[7px] font-medium">Your seat</span>}
                       </button>
+                      {C.aisleAfter?.includes(ci) && <span className="w-4 shrink-0" />}
+                      </React.Fragment>
                     );
                   })}
                 </div>
@@ -353,7 +358,7 @@ export function SeatChange({ shared, go }) {
               <Icon name="arrow" size={16} className="text-ink-faint shrink-0" />
               <div className={cx("flex-1 rounded-xl border p-3", sel ? "border-tap-green/50 bg-lime-tint/40" : "border-line border-dashed")}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[18px] font-black v2-num">{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
             </div>
-            {selFee > 0 && <><Divider className="my-3.5" /><div className="flex items-center justify-between"><span className="text-[13px] font-semibold">Extra-legroom fee</span><span className="text-[18px] font-black v2-num">{EUR(selFee)}</span></div></>}
+            {selFee > 0 && <div className="mt-3.5 rounded-xl border border-line bg-surface-soft p-3 flex items-center justify-between"><span className="text-[13px] font-semibold">Extra-legroom fee</span><span className="text-[18px] font-black v2-num">{eur2(selFee)}</span></div>}
             {selExit && (
               <div className="mt-3 rounded-xl border border-[#F4B740]/60 p-3" style={{ background: "#FFF7E6" }}>
                 <div className="text-[12px] font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> Exit-row eligibility</div>
@@ -361,8 +366,8 @@ export function SeatChange({ shared, go }) {
                 <label className="flex items-center gap-2 text-[12px] font-semibold mt-2"><input type="checkbox" checked={eligOk} onChange={e => setEligOk(e.target.checked)} className="accent-tap-green" /> I confirm I meet exit-row requirements</label>
               </div>
             )}
-            <Btn size="lg" className="w-full mt-4" disabled={busy || !canConfirm} onClick={confirm}>{busy ? "Reissuing…" : (sel && sel !== curSeat) ? `Confirm seat ${sel}${selFee ? " · " + EUR(selFee) : ""} →` : "Pick a new seat"}</Btn>
-            <Btn variant="outline" className="w-full mt-2" onClick={() => go("manage")}>Keep current seat</Btn>
+            <Btn size="lg" className="w-full mt-4" disabled={busy || !canConfirm} onClick={confirm}>{busy ? "Reissuing…" : (sel && sel !== curSeat) ? `Confirm seat ${sel}${selFee ? " · " + eur2(selFee) : ""} →` : "Pick a new seat"}</Btn>
+            <button onClick={() => go("manage")} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Keep current seat</button>
           </Card>
           <div className="rounded-2xl border border-tap-green/30 p-4" style={{ background: "#f2ffdb88" }}>
             <div className="text-[12px] font-bold mb-2">After confirming</div>
@@ -418,43 +423,113 @@ export function Rebook({ shared, go }) {
       <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
     </div>
   );
+  const cur = active?.flight || {};
+  const blob = `${rec.headline || ""} ${rec.message || ""}`;
+  const status = /cancel/i.test(blob) ? "Cancelled" : /delay/i.test(blob) ? "Delayed" : "Schedule change";
+  const cityO = cityOf(shared.airports, cur.origin), cityD = cityOf(shared.airports, cur.dest);
   return (
-    <div className="mx-auto max-w-content px-6 py-8">
-      <Crumb go={go} />
-      <div className="rounded-2xl bg-surface-dark text-white p-5">
-        <div className="flex items-center gap-2"><Pill tone="red">Schedule change</Pill>{data.ai === "live" && <Pill tone="lime">AI recovery</Pill>}</div>
-        <h1 className="text-[22px] font-black mt-3">{rec.headline}</h1>
-        <p className="text-[13px] text-white/75 mt-2">{rec.message}</p>
-        {rec.compensation && <div className="text-[12px] text-lime mt-3 flex items-start gap-1.5"><Icon name="star" size={13} className="mt-0.5 shrink-0" /> {rec.compensation}</div>}
+    <div className="mx-auto max-w-page px-6 py-8">
+      <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${active?.pnr || "Booking"}${curFlight ? " — " + curFlight : ""}`, page: "manage" }, { label: "Change flight", page: "manage" }, { label: "Review & rebook" }]} />
+      <h1 className="text-[28px] font-black">Rebook your flight</h1>
+      <p className="text-[13px] text-ink-muted mt-1">{rec.message}</p>
+
+      <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
+        <div className="space-y-5">
+          {/* Disruption card — struck flight in a tinted container (#3) */}
+          <div className="rounded-2xl border border-tap-red/30 p-5" style={{ background: "#fff1f1" }}>
+            <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1 mb-3">{status}</span>
+            <div className="flex flex-wrap items-center gap-4 line-through decoration-ink/30 decoration-1">
+              <div><div className="text-[24px] font-black v2-num">{cur.dep || "—"}</div><div className="text-[11px] text-ink-faint no-underline">{cityO} · Terminal 1</div></div>
+              <div className="flex-1 min-w-[160px] text-center text-[11px] text-ink-muted">{cur.duration || ""} · nonstop<div className="h-px bg-ink/25 my-1.5" /><div className="font-bold text-ink/70">{fmtDate(active?.flight_date)} · {curFlight} · {cur.aircraft}</div><div className="mt-0.5">Seat {active?.seat || "14A"} · Gate info 90 min before</div></div>
+              <div className="text-right"><div className="text-[24px] font-black v2-num">{cur.arr || "—"}</div><div className="text-[11px] text-ink-faint no-underline">{cityD} · Terminal 1</div></div>
+            </div>
+          </div>
+
+          {/* Rebooking options — structured flight cards (#4) */}
+          <div>
+            <div className="text-[13px] font-bold mb-2">Select options:</div>
+            <div className="space-y-3">
+              {shownAlts.map((o, idx) => {
+                const on = sel === o.id; const hasTimes = o.dep && o.arr;
+                return (
+                  <button key={o.id} onClick={() => setSel(o.id)} className="w-full text-left">
+                    <Card className={cx("p-4 transition-colors", on ? "ring-2 ring-tap-green" : "hover:border-tap-green/40")}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green bg-tap-green" : "border-line-strong")}>{on && <span className="w-1.5 h-1.5 bg-white rounded-full" />}</span>
+                        <span className="text-tap-green font-black text-[13px]">TAP</span><span className="text-[12px] font-semibold v2-num">{o.id}</span>
+                        <span className="text-[11px] text-ink-muted">· {o.detail || o.label}</span>
+                        {idx === 0 && <span className="text-[9px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-full px-2 py-0.5">Best</span>}
+                        <span className="ml-auto text-[13px] font-bold text-tap-greenDeep">+€0</span>
+                      </div>
+                      {hasTimes && (
+                        <div className="flex items-center gap-3 mt-3 pl-6">
+                          <div><div className="text-[18px] font-bold v2-num">{o.dep}</div><div className="text-[10px] text-ink-faint">{cityO}</div></div>
+                          <div className="flex-1 text-center text-[10px] text-ink-muted">{o.duration || cur.duration} · nonstop<div className="h-px bg-line-strong my-1" /><div className="font-semibold">{o.aircraft || cur.aircraft}</div></div>
+                          <div className="text-right"><div className="text-[18px] font-bold v2-num">{o.arr}</div><div className="text-[10px] text-ink-faint">{cityD}</div></div>
+                        </div>
+                      )}
+                    </Card>
+                  </button>
+                );
+              })}
+              {keep && (
+                <Card className="p-4 opacity-80"><div className="flex items-center gap-3"><span className="w-4 h-4 rounded-full border-2 border-line-strong inline-flex shrink-0" /><div><div className="font-bold text-[14px]">{keep.label}</div><div className="text-[12px] text-ink-muted mt-0.5">{keep.detail}</div></div><span className="ml-auto text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink-muted rounded px-2 py-0.5 shrink-0">No change</span></div></Card>
+              )}
+            </div>
+          </div>
+
+          {/* Reassociate extras to new flight (#5) */}
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">Reassociate extras to new flight</div><button className="text-[12px] font-semibold text-tap-greenDeep hover:underline underline-offset-2">View Detail</button></div>
+            <div className="divide-y divide-line">
+              {[
+                ["seat", `Seats ${active?.seat || "14A"} · 14B · 14C`, `Available on ${sel || curFlight} — auto-assign equiv row`, "Transferred"],
+                ["bag", "Hot meal × 3", `${sel || curFlight} catering not loaded — refunded €42`, "Refunded"],
+                ["bag", "Carry-on × 3", "Auto-transferred", "Transferred"],
+                ["star", "1 240 status miles", "Recredited at original tier", "Transferred"],
+              ].map(([ic, nm, sub, st], n) => (
+                <div key={n} className="flex items-center gap-3 py-2.5">
+                  <Icon name={ic} size={16} className="text-ink-faint shrink-0" />
+                  <div className="flex-1"><div className="text-[13px] font-semibold">{nm}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
+                  <span className={cx("text-[9px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5 text-white shrink-0", st === "Refunded" ? "bg-[#d97706]" : "bg-tap-greenDeep")}>{st}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        {/* Sticky cost-impact summary panel (#6) */}
+        <aside className="lg:sticky lg:top-6">
+          <Card className="p-5">
+            <div className="font-bold text-[16px] mb-3">Cost impact</div>
+            <div className="space-y-2 text-[13px]">
+              <div className="flex justify-between"><span className="text-ink-muted">{sel || curFlight} fare diff</span><span className="font-semibold v2-num">€0,00</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Meal refund</span><span className="font-semibold v2-num text-tap-greenDeep">−€42,00</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Goodwill voucher</span><span className="font-semibold v2-num text-tap-greenDeep">€50,00</span></div>
+            </div>
+            <Divider className="my-3" />
+            <div className="flex justify-between items-center"><span className="font-bold">Net to passenger</span><span className="font-black v2-num text-tap-greenDeep text-[16px]">+€92,00</span></div>
+            <Btn size="lg" className="w-full mt-4" disabled={busy || !shownAlts.length} onClick={confirm}>{busy ? "Rebooking…" : `Confirm rebook ${sel || ""} →`}</Btn>
+            <button onClick={() => go("results", { origin: cur.origin, dest: cur.dest })} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Find more options</button>
+          </Card>
+        </aside>
       </div>
-      <h2 className="text-[15px] font-bold mt-6 mb-3">Choose your option</h2>
-      <div className="space-y-3">
-        {shownAlts.map(o => (
-          <button key={o.id} onClick={() => setSel(o.id)} className="w-full text-left">
-            <Card className={cx("p-4 transition-colors", sel === o.id ? "ring-2 ring-tap-green" : "hover:border-tap-green/40")}>
-              <div className="flex items-center gap-3">
-                <span className={cx("w-5 h-5 rounded-full border-2 inline-flex items-center justify-center shrink-0", sel === o.id ? "border-tap-green bg-tap-green text-white" : "border-line-strong")}>{sel === o.id && <Icon name="check" size={12} />}</span>
-                <div><div className="font-bold text-[14px]">{o.label}</div><div className="text-[12px] text-ink-muted mt-0.5">{o.detail}</div></div>
-                <Pill tone="green" className="ml-auto shrink-0">Rebook free</Pill>
-              </div>
-            </Card>
-          </button>
-        ))}
-        {keep && (
-          <Card className="p-4 opacity-80"><div className="flex items-center gap-3"><span className="w-5 h-5 rounded-full border-2 border-line-strong inline-flex shrink-0" /><div><div className="font-bold text-[14px]">{keep.label}</div><div className="text-[12px] text-ink-muted mt-0.5">{keep.detail}</div></div><Pill tone="slate" className="ml-auto shrink-0">No change</Pill></div></Card>
-        )}
-      </div>
-      <div className="mt-5"><Btn size="lg" disabled={busy || !shownAlts.length} onClick={confirm}>{busy ? "Rebooking…" : "Confirm rebooking"}</Btn></div>
     </div>
   );
 }
 
 /* ═══════════ J3 · ONLINE CHECK-IN ═══════════ */
+const CHECKIN_PAX = [
+  { id: "carlos", avatar: "P", name: "Pinto, Carlos", type: "Adult", doc: "Passport PT2438211", verified: true, seat: "22A · Window", on: true },
+  { id: "sofia", avatar: "P", name: "Pinto, Sofia", type: "Adult", doc: "Passport PT2438217", verified: true, seat: "22B · Middle", on: true },
+  { id: "tomas", avatar: "T", name: "Tomás Silva (CHD 8)", type: "Child", doc: "PT Cédula · 999111 · DOB 2017", verified: false, seat: "22C · Middle", needsDocs: true, on: false },
+];
 export function CheckInIndirect({ shared, go }) {
   const { booking, loading, err } = useActiveBooking();
   const [doc, setDoc] = useState("");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
+  const [picks, setPicks] = useState(() => Object.fromEntries(CHECKIN_PAX.map(p => [p.id, !!p.on])));
   const u = shared.profile?.user || {};
   if (loading) return <Loading label="Loading check-in…" />;
   if (err || !booking) return <Empty go={go} title="Nothing to check in" msg="Online check-in opens 24 hours before departure." />;
@@ -485,21 +560,62 @@ export function CheckInIndirect({ shared, go }) {
       </div>
     );
   }
+  const selCount = Object.values(picks).filter(Boolean).length;
+  const total = CHECKIN_PAX.length;
   return (
-    <div className="mx-auto max-w-content px-6 py-8">
-      <Crumb go={go} />
-      <h1 className="text-[26px] font-black">Online check-in</h1>
-      <p className="text-[13px] text-ink-muted mt-1">Confirm your details and we'll issue your boarding pass.</p>
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-5 items-start">
-        <Card className="p-5 v2-in">
-          <BookingBand booking={booking} airports={shared.airports} />
-          <div className="mt-4 space-y-3">
-            <Field label="Passenger"><Input defaultValue={(u.first_name || "Daniel") + " " + lastName(u)} readOnly /></Field>
-            <Field label="Travel document (passport / ID) — optional"><Input value={doc} onChange={e => setDoc(e.target.value)} placeholder="Add for international flights" /></Field>
-            <label className="flex items-center gap-2 text-[12px] text-ink-muted"><input type="checkbox" defaultChecked className="accent-tap-green" /> I've read the dangerous-goods and safety information.</label>
+    <div className="mx-auto max-w-page px-6 py-8">
+      <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr}${booking.flight_no ? " — " + booking.flight_no : ""}`, page: "manage" }, { label: "Online check-in" }]} />
+      <h1 className="text-[26px] font-black">Check in for your flight</h1>
+      <p className="text-[13px] text-ink-muted mt-1 flex items-center gap-1.5 flex-wrap"><Icon name="check" size={13} className="text-tap-green" /> Open · {booking.flight_no || "TP1042"} {cityOf(shared.airports, booking.flight?.origin)}–{cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)} · Booked via Booking.com agency</p>
+
+      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+        <div className="space-y-4">
+          {/* Passenger cards (#4) */}
+          {CHECKIN_PAX.map(p => (
+            <Card key={p.id} className="p-4">
+              <div className="flex items-start gap-3">
+                <span className="w-9 h-9 rounded-full bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center text-[14px] font-bold shrink-0">{p.avatar}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-[14px]">{p.name}</div>
+                  <div className="text-[11px] text-ink-faint mt-0.5">{p.type} · {p.doc} {p.verified && <Icon name="check" size={11} className="inline text-tap-green" />}</div>
+                  <div className="text-[12px] font-semibold mt-1">Seat: {p.seat}</div>
+                </div>
+                <div className="text-right shrink-0 flex items-center gap-2">
+                  <button onClick={() => go("seatchange")} className="text-[12px] font-bold text-tap-greenDeep hover:underline">Change seat</button>
+                  {p.needsDocs && <span className="text-[9px] font-bold uppercase tracking-wide bg-[#d97706] text-white rounded-full px-2 py-0.5">Needs docs</span>}
+                </div>
+              </div>
+              {p.needsDocs
+                ? <div className="mt-3 rounded-lg border border-tap-green/20 px-3 py-2.5 flex items-center justify-between gap-2" style={{ background: "#f2ffdb88" }}><div className="text-[12px]"><div className="font-semibold">Travel-with-minor docs required</div><div className="text-[11px] text-ink-faint">Upload parental authorisation (PDF / image) — required by SEF before boarding</div></div><Btn size="sm" className="shrink-0">Upload PDF</Btn></div>
+                : <label className="flex items-center gap-2 mt-3 text-[12px] font-semibold cursor-pointer"><input type="checkbox" checked={!!picks[p.id]} onChange={() => setPicks(s => ({ ...s, [p.id]: !s[p.id] }))} className="accent-ink w-4 h-4" /> Check in this passenger</label>}
+            </Card>
+          ))}
+
+          {/* Travel documents (APIS) (#5) */}
+          <div className="rounded-2xl border border-tap-green/30 p-4" style={{ background: "#f2ffdb88" }}>
+            <div className="font-bold text-[14px] mb-2">Travel documents (APIS)</div>
+            <div className="text-[12px] flex items-start gap-1.5"><Icon name="check" size={13} className="text-tap-green mt-0.5 shrink-0" /> Passport PT2438211 · expires 2029-08-12 · all pax verified</div>
+            <div className="text-[12px] text-[#b45309] font-semibold flex items-start gap-1.5 mt-1.5"><Icon name="info" size={13} className="mt-0.5 shrink-0" /> US ESTA pending — required for stopover OPO → re-check before boarding</div>
+            <button className="text-[12px] font-bold text-tap-greenDeep hover:underline mt-2">Update documents →</button>
           </div>
-        </Card>
-        <aside><Card className="p-5"><div className="font-bold text-[15px]">Ready to fly</div><ul className="text-[12px] text-ink-muted mt-2 space-y-1.5"><li>Seat {booking.seat || "4C"} held</li><li>{booking.checked_in ? "Boarding pass already issued" : "Boarding pass issued instantly"}</li><li>Apple/Google Wallet & PDF</li></ul><Btn className="w-full mt-4" disabled={busy} onClick={checkin}>{busy ? "Checking in…" : booking.checked_in ? "View boarding pass" : "Check in now"}</Btn></Card></aside>
+        </div>
+
+        {/* Sticky check-in summary panel (#6) */}
+        <aside className="lg:sticky lg:top-6">
+          <Card className="p-5">
+            <div className="font-bold text-[16px] mb-3">Check-in summary</div>
+            <div className="space-y-2.5 text-[13px]">
+              <div className="flex justify-between gap-3"><span className="text-ink-muted">Flight</span><span className="font-bold text-right">{booking.flight_no || "TP 73"} · {fmtDate(booking.flight_date)}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-ink-muted">Passengers</span><span className="font-bold">{selCount} of {total} selected</span></div>
+              <div className="flex justify-between gap-3"><span className="text-ink-muted">Seats</span><span className="font-bold v2-num">22A · 22B (together)</span></div>
+              <div className="flex justify-between gap-3"><span className="text-ink-muted">Bag</span><span className="font-bold">1 × 23kg (included)</span></div>
+              <div className="flex justify-between gap-3"><span className="text-ink-muted">Boarding</span><span className="font-bold v2-num">16:00 · Gate B12</span></div>
+            </div>
+            <div className="mt-3 rounded-xl bg-lime-tint border border-tap-green/30 px-3 py-2.5 text-[12px]"><div className="font-bold">Add to your trip</div><div className="text-ink-muted mt-0.5">+ Extra bag €38 · + Lounge access €42</div><div className="text-[11px] text-ink-faint mt-0.5">Restricted by fare rule: cabin upgrade</div></div>
+            <Btn size="lg" className="w-full mt-4" disabled={busy} onClick={checkin}>{busy ? "Checking in…" : "Upload & check in all →"}</Btn>
+            <button onClick={checkin} disabled={busy} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Check in {selCount} of {total} now (resolve Tomás later)</button>
+          </Card>
+        </aside>
       </div>
     </div>
   );
@@ -633,8 +749,8 @@ export function AddExtras({ shared, go }) {
   return (
     <div className="mx-auto max-w-page px-6 py-8">
       <button onClick={() => { setStaged([]); setStep("pick"); }} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Choose a different trip</button>
-      <h1 className="text-[26px] font-black">Add extras to your trip</h1>
-      <p className="text-[13px] text-ink-muted mt-1">PNR {sel.pnr} · {fmtDate(sel.flight_date)} · {cityOf(airports, sel.flight?.origin)}–{cityOf(airports, sel.flight?.dest)}</p>
+      <h1 className="text-[26px] font-black">Upgrade your trip</h1>
+      <p className="text-[13px] text-ink-muted mt-1">Add bags, seats, meals &amp; lounge — paid direct to TAP. Agency does not need to be involved.</p>
       <div className="mt-4"><BookingBand booking={sel} airports={airports} /></div>
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-5 items-start">
         <div className="grid sm:grid-cols-2 gap-4">
@@ -681,11 +797,27 @@ export function AddExtras({ shared, go }) {
 }
 
 /* ═══════════ C4 · CANCEL & REFUND ═══════════ */
+const REFUND_ITEMS = [
+  { id: "fl-d", name: "Outbound flight · Daniel", paid: 128, refund: 0, status: "non-refundable", kind: "fare", on: false },
+  { id: "fl-m", name: "Outbound flight · Mariana", paid: 128, refund: 102.40, status: "80% policy", kind: "fare", on: true },
+  { id: "meal", name: "Hot meal × 2", paid: 28, refund: 28, status: "full", kind: "extras", on: true },
+  { id: "seat", name: "Seat 14A · 14B", paid: 22, refund: 22, status: "unused", kind: "extras", on: true },
+  { id: "ins", name: "Travel insurance", paid: 18, refund: 0, status: "used", kind: "extras", on: false },
+  { id: "tax", name: "Taxes & fees · refundable portion", paid: 42, refund: 36, status: "", kind: "taxes", on: true },
+];
+const REFUND_DESTS = [
+  { id: "Visa", name: "Visa ••4242", sub: "3–5 working days · no fee" },
+  { id: "wallet", name: "TAP wallet", sub: "Instant · +5% bonus" },
+  { id: "miles", name: "TAP Miles", sub: "+8 800 miles · instant" },
+  { id: "bank", name: "Bank Transfer", sub: "3–5 working days · no fee" },
+];
 export function Refund({ shared, go }) {
   const { booking, loading, err } = useActiveBooking();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
+  const [picks, setPicks] = useState(() => Object.fromEntries(REFUND_ITEMS.map(it => [it.id, it.on])));
+  const [dest, setDest] = useState("Visa");
   if (loading) return <Loading label="Loading cancellation…" />;
   if (err || !booking) return <Empty go={go} title="No booking to cancel" msg="You don't have an active booking right now." />;
   const cancel = async () => {
@@ -710,20 +842,77 @@ export function Refund({ shared, go }) {
       <div className="mt-5"><Btn onClick={() => go("home")}>Find another flight →</Btn></div>
     </div>
   );
+  const selItems = REFUND_ITEMS.filter(it => picks[it.id]);
+  const totalPaid = REFUND_ITEMS.reduce((s, it) => s + it.paid, 0);
+  const sub = (kind) => selItems.filter(it => it.kind === kind).reduce((s, it) => s + it.refund, 0);
+  const fareRef = sub("fare"), extrasRef = sub("extras"), taxRef = sub("taxes");
+  const refundTotal = fareRef + extrasRef + taxRef;
+  const destName = (REFUND_DESTS.find(d => d.id === dest)?.name || "Visa").split(" ")[0];
   return (
-    <div className="mx-auto max-w-content px-6 py-8">
-      <Crumb go={go} />
-      <h1 className="text-[26px] font-black">Cancel &amp; refund</h1>
-      <p className="text-[13px] text-ink-muted mt-1">Free cancellation within 24h of booking — miles and vouchers are restored instantly.</p>
-      <Card className="p-5 mt-5 v2-in"><BookingBand booking={booking} airports={shared.airports} /></Card>
-      <Card className="p-5 mt-4">
-        <div className="text-[14px] font-bold mb-2">What you'll get back</div>
-        <ul className="text-[13px] text-ink-muted space-y-1.5"><li>Any miles used are returned to your balance</li><li>Redeemed vouchers become active again</li><li>Card payments refunded in 3–5 business days</li></ul>
-        {done?.failed && <div className="mt-3 text-[12px] text-tap-red">Something went wrong — please try again.</div>}
-        {!confirming
-          ? <Btn variant="danger" className="mt-4" onClick={() => setConfirming(true)}>Cancel this booking</Btn>
-          : <div className="mt-4 rounded-xl border border-tap-red/30 bg-tap-red/5 p-4"><div className="text-[13px] font-semibold">Are you sure? This cancels PNR {booking.pnr}.</div><div className="flex gap-3 mt-3"><Btn variant="danger" disabled={busy} onClick={cancel}>{busy ? "Cancelling…" : "Yes, cancel & refund"}</Btn><Btn variant="outline" disabled={busy} onClick={() => setConfirming(false)}>Keep my booking</Btn></div></div>}
-      </Card>
+    <div className="mx-auto max-w-page px-6 py-8">
+      <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr}${booking.flight_no ? " — " + booking.flight_no : ""}`, page: "manage" }, { label: "Refund request" }]} />
+      <h1 className="text-[26px] font-black">Refund request</h1>
+      <p className="text-[13px] text-ink-muted mt-1">Flight cancelled by airline. Choose how to receive each item refund. Travel-bank gets +10% bonus.</p>
+
+      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+        <div className="space-y-5">
+          {/* Refundable items (#4) */}
+          <Card className="p-5">
+            <div className="font-bold text-[15px] mb-3">Refundable items</div>
+            <div className="divide-y divide-line">
+              {REFUND_ITEMS.map(it => {
+                const on = picks[it.id], can = it.refund > 0;
+                return (
+                  <label key={it.id} className={cx("flex items-center gap-3 py-3 cursor-pointer", !can && "opacity-55")}>
+                    <input type="checkbox" checked={on} disabled={!can} onChange={() => setPicks(p => ({ ...p, [it.id]: !p[it.id] }))} className="accent-ink w-4 h-4 shrink-0" />
+                    <div className="flex-1"><div className="text-[13px] font-semibold">{it.name}</div><div className="text-[11px] text-ink-faint">Paid {eur2(it.paid)}</div></div>
+                    <div className={cx("text-[13px] font-bold v2-num shrink-0", can ? "text-tap-greenDeep" : "text-ink-faint")}>{eur2(it.refund)}{it.status && <span className="font-medium text-ink-faint"> ({it.status})</span>}</div>
+                  </label>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* Refund destination selector (#5) */}
+          <Card className="p-5">
+            <div className="font-bold text-[15px] mb-3">Refund destination</div>
+            <div className="grid sm:grid-cols-2 gap-2.5">
+              {REFUND_DESTS.map(d => {
+                const on = dest === d.id;
+                return (
+                  <button key={d.id} onClick={() => setDest(d.id)} className={cx("text-left rounded-xl border p-3 flex items-center gap-2.5 transition-colors", on ? "border-tap-green bg-lime-tint/40" : "border-line hover:border-tap-green/40")}>
+                    <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 bg-tap-green rounded-full" />}</span>
+                    <div><div className="text-[13px] font-bold">{d.name}</div><div className="text-[11px] text-ink-faint">{d.sub}</div></div>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+          {done?.failed && <div className="text-[12px] text-tap-red">Something went wrong — please try again.</div>}
+        </div>
+
+        {/* Sticky refund summary panel (#6) */}
+        <aside className="lg:sticky lg:top-6">
+          <Card className="p-5">
+            <div className="font-bold text-[16px] mb-3">Refund summary</div>
+            <div className="space-y-2 text-[13px]">
+              <div className="flex justify-between"><span className="text-ink-muted">Original paid</span><span className="font-semibold v2-num">{eur2(totalPaid)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Items selected</span><span className="font-semibold v2-num">{selItems.length} of {REFUND_ITEMS.length}</span></div>
+            </div>
+            <Divider className="my-3" />
+            <div className="space-y-2 text-[13px]">
+              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · fare</span><span className="font-semibold v2-num">{eur2(fareRef)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · extras</span><span className="font-semibold v2-num">{eur2(extrasRef)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · taxes</span><span className="font-semibold v2-num">{eur2(taxRef)}</span></div>
+            </div>
+            <Divider className="my-3" />
+            <div className="flex justify-between items-center"><span className="font-bold">Refund to {destName}</span><span className="font-black v2-num text-tap-greenDeep text-[16px]">{eur2(refundTotal)}</span></div>
+            <div className="mt-3 rounded-lg bg-[#eef4ff] border border-[#d6e3ff] px-3 py-2.5 text-[12px]"><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="text-[#3b6fd6]" /> Why these amounts?</div><div className="text-ink-muted mt-0.5">Discount fare: non-refundable. 20% admin fee on refundable items. See full policy.</div></div>
+            <Btn size="lg" className="w-full mt-4" disabled={busy || refundTotal <= 0} onClick={cancel}>{busy ? "Processing…" : `Process refund · ${eur2(refundTotal)} →`}</Btn>
+            <button onClick={() => go("manage")} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Cancel request</button>
+          </Card>
+        </aside>
+      </div>
     </div>
   );
 }

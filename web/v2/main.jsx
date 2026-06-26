@@ -19,7 +19,7 @@ function parseHash() {
 function App() {
   const [{ route, params }, setLoc] = useState(parseHash());
   const [shared, setShared] = useState({ profile: null, destinations: [], airports: [], journey: null, suggested: null, loading: true });
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(() => { try { return localStorage.getItem("flytap_auth") === "1"; } catch { return false; } });
   const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
@@ -58,7 +58,8 @@ function App() {
     resetTrip();   // new member context starts with an empty basket
     if (personaId) { try { await api.post("/persona", { persona: personaId }); } catch {} }
     await loadShared();
-    setLoggedIn(true); setShowLogin(false); go("home");
+    try { localStorage.setItem("flytap_auth", "1"); if (personaId) localStorage.setItem("flytap_persona", personaId); } catch {}
+    setLoggedIn(true); setShowLogin(false); go("home"); window.scrollTo({ top: 0 });
   }, [loadShared, go]);
 
   let Screen, entry = ROUTES[route] || ROUTES.home;
@@ -68,7 +69,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col bg-surface-soft">
       <TopNav route={route} go={go} profile={shared.profile} loggedIn={loggedIn}
-        onLogin={() => setShowLogin(true)} onLogout={() => { resetTrip(); setLoggedIn(false); go("home"); }} />
+        onLogin={() => setShowLogin(true)} onLogout={() => { try { localStorage.removeItem("flytap_auth"); localStorage.removeItem("flytap_persona"); } catch {} resetTrip(); setLoggedIn(false); go("home"); }} />
       <main className="flex-1">
         {Screen
           ? <Screen shared={shared} params={params} go={go} />
