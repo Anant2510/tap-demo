@@ -679,8 +679,8 @@ Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${fl
 
 /* ── Booking management (used by portal + WhatsApp) ──────────── */
 app.post("/api/bookings/ancillary", async (req, res) => {
-  const { code } = req.body;
-  const b = currentBooking();
+  const { code, pnr } = req.body;
+  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=1").get(pnr) : null) || currentBooking();
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
   if (!b || !a) return res.json({ ok: false });
   const items = JSON.parse(b.items_json || "[]");
@@ -690,11 +690,40 @@ app.post("/api/bookings/ancillary", async (req, res) => {
   res.json({ ok: true, pnr: b.pnr, name: a.name, price: a.price });
 });
 
-// Remove an extra from the current booking. Accepts any code (including non-catalog ones
-// like cabin/seat upgrades) so the Manage-Booking "Add extras" screen can drop anything.
+// Add a batch of extras to a chosen booking and "pay" for the paid ones in one step — the
+// Manage-Booking review→pay→confirm flow. Commits each code to that booking's items_json
+// (logging ancillary_added per code so each still forwards to CDP), records a payment for the
+// charged total, fires extras_purchased, and sends a confirmation email. pnr targets the
+// selected upcoming trip; falls back to the current booking.
+app.post("/api/bookings/extras/checkout", async (req, res) => {
+  const { pnr, codes = [], total = 0 } = req.body || {};
+  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=1").get(pnr) : null) || currentBooking();
+  if (!b) return res.json({ ok: false, error: "no_booking" });
+  const items = JSON.parse(b.items_json || "[]");
+  const names = [];
+  for (const code of codes) {
+    const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
+    if (!items.includes(code)) {
+      items.push(code);
+      names.push(a ? a.name : code);
+      log("ancillary_added", { pnr: b.pnr, code, price: a ? a.price : 0, channel: "manage-booking" });
+    }
+  }
+  db.prepare("UPDATE bookings SET items_json=? WHERE id=?").run(JSON.stringify(items), b.id);
+  const charged = Number(total) || 0;
+  if (charged > 0) db.prepare("INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)").run(b.id, charged, 0, 0, 0, charged, now());
+  log("extras_purchased", { pnr: b.pnr, codes: names.length ? codes : [], total: charged, channel: "manage-booking" });
+  let email = null;
+  try {
+    const u = db.prepare("SELECT email FROM users WHERE id=1").get();
+    if (u && u.email) { await sendEmail("extras_confirmation", { f: flightByNo(b.flight_no), pnr: b.pnr, names, total: charged }); email = u.email; }
+  } catch { /* email best-effort */ }
+  res.json({ ok: true, pnr: b.pnr, total: charged, email, items, added: names });
+});
+
 app.post("/api/bookings/ancillary/remove", async (req, res) => {
-  const { code } = req.body;
-  const b = currentBooking();
+  const { code, pnr } = req.body;
+  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=1").get(pnr) : null) || currentBooking();
   if (!b) return res.json({ ok: false });
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
   const items = JSON.parse(b.items_json || "[]").filter(c => c !== code);

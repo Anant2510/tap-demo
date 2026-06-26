@@ -134,6 +134,18 @@ const TEMPLATES = {
     }),
     };
   },
+  extras_confirmation: ({ f, pnr, names = [], total = 0 }) => ({
+    subject: `Extras added ✓ ${pnr}${f && f.flight_no ? " — " + f.flight_no : ""}`,
+    html: wrap({
+      title: "Your extras are added.",
+      accent: GOLD,
+      bodyHtml: `We've added these to <b>${pnr}</b>${total > 0 ? ` and charged <b>€${Number(total).toFixed(2)}</b> to your saved card` : " at no extra charge"}:
+        <ul style="padding-left:18px;margin:10px 0">${names.map(n => `<li style="margin:6px 0">${n}</li>`).join("")}</ul>
+        ${f ? flightRow(f) : ""}
+        They're on your booking now — view them any time under Manage my booking.`,
+      cta: { label: "Manage this booking" },
+    }),
+  }),
   disruption: ({ f, recovery }) => ({
     subject: `⚠ ${f.flight_no} update — new departure ${f.new_dep} · your options inside`,
     html: wrap({
