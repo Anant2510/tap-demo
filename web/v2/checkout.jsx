@@ -50,7 +50,7 @@ const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-full bg
 const Req = () => <span className="text-tap-red">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
-function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles }) {
+function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped }) {
   const t = tripTotals();
   const u = milesSwitch || {};
   const tier = u.tier || user?.tier || "Gold";
@@ -60,6 +60,20 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
   const showMiles = !basket && !hideMiles && (!!user || !!milesSwitch);
   const groups = extrasBySource();
   const lastCode = trip.extras[trip.extras.length - 1]?.code;
+  // Category-grouped basket (Passenger + Payment pages) — one line per category, per Figma.
+  const catTotals = {};
+  trip.extras.forEach(e => { catTotals[e.cat] = (catTotals[e.cat] || 0) + (e.price || 0); });
+  const gnights = (() => { try { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); return d > 0 ? d : 8; } catch { return 8; } })();
+  const GTag = { Hotels: `${gnights} nights`, Flights: `${trip.pax} pax` };
+  const GRow = ({ icon, label, tag, amt, green, muted }) => (
+    <div className="flex items-center justify-between">
+      <span className={cx("inline-flex items-center gap-2 text-[13px]", muted ? "text-ink-muted" : green ? "text-tap-greenDeep font-semibold" : "text-ink")}>
+        <Icon name={icon} size={15} className={muted ? "text-ink-faint" : "text-tap-greenDeep"} />
+        {label}{tag ? <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface-mute text-ink-muted">{tag}</span> : null}
+      </span>
+      <span className={cx("font-bold v2-num text-[13px]", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{amt < 0 ? "−" : ""}{eur2(Math.abs(amt))}</span>
+    </div>
+  );
   return (
     <aside className="space-y-4">
       <Card className="p-5">
@@ -67,23 +81,34 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         <div className="text-[11px] text-ink-faint mt-0.5">{trip.origin}–{trip.dest} · {trip.pax} adult{trip.pax > 1 ? "s" : ""} · {fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</div>
 
         <div className="mt-4">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mt-3 mb-0.5">Anchor · Locked in from Step 1</div>
-          <SummaryItem icon="plane" name={`Flights · ${trip.origin}–${trip.dest}`} sub={`${trip.outbound?.flight?.flight_no || ""}${trip.inbound ? " / " + trip.inbound.flight.flight_no : ""} · ${trip.outbound?.fare || "Classic"}`} price={t.flights} qty={`${trip.pax} traveler${trip.pax > 1 ? "s" : ""}`} />
-          {SOURCE_ORDER.filter(s => groups[s] && groups[s].length).map(s => (
-            <div key={s} className="mt-3">
-              <div className="flex items-center justify-between mb-0.5">
-                <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{SOURCE_META[s].label} · {groups[s].length}</div>
-                <span className={cx("inline-flex items-center text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full", s === "user" ? "bg-lime text-ink" : s === "recommended" ? "bg-tap-green/10 text-tap-greenDeep" : "bg-surface-mute text-ink-muted")}>{SOURCE_META[s].tag}</span>
-              </div>
-              {groups[s].map(e => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
+          {grouped ? (
+            <div className="space-y-2.5">
+              <GRow icon="plane" label="Flights" tag={GTag.Flights} amt={t.flights} />
+              {CAT_ORDER.filter(c => catTotals[c]).map(c => <GRow key={c} icon={CAT_ICON[c] || "cart"} label={c} tag={GTag[c]} amt={catTotals[c]} />)}
+              <GRow icon="doc" label="Taxes & fees" amt={t.taxes} muted />
+              {t.bundle > 0 && <GRow icon="spark" label="Bundle savings" amt={-t.bundle} green />}
             </div>
-          ))}
-          {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-3 w-full rounded-full border border-line-strong py-2 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center gap-1.5"><Icon name="x" size={12} /> Clear basket</button>}
-          <div className="mt-2.5 space-y-1 text-[12px]">
-            <div className="flex items-center justify-between"><span className="text-ink-muted">Subtotal extras</span><span className="font-semibold v2-num text-ink">{eur2(t.extras)}</span></div>
-            <div className="flex items-center justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num text-ink">{eur2(t.taxes)}</span></div>
-            {t.bundle > 0 && <div className="flex items-center justify-between"><span className="text-tap-greenDeep font-semibold flex items-center gap-1"><Icon name="spark" size={12} /> Bundle savings</span><span className="font-semibold v2-num text-tap-greenDeep">−{eur2(t.bundle)}</span></div>}
-          </div>
+          ) : (
+            <>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mt-3 mb-0.5">Anchor · Locked in from Step 1</div>
+              <SummaryItem icon="plane" name={`Flights · ${trip.origin}–${trip.dest}`} sub={`${trip.outbound?.flight?.flight_no || ""}${trip.inbound ? " / " + trip.inbound.flight.flight_no : ""} · ${trip.outbound?.fare || "Classic"}`} price={t.flights} qty={`${trip.pax} traveler${trip.pax > 1 ? "s" : ""}`} />
+              {SOURCE_ORDER.filter(s => groups[s] && groups[s].length).map(s => (
+                <div key={s} className="mt-3">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{SOURCE_META[s].label} · {groups[s].length}</div>
+                    <span className={cx("inline-flex items-center text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full", s === "user" ? "bg-lime text-ink" : s === "recommended" ? "bg-tap-green/10 text-tap-greenDeep" : "bg-surface-mute text-ink-muted")}>{SOURCE_META[s].tag}</span>
+                  </div>
+                  {groups[s].map(e => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
+                </div>
+              ))}
+              {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-3 w-full rounded-full border border-line-strong py-2 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center gap-1.5"><Icon name="x" size={12} /> Clear basket</button>}
+              <div className="mt-2.5 space-y-1 text-[12px]">
+                <div className="flex items-center justify-between"><span className="text-ink-muted">Subtotal extras</span><span className="font-semibold v2-num text-ink">{eur2(t.extras)}</span></div>
+                <div className="flex items-center justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num text-ink">{eur2(t.taxes)}</span></div>
+                {t.bundle > 0 && <div className="flex items-center justify-between"><span className="text-tap-greenDeep font-semibold flex items-center gap-1"><Icon name="spark" size={12} /> Bundle savings</span><span className="font-semibold v2-num text-tap-greenDeep">−{eur2(t.bundle)}</span></div>}
+              </div>
+            </>
+          )}
           {breakdown && breakdown.length > 0 && <div className="mt-3 pt-3 border-t border-line space-y-1 text-[12px]"><div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-1">Payment breakdown</div>{breakdown.map(b => <div key={b.label} className="flex items-center justify-between"><span className="text-ink-muted">{b.label}</span><span className={cx("font-semibold v2-num", b.green ? "text-tap-greenDeep" : b.red ? "text-tap-red" : b.muted ? "text-ink-faint" : "text-ink")}>{b.text}</span></div>)}</div>}
         </div>
 
@@ -337,7 +362,7 @@ function CartView({ go, mode = "cart", shared }) {
       <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">{tags.map(t => <span key={t} className="text-[10px] uppercase tracking-wide text-ink-faint">{t}</span>)}</div>
         <div className="text-[11px] text-ink-muted mt-1">★ {rating} Excellent · {reviews} reviews</div></div>
-      <div className="text-right shrink-0"><div className="v2-num"><span className="text-[11px] font-medium text-ink-muted">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div><div className="text-[11px] text-ink-faint v2-num">{eur2(total)} total for 8 nights</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, total, "Hotels")}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
+      <div className="text-right shrink-0"><div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div><div className="text-[11px] text-ink-faint v2-num">{eur2(total)} total for 8 nights</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, total, "Hotels")}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
     </div>
   ); };
   const Row = ({ code, name, sub, rate, unit, cat, tag }) => {
@@ -770,7 +795,7 @@ export function Passenger({ shared, go }) {
               </div>
             </Card>
           </div>
-          <BasketSummary step={4} cta="Continue to payment →" onCta={() => go("payment")} disabled={!allComplete} note={allComplete ? "Final review again on Step 4." : (firstIncomplete >= 0 ? `Complete Passenger ${firstIncomplete + 1} details to continue.` : "Complete contact details to continue.")} secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
+          <BasketSummary step={4} grouped cta="Continue to payment →" onCta={() => go("payment")} disabled={!allComplete} note={allComplete ? "Final review again on Step 4." : (firstIncomplete >= 0 ? `Complete Passenger ${firstIncomplete + 1} details to continue.` : "Complete contact details to continue.")} secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
         </div>
       </div>
     </div>
@@ -916,7 +941,7 @@ export function Payment({ shared, go }) {
               {[["lock", "PCI-DSS Level 1 · Stripe", "text-[#caa53d]"], ["shield", "3-D Secure 2.0", "text-tap-red"], ["clock", "Free 24h cancellation", "text-ink-muted"], ["star", "24/7 TAP Care", "text-tap-greenDeep"]].map(([ic, t2, col]) => <span key={t2} className="flex items-center gap-1.5"><Icon name={ic} size={14} className={col} /> {t2}</span>)}
             </Card>
           </div>
-          <BasketSummary step={4} cta={busy ? "Processing…" : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy} onCta={pay} note="By paying you confirm fare conditions & privacy policy." secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method"} milesSwitch={method === "Mix Method" ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")} />
+          <BasketSummary step={4} grouped cta={busy ? "Processing…" : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy} onCta={pay} note="By paying you confirm fare conditions & privacy policy." secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method"} milesSwitch={method === "Mix Method" ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")} />
         </div>
       </div>
     </div>
