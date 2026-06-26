@@ -110,62 +110,92 @@ export function ManageBooking({ shared, go }) {
   if (loading) return <Loading />;
   if (err) return <Empty go={go} title="Couldn't reach your bookings" msg={err} />;
   if (!booking) return <Empty go={go} />;
-  const actions = [
-    { key: "upgrade", icon: "star", title: "Upgrade cabin", desc: "Move to Executive with miles or cash." },
-    { key: "seatchange", icon: "seat", title: "Change seat", desc: "Pick a new seat — your usual is saved." },
-    { key: "checkin", icon: "doc", title: "Check in", desc: booking.checked_in ? "Boarding pass ready." : "Issue your boarding pass." },
-    { key: "addextras", icon: "bag", title: "Add extras", desc: "Bags, meals, lounge, transfers." },
-    { key: "rebook", icon: "refresh", title: "Rebook / disruption", desc: "See options if your flight changes." },
-    { key: "refund", icon: "info", title: "Cancel & refund", desc: "Free within 24h — miles & voucher restored." },
+  // Every upcoming trip (not cancelled, not departed) — the basket lists them all.
+  const trips = (all || []).filter(b => (b.status || "confirmed") !== "cancelled" && (b.days_to_go ?? 0) >= 0);
+  const list = trips.length ? trips : [booking];
+  const ACTIONS = [
+    ["Upgrade cabin", "upgrade", "star"],
+    ["Change seat", "seatchange", "seat"],
+    ["Check in", "checkin", "doc"],
+    ["Add extras", "addextras", "bag"],
+    ["Rebook / disruption", "rebook", "refresh"],
+    ["Cancel & refund", "refund", "info"],
   ];
+  const priceOf = b => Math.round(b.flight?.price || 180);
+  const subtotal = list.reduce((s, b) => s + priceOf(b), 0);
+  const taxes = Math.round(subtotal * 0.055);
+  const savings = 42;
+  const total = subtotal + taxes - savings;
+  const earn = Math.round(total * 2.77);
   return (
     <div className="mx-auto max-w-page px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "home" }, { label: "Basket" }]} />
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-[30px] font-black">Your basket</h1>
-          <div className="text-[13px] text-ink-muted mt-1">{(() => { const n = Math.max(1, (all || []).filter(b => (b.status || "confirmed") === "confirmed" && (b.days_to_go ?? 0) >= 0).length); return `${n} trip${n !== 1 ? "s" : ""} bundled`; })()} · you save {EUR(42)} with the multi-trip discount</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Pill tone="red">PNR {booking.pnr}</Pill>
-          {booking.checked_in
-            ? <Pill tone="green">Checked in</Pill>
-            : <Pill tone="slate">{booking.days_to_go > 0 ? `${booking.days_to_go} days to go` : "Departing soon"}</Pill>}
-        </div>
-      </div>
+      <h1 className="text-[30px] font-black">Your basket</h1>
+      <div className="text-[13px] text-ink-muted mt-1">{list.length} trip{list.length !== 1 ? "s" : ""} bundled · you save {EUR(savings)} with the multi-trip discount</div>
+
       <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
-        <div className="space-y-6">
-          <Card className="p-5 v2-in">
-            <div className="flex items-center gap-2 mb-3"><span className="text-tap-green font-black">TAP</span><Pill tone="slate">{u.tier || "Gold"} · Economy</Pill></div>
-            <BookingBand booking={booking} airports={airports} />
-            <div className="flex flex-wrap gap-2 mt-3">
-              <Pill tone="slate"><Icon name="user" size={10} /> {u.first_name || "Daniel"} {lastName(u)}</Pill>
-              <Pill tone="slate">Seat {booking.seat || "4C"}</Pill>
-              {(booking.items || []).slice(0, 5).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
-            </div>
-            <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
-              {[["Edit", "manage"], ["Update flight", "addextras"], ["Change seat", "seatchange"], ["Check in", "checkin"], ["Change flight", "rebook"]].map(([lbl, page]) => (
-                <button key={lbl} onClick={() => go(page)} className="rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors">{lbl}</button>
-              ))}
-              <button onClick={() => go("rebook")} className="ml-auto rounded-full px-3 py-1.5 text-[12px] font-bold text-tap-red hover:underline">Remove</button>
-            </div>
-          </Card>
-          <div className="grid sm:grid-cols-2 gap-4">
-            {actions.map(a => (
-              <button key={a.key} onClick={() => go(a.key)} className="text-left">
-                <Card className="p-4 hover:border-tap-green/40 transition-colors h-full">
-                  <div className="flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={a.icon} size={16} /></span>
-                    <div className="font-bold text-[14px]">{a.title}</div>
-                    <span className="ml-auto text-ink-faint"><Icon name="chevR" size={16} /></span>
+        <div className="space-y-4">
+          {list.map((b, idx) => {
+            const f = b.flight || {};
+            return (
+              <Card key={b.pnr || idx} className="p-5 v2-in">
+                <div className="flex items-start gap-3 flex-wrap">
+                  <span className="w-6 h-6 rounded-md bg-lime text-ink inline-flex items-center justify-center shrink-0 mt-0.5"><Icon name="check" size={13} /></span>
+                  <div className="flex-1 min-w-[220px]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[16px] font-black">{f.origin || "OPO"} <span className="text-ink-faint">→</span> {f.dest || "LIS"}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">{b.cabin || "Economy"}</span>
+                      <span className="text-[15px] font-bold v2-num ml-1">{f.dep || "—"} <span className="text-ink-faint">→</span> {f.arr || "—"}</span>
+                    </div>
+                    <div className="text-[12px] text-ink-muted mt-1">{cityOf(airports, f.origin)}–{cityOf(airports, f.dest)} · {fmtDate(b.flight_date)} · {f.duration || "1h05"} · Direct</div>
+                    <div className="text-[12px] text-ink-muted mt-0.5">1 adult · {f.flight_no || b.flight_no} · Class {b.cabin || "Economy"}</div>
                   </div>
-                  <div className="text-[12px] text-ink-muted mt-2">{a.desc}</div>
-                </Card>
-              </button>
-            ))}
-          </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[18px] font-black v2-num">{eur2(priceOf(b))}</div>
+                    <div className="text-[11px] text-ink-faint">incl. taxes</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-3 flex-wrap text-[12px] text-ink-muted">
+                  <span>Includes:</span>
+                  <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="seat" size={11} /> Seat {b.seat || "4C"}</span>
+                  {(b.items || []).slice(0, 4).map((c, i) => <span key={i} className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink">{extraLabel(c)}</span>)}
+                  {!(b.items || []).length && <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="bag" size={11} /> Carry-on</span>}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
+                  {ACTIONS.map(([lbl, page, ic]) => (
+                    <button key={lbl} onClick={() => go(page)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name={ic} size={12} /> {lbl}</button>
+                  ))}
+                  <button onClick={() => go("refund")} className="ml-auto rounded-full px-3 py-1.5 text-[12px] font-bold text-tap-red hover:underline">Remove</button>
+                </div>
+              </Card>
+            );
+          })}
+          <button onClick={() => go("home")} className="w-full rounded-2xl border border-dashed border-line-strong py-3.5 px-5 text-[13px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors flex items-center justify-between">
+            <span>+ Add another trip to basket</span>
+            <span className="text-[11px] text-ink-faint">Save up to {EUR(15)} per extra trip</span>
+          </button>
         </div>
-        <aside className="space-y-4">
+
+        <aside className="space-y-4 lg:sticky lg:top-6">
+          <Card className="p-5">
+            <div className="font-bold text-[17px] mb-2">Basket summary</div>
+            <div className="text-[12px] text-ink-muted pb-3 border-b border-line">{cityOf(airports, list[0].flight?.origin)}–{cityOf(airports, list[0].flight?.dest)} · {list.length} trip{list.length !== 1 ? "s" : ""} · {list.length} item{list.length !== 1 ? "s" : ""} in cart</div>
+            <div className="space-y-2 text-[13px] mt-3">
+              {list.map((b, i) => (
+                <div key={i} className="flex justify-between gap-3"><span className="text-ink-muted">Trip {i + 1} · {cityOf(airports, b.flight?.origin)}–{cityOf(airports, b.flight?.dest)}</span><span className="font-semibold v2-num">{eur2(priceOf(b))}</span></div>
+              ))}
+            </div>
+            <Divider className="my-3" />
+            <div className="space-y-2 text-[13px]">
+              <div className="flex justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num">{eur2(taxes)}</span></div>
+              <div className="flex justify-between"><span className="text-tap-greenDeep">Bundle savings</span><span className="font-semibold v2-num text-tap-greenDeep">−{eur2(savings)}</span></div>
+            </div>
+            <Divider className="my-3" />
+            <div className="flex items-end justify-between"><div><div className="font-bold">Total to pay</div><div className="text-[10px] text-ink-faint">Includes taxes & fees</div></div><div className="text-[24px] font-black v2-num">{eur2(total)}</div></div>
+            <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span>You'll earn</span><span className="v2-num">{miles(earn)} miles</span></div>
+            <Btn size="lg" className="w-full mt-3" onClick={() => go("express")}>Checkout →</Btn>
+          </Card>
+          <div className="rounded-xl border border-tap-green/30 bg-lime-tint/40 px-4 py-3 text-[12px]"><span className="font-bold">You save {EUR(savings)} today</span><div className="text-ink-muted">Add a 4th trip and unlock €15 more.</div></div>
           <Card className="p-5">
             <div className="font-bold text-[15px]">Retrieve your booking</div>
             <div className="text-[11px] text-ink-muted mt-0.5 mb-3">Find any booking — direct, agent, or partner. Then check in, add extras, or change seats.</div>
@@ -176,8 +206,9 @@ export function ManageBooking({ shared, go }) {
             </div>
           </Card>
           <Card className="p-4 text-[12px] space-y-2.5">
-            <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="clock" size={15} /></span><div><div className="font-semibold">Free 24h changes</div><div className="text-ink-faint">Adjust or cancel within 24h at no cost.</div></div></div>
-            <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="star" size={15} /></span><div><div className="font-semibold">{u.tier || "Gold"} member care</div><div className="text-ink-faint">Priority help on every change.</div></div></div>
+            <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="clock" size={15} /></span><div><div className="font-semibold">Price locked for 15 min</div><div className="text-ink-faint">Complete checkout to keep this rate.</div></div></div>
+            <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="refresh" size={15} /></span><div><div className="font-semibold">24h free cancellation</div><div className="text-ink-faint">On flights & most extras.</div></div></div>
+            <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="heart" size={15} /></span><div><div className="font-semibold">24/7 {u.tier || "Gold"} care</div><div className="text-ink-faint">WhatsApp · phone · live chat.</div></div></div>
           </Card>
         </aside>
       </div>
