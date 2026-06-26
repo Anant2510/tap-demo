@@ -44,7 +44,7 @@ export function tripSnapshot() {
     type: trip.type, pax: trip.pax, cabin: trip.cabin,
     origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret,
     outbound: trip.outbound, inbound: trip.inbound,
-    extras: trip.extras.map(e => ({ code: e.code, name: e.name, price: e.price, qty: e.qty || 1, cat: e.cat, source: e.source || "user" })),
+    extras: trip.extras.map(e => ({ code: e.code, name: e.name, price: e.price, qty: e.qty || 1, cat: e.cat, source: e.source || "user", ...(e.rate != null ? { rate: e.rate } : {}), ...(e.nights != null ? { nights: e.nights } : {}) })),
   };
 }
 // Rebuild an abandoned basket from the server snapshot so a returning member resumes
@@ -67,7 +67,7 @@ export function restoreFromSaved(saved) {
 export const SOURCE_META = {
   recommended: { label: "Recommended for you", tag: "Recommended", tone: "green" },
   auto: { label: "Auto-added", tag: "Auto-added", tone: "slate" },
-  user: { label: "Added by you", tag: "Added by you", tone: "lime" },
+  user: { label: "Extras you added", tag: "Added by you", tone: "lime" },
 };
 export const SOURCE_ORDER = ["user", "recommended", "auto"];
 export function extrasBySource() {

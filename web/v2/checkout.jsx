@@ -12,7 +12,7 @@ const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { maximumFract
 const CAT_ORDER = ["Hotels", "Cars & transfers", "Insurance", "Lounge & services", "Onboard", "Experiences", "Seats & baggage", "Carbon offset", "Extras"];
 const CAT_TAG = { Hotels: "8 nights", "Cars & transfers": "", Insurance: "× 2", "Lounge & services": "", Experiences: "" };
 const CAT_ICON = { Hotels: "home", "Cars & transfers": "arrow", Insurance: "shield", "Lounge & services": "star", Onboard: "bag", Experiences: "star", "Seats & baggage": "seat", "Carbon offset": "leaf", Extras: "cart" };
-const CAT_SUB = { Hotels: "8 nights · 2 adults", "Cars & transfers": "Private sedan · 1-way", Insurance: "2 travelers", "Lounge & services": "Pre-flight · 2 adults", Onboard: "Both flights", Experiences: "2 travelers", "Seats & baggage": "Both flights", "Carbon offset": "This trip" };
+const CAT_SUB = (pax = 1, nights = 8) => ({ Hotels: `${nights} night${nights !== 1 ? "s" : ""} · ${pax} adult${pax > 1 ? "s" : ""}`, "Cars & transfers": "Private sedan · 1-way", Insurance: `${pax} traveler${pax > 1 ? "s" : ""}`, "Lounge & services": `Pre-flight · ${pax} adult${pax > 1 ? "s" : ""}`, Onboard: "Both flights", Experiences: `${pax} traveler${pax > 1 ? "s" : ""}`, "Seats & baggage": "Both flights", "Carbon offset": "This trip" });
 const CAT_QTY = { Insurance: true, "Lounge & services": true, Experiences: true };
 
 /* seed the default extras so the basket reads like the Figma. Each carries a source so the
@@ -98,7 +98,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
                     <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{SOURCE_META[s].label} · {groups[s].length}</div>
                     <span className={cx("inline-flex items-center text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full", s === "user" ? "bg-lime text-ink" : s === "recommended" ? "bg-tap-green/10 text-tap-greenDeep" : "bg-surface-mute text-ink-muted")}>{SOURCE_META[s].tag}</span>
                   </div>
-                  {groups[s].map(e => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
+                  {groups[s].map(e => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB(trip.pax, gnights)[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
                 </div>
               ))}
               {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-3 w-full rounded-full border border-line-strong py-2 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center gap-1.5"><Icon name="x" size={12} /> Clear basket</button>}
@@ -319,7 +319,7 @@ function CartView({ go, mode = "cart", shared }) {
   useEffect(() => { if (trip.outbound && shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
   if (!trip.outbound) return noTrip(go);
   const save = () => api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
-  const add = (code, name, price, cat) => { toggleExtra({ code, name, price, cat }); save(); r(); };
+  const add = (code, name, price, cat, meta) => { toggleExtra({ code, name, price, cat, ...(meta || {}) }); save(); r(); };
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
   const seat = trip.extras.find(e => e.cat === "Seats & baggage");
   const pax = trip.pax || 1;
@@ -362,7 +362,7 @@ function CartView({ go, mode = "cart", shared }) {
       <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">{tags.map(t => <span key={t} className="text-[10px] uppercase tracking-wide text-ink-faint">{t}</span>)}</div>
         <div className="text-[11px] text-ink-muted mt-1">★ {rating} Excellent · {reviews} reviews</div></div>
-      <div className="text-right shrink-0"><div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div><div className="text-[11px] text-ink-faint v2-num">{eur2(total)} total for 8 nights</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, total, "Hotels")}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
+      <div className="text-right shrink-0"><div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div><div className="text-[11px] text-ink-faint v2-num">{eur2(total)} total for {pn > 0 ? Math.round(total / pn) : 8} nights</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, total, "Hotels", { rate: pn, nights: pn > 0 ? Math.round(total / pn) : 8 })}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
     </div>
   ); };
   const Row = ({ code, name, sub, rate, unit, cat, tag }) => {
@@ -540,6 +540,30 @@ export function Basket({ shared, go }) {
     ["Extras", "Other extras", "cart"],
   ];
   const byCat = (c) => trip.extras.filter(e => e.cat === c);
+  const cityOf = (c) => shared?.airports?.find(a => a.code === c)?.city || c;
+  const persist = () => api.post("/basket", { flight_no: trip.outbound?.flight?.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
+  const remove = (e) => { toggleExtra(e); persist(); r(); };
+  const setQty = (e, d) => { e.qty = Math.max(1, (e.qty || 1) + d); pingBasket(); persist(); r(); };
+  const dateRange = `${fmtDate(trip.date).replace(/ \d{4}/, "")} – ${fmtDate(trip.ret).replace(/ \d{4}/, "")}`;
+  const dateOne = fmtDate(trip.date).replace(/ \d{4}/, "");
+  // per-category card detail (sub, chips, action links, per-unit price, quantity-editable) — Tab 6 #3/#5
+  const cardMeta = (e, cat) => {
+    const px = trip.pax || 1, plural = px > 1 ? "s" : "";
+    switch (cat) {
+      case "Hotels": { const nn = e.nights || nights, rt = e.rate || (nn > 0 ? Math.round(e.price / nn) : e.price);
+        return { sub: `Deluxe room · ${px} adult${plural} · Breakfast included · Free cancellation`, chips: [dateRange, `${nn} nights`, "★ 9.2 Excellent"], links: ["Change room", "View hotel"], perUnit: `${eur2(rt)} × ${nn} nights`, qty: false }; }
+      case "Cars & transfers":
+        return { sub: "Private sedan · Meet & greet · Up to 3 bags · English-speaking driver", chips: [`${dateOne} · 14:15`, "One-way", `${px} pax`], links: ["Change vehicle", "Edit time"], perUnit: `${eur2(e.price)} per car`, qty: true };
+      case "Insurance":
+        return { sub: "Medical up to €50K · Baggage protection · Trip cancellation · 24/7 assistance", chips: [dateRange, `${px} traveler${plural}`, "Recommended"], links: ["Change plan", "Compare plans"], perUnit: `${eur2(Math.round(e.price / px))} × ${px} traveler${plural}`, qty: true };
+      case "Lounge & services":
+        return { sub: "Pre-flight access · Hot meals · Showers · Wi-Fi · 3-hour stay", chips: [dateOne, `${px} adult${plural}`], links: ["Change lounge"], perUnit: `${eur2(Math.round(e.price / px))} × ${px} traveler${plural}`, qty: true };
+      case "Experiences":
+        return { sub: "Small group · English guide · Local tastings included", chips: [`${dateOne} · 10:00`, `${px} traveler${plural}`], links: ["Change date"], perUnit: `${eur2(Math.round(e.price / px))} × ${px} traveler${plural}`, qty: true };
+      default:
+        return { sub: CAT_SUB(px, nights)[cat] || cat, chips: [], links: ["Edit"], perUnit: "", qty: false };
+    }
+  };
 
   const Leg = ({ label, f, date }) => (
     <div className="py-3">
@@ -559,76 +583,113 @@ export function Basket({ shared, go }) {
         <div className="flex items-center gap-3"><h1 className="text-[28px] font-bold">My trip cart</h1><Pill tone="slate">{itemCount} items</Pill></div>
         <p className="text-[13px] text-ink-muted mt-1">Review and customize everything in your basket before continuing.</p>
         <div className="flex flex-wrap gap-2 mt-3">
-          <Chip dot>{trip.dest ? `${trip.dest} trip` : "Your trip"}</Chip>
-          <Chip>{trip.origin}–{trip.dest}</Chip>
+          <Chip dot>{trip.dest ? `${cityOf(trip.dest)} trip` : "Your trip"}</Chip>
+          <Chip>{cityOf(trip.origin)}–{cityOf(trip.dest)}</Chip>
           <Chip>{trip.pax} adult{trip.pax > 1 ? "s" : ""}</Chip>
-          <Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip>
+          <Chip>{dateRange}</Chip>
         </div>
 
-        <div className="mt-6">
-          <div className="flex items-center gap-2 mb-2"><h2 className="text-[16px] font-bold">Your flights</h2><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">1 item · Anchor</span></div>
-          <Card className="p-5">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2 text-[12px]"><span className="font-black text-tap-green">TAP</span><span className="text-ink-muted">· {ob?.fare || "Classic"} · Economy</span><span className="inline-flex items-center gap-1 text-[11px] text-ink-muted px-2 py-1 rounded-full bg-surface-mute"><Icon name="globe" size={11} /> Stopover included</span></div>
-              <button onClick={() => go("cart")} className="text-[12px] font-semibold text-tap-greenDeep inline-flex items-center gap-1 hover:underline"><Icon name="search" size={12} /> Change flight</button>
-            </div>
-            <Divider className="my-2" />
-            <Leg label="Outbound" f={obf} date={trip.date} />
-            {ib && <><Divider className="my-1" /><Leg label="Inbound" f={ibf} date={trip.ret} /></>}
-            <div className="mt-3 -mx-5 -mb-5 px-5 py-2.5 bg-surface-2 border-t border-line flex items-center justify-between flex-wrap gap-2 text-[11px] text-ink-muted">
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {["1× carry-on (8kg)", "1× checked bag (23kg)", "Seat selection", "Changes for fee"].map(x => <span key={x} className="inline-flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> {x}</span>)}
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Booking ref · Pending</span>
-            </div>
-          </Card>
-        </div>
-
-        {SECTIONS.map(([cat, title, icon]) => {
-          const items = byCat(cat);
-          if (!items.length) return null;
-          return (
-            <div className="mt-6" key={cat}>
-              <div className="flex items-center gap-2 mb-2"><h2 className="text-[16px] font-bold">{title}</h2><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">{items.length} item{items.length > 1 ? "s" : ""}</span></div>
-              <Card className="p-3 space-y-2">
-                {items.map(e => (
-                  <div key={e.code} className="flex items-center gap-3 rounded-xl border border-line p-3">
-                    {cat === "Hotels"
-                      ? <Img seed={e.code} src={imageFor(e.code)} alt={e.name} className="w-24 h-16 rounded-lg shrink-0 object-cover" />
-                      : <span className="w-10 h-10 rounded-lg bg-lime-tint inline-flex items-center justify-center shrink-0"><Icon name={icon} size={18} className="text-tap-greenDeep" /></span>}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[14px] font-bold">{e.name}</div>
-                      <div className="text-[11px] text-ink-faint">{cat === "Hotels" ? `Deluxe room · ${trip.pax} adult${trip.pax > 1 ? "s" : ""} · Breakfast included · Free cancellation` : (CAT_SUB[cat] || cat)}</div>
-                      {cat === "Hotels" && <div className="flex flex-wrap gap-2 mt-1 text-[10px] text-ink-faint"><span className="px-2 py-0.5 rounded-full bg-surface-mute">{nights} nights</span><span className="px-2 py-0.5 rounded-full bg-surface-mute">★ 9.2 Excellent</span></div>}
-                    </div>
-                    <div className="text-right shrink-0"><div className="text-[16px] font-bold v2-num">{eurC(e.price)}</div>{cat === "Hotels" && nights > 0 && <div className="text-[10px] text-ink-faint v2-num">{eur2(Math.round(e.price / nights))} × {nights} nights</div>}</div>
+        {/* two-column: scrollable content + right-side sticky basket panel (Tab 6 #6) */}
+        <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
+          <div className="space-y-6 min-w-0">
+            {/* flights anchor — tinted header (#1) + zebra benefits row (#2) */}
+            <div>
+              <div className="flex items-center gap-2 mb-2"><h2 className="text-[15px] font-bold">Your flights</h2><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">1 item · Anchor</span></div>
+              <Card className="overflow-hidden">
+                <div className="bg-surface-soft px-5 py-3 border-b border-line flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 text-[12px]"><span className="font-black text-tap-green">TAP</span><span className="text-ink-muted">· {ob?.fare || "Classic"} · Economy</span><span className="inline-flex items-center gap-1 text-[11px] text-ink-muted px-2 py-1 rounded-full bg-surface"><Icon name="globe" size={11} /> Stopover included</span></div>
+                  <button onClick={() => go("cart")} className="text-[12px] font-semibold text-tap-greenDeep inline-flex items-center gap-1 hover:underline"><Icon name="search" size={12} /> Change flight</button>
+                </div>
+                <div className="px-5 pt-1 pb-2">
+                  <Leg label="Outbound" f={obf} date={trip.date} />
+                  {ib && <><Divider className="my-1" /><Leg label="Inbound" f={ibf} date={trip.ret} /></>}
+                </div>
+                <div className="bg-surface-2 border-t border-line px-5 py-2.5 flex items-center justify-between flex-wrap gap-2 text-[11px] text-ink-muted">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {["1× carry-on (8kg)", "1× checked bag (23kg)", "Seat selection", "Changes for fee"].map(x => <span key={x} className="inline-flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> {x}</span>)}
                   </div>
-                ))}
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Booking ref · Pending</span>
+                </div>
               </Card>
             </div>
-          );
-        })}
 
-        <Card className="p-5 mt-6">
-          <div className="space-y-1.5 text-[13px]">
-            <div className="flex items-center justify-between"><span className="text-ink-muted">Flights · {trip.pax} traveller{trip.pax > 1 ? "s" : ""}</span><span className="font-semibold v2-num">{eur2(t.flights)}</span></div>
-            <div className="flex items-center justify-between"><span className="text-ink-muted">Subtotal extras</span><span className="font-semibold v2-num">{eur2(t.extras)}</span></div>
-            <div className="flex items-center justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num">{eur2(t.taxes)}</span></div>
-            {t.bundle > 0 && <div className="flex items-center justify-between"><span className="text-tap-greenDeep font-semibold inline-flex items-center gap-1"><Icon name="spark" size={12} /> Bundle savings</span><span className="font-semibold v2-num text-tap-greenDeep">−{eur2(t.bundle)}</span></div>}
+            {/* extras grouped by section — detailed cards w/ links, qty, Remove (#3,#5) */}
+            {SECTIONS.map(([cat, title, icon]) => {
+              const items = byCat(cat);
+              if (!items.length) return null;
+              return (
+                <div key={cat}>
+                  <div className="flex items-center gap-2 mb-2"><h2 className="text-[15px] font-bold">{title}</h2><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">{items.length} item{items.length > 1 ? "s" : ""}</span></div>
+                  <div className="space-y-3">
+                    {items.map(e => {
+                      const meta = cardMeta(e, cat);
+                      return (
+                        <Card key={e.code} className="p-4">
+                          <div className="flex items-start gap-3">
+                            {cat === "Hotels"
+                              ? <Img seed={e.code} src={imageFor(e.code)} alt={e.name} className="w-14 h-14 rounded-lg shrink-0 object-cover" />
+                              : <span className="w-11 h-11 rounded-lg bg-lime-tint inline-flex items-center justify-center shrink-0"><Icon name={icon} size={18} className="text-tap-greenDeep" /></span>}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[14px] font-bold">{e.name}</div>
+                              <div className="text-[11px] text-ink-faint mt-0.5">{meta.sub}</div>
+                              {meta.chips.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{meta.chips.map((c, i) => <span key={i} className="text-[10px] font-medium text-ink-muted bg-surface-mute rounded px-2 py-0.5">{c}</span>)}</div>}
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-[16px] font-bold v2-num">{eurC(e.price * (e.qty || 1))}</div>
+                              {meta.perUnit && <div className="text-[10px] text-ink-faint v2-num">{meta.perUnit}</div>}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-line">
+                            <div className="flex gap-4 text-[12px] font-semibold text-tap-greenDeep">{meta.links.map(l => <button key={l} className="hover:underline">{l}</button>)}</div>
+                            <div className="flex items-center gap-2.5">
+                              {meta.qty && <div className="inline-flex items-center rounded-full border border-line"><button onClick={() => setQty(e, -1)} className="w-7 h-7 inline-flex items-center justify-center text-ink-muted hover:text-ink text-[15px] leading-none">−</button><span className="w-7 text-center text-[13px] font-semibold v2-num">{e.qty || 1}</span><button onClick={() => setQty(e, 1)} className="w-7 h-7 inline-flex items-center justify-center text-ink-muted hover:text-ink text-[15px] leading-none">+</button></div>}
+                              <button onClick={() => remove(e)} className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red"><Icon name="x" size={12} /> Remove</button>
+                            </div>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <Divider className="my-3" />
-          <div className="flex items-end justify-between">
-            <div><div className="text-[14px] font-bold">Total <span className="text-ink-muted font-medium">(in EUR)</span></div><div className="text-[11px] text-ink-muted">One-time charge · taxes included</div></div>
-            <div className="text-right"><div className="text-[26px] font-black v2-num">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">≈ {BRL(t.total)}</div></div>
+
+          {/* RIGHT — sticky basket summary (#6) */}
+          <div className="lg:sticky lg:top-6">
+            <Card className="p-5">
+              <div className="flex items-start justify-between">
+                <div><h2 className="text-[16px] font-bold">My trip basket</h2><div className="text-[11px] text-ink-muted">All amounts in EUR (€)</div></div>
+                <span className="text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded px-2 py-1">Step 3/5</span>
+              </div>
+              <div className="rounded-lg bg-surface-soft px-3 py-2 mt-3">
+                <div className="text-[12px] font-semibold">{cityOf(trip.origin)}–{cityOf(trip.dest)} · {trip.pax} adult{trip.pax > 1 ? "s" : ""} · {dateRange}</div>
+                <div className="text-[11px] text-ink-faint mt-0.5">{itemCount} items in your trip cart</div>
+              </div>
+              <div className="space-y-1.5 text-[13px] mt-3">
+                <div className="flex items-center justify-between"><span className="text-ink-muted inline-flex items-center gap-1.5">Flights <span className="text-[9px] font-bold uppercase tracking-wide bg-surface-mute text-ink-faint rounded px-1.5 py-0.5">{trip.pax} pax</span></span><span className="font-semibold v2-num">{eur2(t.flights)}</span></div>
+                {Object.entries(extrasByCategory()).map(([c, v]) => (
+                  <div key={c} className="flex items-center justify-between"><span className="text-ink-muted inline-flex items-center gap-1.5">{c}{c === "Hotels" && <span className="text-[9px] font-bold uppercase tracking-wide bg-surface-mute text-ink-faint rounded px-1.5 py-0.5">{nights} nights</span>}</span><span className="font-semibold v2-num">{eur2(v)}</span></div>
+                ))}
+                <div className="flex items-center justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num">{eur2(t.taxes)}</span></div>
+                {t.bundle > 0 && <div className="flex items-center justify-between"><span className="text-tap-greenDeep font-semibold inline-flex items-center gap-1"><Icon name="spark" size={12} /> Bundle savings</span><span className="font-semibold v2-num text-tap-greenDeep">−{eur2(t.bundle)}</span></div>}
+              </div>
+              <Divider className="my-3" />
+              <div className="flex items-end justify-between">
+                <div><div className="text-[14px] font-bold">Total <span className="text-ink-muted font-medium">(in EUR)</span></div><div className="text-[11px] text-ink-muted">No charge yet</div></div>
+                <div className="text-right"><div className="text-[26px] font-black v2-num">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">≈ {BRL(t.total)}</div></div>
+              </div>
+              <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
+              <div className="text-[11px] text-ink-faint mt-3 flex items-center gap-1.5"><Icon name="lock" size={12} /> Secure checkout · Payments by Stripe · Encrypted card data</div>
+              <Btn size="lg" className="w-full mt-3" onClick={() => go("passenger")}>Continue to passenger details →</Btn>
+              <div className="text-[11px] text-ink-faint text-center mt-2">We won't charge you anything yet · price locked 15:00</div>
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => go("cart")} className="flex-1 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">Continue browsing flights →</button>
+                {trip.extras.length > 0 && <button onClick={clear} title="Clear all extras" className="rounded-full border border-line-strong px-3 py-2.5 text-[13px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center"><Icon name="x" size={13} /></button>}
+              </div>
+            </Card>
           </div>
-          <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
-          <Btn size="lg" className="w-full mt-4" onClick={() => go("passenger")}>Continue to passenger details →</Btn>
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => go("cart")} className="flex-1 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5"><Icon name="arrow" size={13} className="rotate-180" /> Back to customize</button>
-            {trip.extras.length > 0 && <button onClick={clear} className="rounded-full border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center gap-1.5"><Icon name="x" size={13} /> Clear</button>}
-          </div>
-          <div className="text-[11px] text-ink-faint text-center mt-2">Price locked for 15 min · free 24h cancellation</div>
-        </Card>
+        </div>
       </div>
     </div>
   );
@@ -659,6 +720,19 @@ const DateInput = ({ value, onChange, err, max, min }) => (
   <input type="date" value={value || ""} max={max} min={min} onChange={onChange} className={cx("w-full bg-surface border rounded-xl px-3 py-2.5 text-[14px] text-ink outline-none focus:border-tap-green cursor-pointer", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")} />
 );
 
+// Passenger-page section heading — bold dark title + muted descriptor + lime accent (#4),
+// giving the IDENTITY / TRAVEL DOCUMENT / LOYALTY sections real typographic hierarchy.
+const PaxSectionTitle = ({ title, sub, info, className }) => (
+  <div className={cx("mb-3", className)}>
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-[15px] font-bold text-ink leading-none">{title}</span>
+      {info && <Icon name="info" size={12} className="text-ink-faint" />}
+      {sub && <span className="text-[12px] text-ink-faint leading-none">· {sub}</span>}
+    </div>
+    <div className="h-[3px] w-9 rounded-full bg-lime mt-2" />
+  </div>
+);
+
 function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
   const [p, setP] = useState(lead && prefill ? prefill : {});
   const [saveDoc, setSaveDoc] = useState(true);
@@ -681,7 +755,7 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
           {!lead && <button onClick={() => onRemove && onRemove(idx)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink-muted hover:border-tap-red hover:text-tap-red"><Icon name="x" size={12} /> Remove</button>}
         </div>
       </div>
-      <Eyebrow className="mb-2">Identity · as shown on passport</Eyebrow>
+      <PaxSectionTitle title="Identity" sub="as shown on passport" />
       <div className="grid sm:grid-cols-3 gap-3">
         <Field label={<>Title <Req /></>}><VInput {...f("title")} placeholder="Ms" err={err("title")} /></Field>
         <Field label={<>First / middle names <Req /></>}><VInput {...f("first")} err={err("first")} /></Field>
@@ -690,7 +764,7 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
         <Field label={<>Gender <Req /></>}><VInput {...f("gender")} placeholder="Female" err={err("gender")} /></Field>
         <Field label={<>Nationality <Req /></>}><FlagSelect value={p.nat} onChange={v => set("nat", v)} options={FLAG_NAT} err={err("nat")} /></Field>
       </div>
-      <div className="flex items-center gap-1.5 mt-4 mb-2"><Eyebrow>Travel document</Eyebrow><Icon name="info" size={12} className="text-ink-faint" /><span className="text-[11px] text-ink-faint">Required to issue your boarding pass</span></div>
+      <PaxSectionTitle title="Travel document" sub="Required to issue your boarding pass" info className="mt-4" />
       <div className="grid sm:grid-cols-3 gap-3">
         <Field label={<>Document type <Req /></>}><VInput {...f("doctype")} placeholder="Passport" err={err("doctype")} /></Field>
         <Field label={<>Document number <Req /></>}><VInput {...f("doc")} err={err("doc")} /></Field>
@@ -700,7 +774,7 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
         <Field label={<>Expiry date <Req /></>} className="w-44"><DateInput value={p.docexp} onChange={e => set("docexp", e.target.value)} err={err("docexp")} min="2025-01-01" /></Field>
         <label className="flex items-center gap-2 text-[12px] text-ink-muted pb-2.5"><input type="checkbox" checked={saveDoc} onChange={e => setSaveDoc(e.target.checked)} className="accent-[#46a41a]" /> Save this document to my TAP profile <span className="text-ink-faint">· Reuse for future trips — we'll encrypt it</span></label>
       </div>
-      <Eyebrow className="mt-4 mb-2">Loyalty · optional — earn miles on this trip</Eyebrow>
+      <PaxSectionTitle title="Loyalty" sub="Optional — earn miles on this trip" className="mt-4" />
       {lead
         ? <div className="rounded-xl border border-tap-green/30 bg-lime-tint text-tap-greenDark px-4 py-3 flex items-center gap-3"><Icon name="plane" size={16} /><div className="flex-1"><div className="text-[13px] font-bold">TAP.miles applied</div><div className="text-[11px]">{src.member} · {src.tier} tier — you'll earn {miles(src.earn || 2416)} tap.miles on this trip.</div></div><button className="text-[12px] font-semibold shrink-0">Edit</button></div>
         : <div className="grid sm:grid-cols-[160px_1fr_auto] gap-3 items-end"><Field label="Program"><Input defaultValue="TAP.miles" /></Field><Field label="Membership number"><Input placeholder="Add Miles&Go number (optional)" /></Field><Btn variant="outline" size="sm">Apply membership</Btn></div>}

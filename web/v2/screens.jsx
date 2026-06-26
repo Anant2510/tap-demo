@@ -151,10 +151,13 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
 
   return (
     <div className="mt-5">
-      <div className="flex gap-1 overflow-x-auto v2-track text-[13px] font-semibold border-b border-line">
-        {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-3.5 py-2 border-b-2 -mb-px transition-colors", i === 0 ? "border-tap-green text-tap-greenDeep" : "border-transparent text-ink-muted hover:text-ink")}>{t}</button>)}
-      </div>
-      <div className="flex items-center justify-between flex-wrap gap-3 mt-4">
+      {/* inner solid white box — tabs + form sit on the outer frosted-glass panel (HomePage #32) */}
+      <div className="rounded-2xl bg-surface shadow-sm overflow-hidden">
+        <div className="flex gap-1 overflow-x-auto v2-track text-[13px] font-semibold border-b border-line px-2 pt-1.5">
+          {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-3.5 py-2 rounded-t-lg border-b-2 -mb-px transition-colors", i === 0 ? "bg-lime-tint text-tap-greenDeep border-tap-green" : "border-transparent text-ink-muted hover:text-ink")}>{t}</button>)}
+        </div>
+        <div className="p-4 sm:p-5">
+          <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex gap-1 text-[12px] font-semibold bg-surface-soft rounded-full p-1">
           {[["round", "Round trip"], ["oneway", "One way"], ["multi", "Multi-city"]].map(([k, l]) => (
             <button key={k} onClick={() => setType(k)} className={cx("px-3 py-1 rounded-full transition-colors", type === k ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink")}>{l}</button>
@@ -186,8 +189,10 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
           <div className="lg:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
         </div>
       )}
+        </div>
+      </div>
 
-      <div className="flex flex-wrap gap-4 mt-4 text-[12px] text-ink-muted">
+      <div className="flex flex-wrap gap-4 mt-4 px-1 text-[12px] text-ink-muted">
         {[["Traveler details saved", true], [`Default ${u.card_brand || "Mastercard"} ready`, true], [`${u.tier} benefits active`, true], ["Use miles available", (u.miles || 0) > 0]].map(([t, ok], i) => (
           <span key={i} className="flex items-center gap-1.5"><Icon name="check" size={13} className={ok ? "text-tap-green" : "text-ink-faint"} /> {t}</span>
         ))}
@@ -230,7 +235,7 @@ export function Home({ shared, go }) {
         </video>
         <div className="absolute inset-0 bg-black/15" />
         <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
-          <div className="rounded-3xl bg-surface border border-line shadow-pop p-6 sm:p-8">
+          <div className="rounded-3xl bg-white/60 backdrop-blur-2xl border border-white/50 shadow-pop p-6 sm:p-8">
             <div className="flex items-start justify-between">
               <PersonalizedTag />
               <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-ink-muted text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>

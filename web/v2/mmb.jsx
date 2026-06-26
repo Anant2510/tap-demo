@@ -34,6 +34,9 @@ function useActiveBooking() {
 
 const cityOf = (airports, code) => (airports || []).find(a => a.code === code)?.city || code || "—";
 const lastName = (u) => u.last_name || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : "");
+// Friendly labels for the seeded extra codes stored on a booking's items_json.
+const EXTRA_LABEL = { seat: "Seat", bag: "Checked bag", meal: "Meal", wifi: "Wi-Fi", transfer: "Transfer", car: "Transfer", lounge: "Lounge", upgrade: "Cabin upgrade" };
+const extraLabel = (c) => EXTRA_LABEL[c] || String(c);
 
 const Loading = ({ label = "Retrieving your booking…" }) => (
   <Page><Card className="p-10 text-center v2-in"><div className="text-[14px] text-ink-muted">{label}</div></Card></Page>
@@ -122,7 +125,7 @@ export function ManageBooking({ shared, go }) {
             <div className="flex flex-wrap gap-2 mt-3">
               <Pill tone="slate"><Icon name="user" size={10} /> {u.first_name || "Daniel"} {lastName(u)}</Pill>
               <Pill tone="slate">Seat {booking.seat || "4C"}</Pill>
-              {(booking.items || []).slice(0, 4).map((c, i) => <Pill key={i} tone="slate">{String(c)}</Pill>)}
+              {(booking.items || []).slice(0, 5).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
             </div>
           </Card>
           <div className="grid sm:grid-cols-2 gap-4">
@@ -481,54 +484,156 @@ export function CheckInIndirect({ shared, go }) {
 
 /* ═══════════ J4 · ADD EXTRAS ═══════════ */
 export function AddExtras({ shared, go }) {
-  const { booking } = useActiveBooking();
+  const { all, loading, err } = useActiveBooking();
+  const u = shared.profile?.user || {};
+  const airports = shared.airports;
   const [anc, setAnc] = useState(null);
-  const [added, setAdded] = useState([]);   // [{code,name,price}]
-  const [pending, setPending] = useState(null);
+  const [step, setStep] = useState("pick");      // pick → extras → pay → done
+  const [sel, setSel] = useState(null);          // chosen booking
+  const [staged, setStaged] = useState([]);      // [{code,name,price}] — committed only at pay
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
   useEffect(() => { api.get("/ancillaries").then(setAnc).catch(() => setAnc([])); }, []);
   const ICON = { seat: "seat", bag: "bag", meal: "star", wifi: "spark", car: "arrow", transfer: "arrow", lounge: "star" };
-  const add = async (a) => {
-    if (added.some(x => x.code === a.code)) return;
-    setPending(a.code);
-    const r = await api.post("/bookings/ancillary", { code: a.code }).catch(() => ({ ok: false }));
-    setPending(null);
-    // Seeded codes (seat/bag/meal/wifi/transfer/lounge) return {ok,name,price}; trust the
-    // server value when present, otherwise fall back to the catalog row (demo-resilient).
-    setAdded(list => [...list, { code: a.code, name: (r && r.name) || a.name, price: (r && r.price != null) ? r.price : a.price }]);
+
+  if (loading) return <Loading label="Loading your trips…" />;
+  if (err) return <Empty go={go} title="Couldn't reach your bookings" msg={err} />;
+  const upcoming = (all || []).filter(b => b.status === "confirmed" && (b.days_to_go ?? 0) >= 0)
+    .sort((a, b) => String(a.flight_date).localeCompare(String(b.flight_date)));
+  if (!upcoming.length) return <Empty go={go} title="No upcoming trips" msg="You don't have an upcoming booking to add extras to right now." />;
+
+  const total = staged.reduce((s, x) => s + (x.price || 0), 0);
+  const stage = (a) => setStaged(s => s.some(x => x.code === a.code) ? s : [...s, { code: a.code, name: a.name, price: a.price || 0 }]);
+  const unstage = (code) => setStaged(s => s.filter(x => x.code !== code));
+  const commit = async () => {
+    setBusy(true);
+    const r = await api.post("/bookings/extras/checkout", { pnr: sel.pnr, codes: staged.map(x => x.code), total }).catch(() => ({ ok: false }));
+    setBusy(false); setResult(r || { ok: false }); setStep("done");
   };
-  const remove = async (code) => {
-    setPending(code);
-    await api.post("/bookings/ancillary/remove", { code }).catch(() => ({}));
-    setPending(null);
-    setAdded(list => list.filter(x => x.code !== code));
-  };
+
+  /* ── STEP 1 · pick an upcoming trip ───────────────────────────── */
+  if (step === "pick") {
+    return (
+      <div className="mx-auto max-w-page px-6 py-8">
+        <Crumb go={go} />
+        <h1 className="text-[26px] font-black">Add extras to your trip</h1>
+        <p className="text-[13px] text-ink-muted mt-1">Choose which upcoming trip to add extras to.</p>
+        <div className="grid sm:grid-cols-2 gap-4 mt-5">
+          {upcoming.map(b => {
+            const f = b.flight || {};
+            return (
+              <button key={b.pnr} onClick={() => { setSel(b); setStaged([]); setStep("extras"); }} className="text-left">
+                <Card className="p-5 hover:border-tap-green/50 transition-colors h-full v2-in">
+                  <div className="flex items-center justify-between">
+                    <Pill tone="red">PNR {b.pnr}</Pill>
+                    <Pill tone="slate">{b.days_to_go > 0 ? `${b.days_to_go} days to go` : "Departing soon"}</Pill>
+                  </div>
+                  <div className="flex items-center gap-3 mt-3">
+                    <div><div className="text-[22px] font-black v2-num">{f.dep || "—"}</div><div className="text-[11px] text-ink-faint">{f.origin} · {cityOf(airports, f.origin)}</div></div>
+                    <div className="flex-1 text-center text-[11px] text-ink-faint"><Icon name="plane" size={14} className="text-tap-green" /><div className="h-px bg-line my-1" /></div>
+                    <div className="text-right"><div className="text-[22px] font-black v2-num">{f.arr || "—"}</div><div className="text-[11px] text-ink-faint">{f.dest} · {cityOf(airports, f.dest)}</div></div>
+                  </div>
+                  <div className="text-[12px] text-ink-muted mt-3">{fmtDate(b.flight_date)} · {f.flight_no || b.flight_no} · Seat {b.seat || "4C"}</div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {(b.items || []).slice(0, 5).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
+                  </div>
+                  <div className="mt-3 text-[13px] font-semibold text-tap-greenDeep inline-flex items-center gap-1">Add extras to this trip <Icon name="arrow" size={13} /></div>
+                </Card>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   if (anc === null) return <Loading label="Loading available extras…" />;
-  const total = added.reduce((s, x) => s + (x.price || 0), 0);
+  const onBooking = new Set(sel?.items || []);
+
+  /* ── STEP 3 · review & pay ────────────────────────────────────── */
+  if (step === "pay") {
+    return (
+      <div className="mx-auto max-w-page px-6 py-8">
+        <button onClick={() => setStep("extras")} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Back to extras</button>
+        <h1 className="text-[26px] font-black">Review &amp; pay</h1>
+        <p className="text-[13px] text-ink-muted mt-1">PNR {sel.pnr} · {fmtDate(sel.flight_date)} · {cityOf(airports, sel.flight?.origin)}–{cityOf(airports, sel.flight?.dest)}</p>
+        <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-5 items-start">
+          <Card className="p-5">
+            <div className="font-bold text-[15px] mb-3">Extras to add</div>
+            <div className="space-y-2.5">
+              {staged.map(x => (
+                <div key={x.code} className="flex items-center justify-between text-[13px]">
+                  <span className="text-ink flex-1">{x.name}</span>
+                  <span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span>
+                </div>
+              ))}
+            </div>
+            <Divider className="my-3" />
+            <div className="flex items-center justify-between"><span className="text-[14px] font-bold">Total due now</span><span className="text-[20px] font-black v2-num">{EUR(total)}</span></div>
+          </Card>
+          <aside>
+            <Card className="p-5 sticky top-20">
+              <div className="font-bold text-[15px] mb-2">Pay with</div>
+              <div className="rounded-xl border border-line p-3 flex items-center gap-3">
+                <span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center"><Icon name="star" size={16} className="text-tap-greenDeep" /></span>
+                <div className="text-[13px]"><div className="font-semibold">{u.card_brand || "Visa"} ···· {u.card_last4 || "4242"}</div><div className="text-[11px] text-ink-faint">Saved card · expires {u.card_exp || "06/27"}</div></div>
+              </div>
+              <Btn className="w-full mt-3" disabled={busy} onClick={commit}>{busy ? "Processing…" : `Pay ${EUR(total)} & confirm`}</Btn>
+              <div className="text-[11px] text-ink-faint text-center mt-2">Charged to your saved card · added to PNR {sel.pnr}</div>
+            </Card>
+          </aside>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── STEP 4 · confirmation ────────────────────────────────────── */
+  if (step === "done") {
+    const ok = result && result.ok;
+    return (
+      <div className="mx-auto max-w-page px-6 py-8">
+        <SuccessHead title={ok ? "Extras added to your trip" : "Couldn't add extras"} sub={ok ? `PNR ${sel.pnr}${result.total > 0 ? " · " + EUR(result.total) + " charged" : ""}${result.email ? " · confirmation sent to " + result.email : ""}` : "Please try again."} />
+        {ok && (
+          <Card className="p-5 mt-5 max-w-lg">
+            <div className="font-bold text-[14px] mb-2">Added to PNR {sel.pnr}</div>
+            <div className="space-y-2 text-[13px]">
+              {staged.map(x => <div key={x.code} className="flex items-center justify-between"><span className="text-ink-muted flex items-center gap-2"><Icon name="check" size={14} className="text-tap-green" /> {x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span></div>)}
+            </div>
+          </Card>
+        )}
+        <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>Back to my trip →</Btn><Btn variant="outline" onClick={() => { setStaged([]); setStep("pick"); setResult(null); }}>Add to another trip</Btn></div>
+      </div>
+    );
+  }
+
+  /* ── STEP 2 · add extras to the chosen trip ───────────────────── */
   return (
     <div className="mx-auto max-w-page px-6 py-8">
-      <Crumb go={go} />
+      <button onClick={() => { setStaged([]); setStep("pick"); }} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Choose a different trip</button>
       <h1 className="text-[26px] font-black">Add extras to your trip</h1>
-      <p className="text-[13px] text-ink-muted mt-1">{booking ? `PNR ${booking.pnr} · ${fmtDate(booking.flight_date)}` : "Personalized from your travel history"}</p>
+      <p className="text-[13px] text-ink-muted mt-1">PNR {sel.pnr} · {fmtDate(sel.flight_date)} · {cityOf(airports, sel.flight?.origin)}–{cityOf(airports, sel.flight?.dest)}</p>
+      <div className="mt-4"><BookingBand booking={sel} airports={airports} /></div>
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-5 items-start">
         <div className="grid sm:grid-cols-2 gap-4">
           {anc.map(a => {
-            const isAdded = added.some(x => x.code === a.code);
+            const already = onBooking.has(a.code);
+            const isStaged = staged.some(x => x.code === a.code);
             return (
-              <Card key={a.code} className={cx("p-4 v2-in", isAdded ? "ring-1 ring-tap-green/50 bg-lime-tint/30" : a.recommended && "ring-1 ring-tap-green/30")}>
+              <Card key={a.code} className={cx("p-4 v2-in", already ? "bg-surface-mute/60" : isStaged ? "ring-1 ring-tap-green/50 bg-lime-tint/30" : a.recommended && "ring-1 ring-tap-green/30")}>
                 <div className="flex items-start gap-3">
                   <span className="w-9 h-9 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={ICON[a.icon] || "bag"} size={16} /></span>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && <Pill tone="green">Recommended</Pill>}{isAdded && <Pill tone="lime">Added</Pill>}</div>
+                    <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && !already && <Pill tone="green">Recommended</Pill>}{already && <Pill tone="slate">On your booking</Pill>}{isStaged && <Pill tone="lime">Added</Pill>}</div>
                     <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
-                    {a.reason && <div className="text-[11px] text-tap-greenDeep mt-1 flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
-                    {a.recommended && a.reason && <WhyChip reason={a.reason} signals={a.signals} className="mt-1" />}
+                    {a.reason && !already && <div className="text-[11px] text-tap-greenDeep mt-1 flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
+                    {a.recommended && a.reason && !already && <WhyChip reason={a.reason} signals={a.signals} className="mt-1" />}
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-3">
                   <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
-                  <Btn size="sm" variant={isAdded ? "outline" : "primary"} disabled={pending === a.code} onClick={() => isAdded ? remove(a.code) : add(a)}>
-                    {pending === a.code ? (isAdded ? "Removing…" : "Adding…") : isAdded ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}
-                  </Btn>
+                  {already
+                    ? <span className="text-[12px] font-semibold text-ink-faint inline-flex items-center gap-1"><Icon name="check" size={13} className="text-tap-green" /> Added</span>
+                    : <Btn size="sm" variant={isStaged ? "outline" : "primary"} onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
                 </div>
               </Card>
             );
@@ -537,12 +642,14 @@ export function AddExtras({ shared, go }) {
         <aside>
           <Card className="p-5 sticky top-20">
             <div className="font-bold text-[15px] mb-2">Your extras</div>
-            {added.length === 0
+            {staged.length === 0
               ? <div className="text-[12px] text-ink-faint">Nothing added yet. Tap “Add” to build your trip.</div>
-              : <div className="space-y-2 text-[13px]">{added.map(x => <div key={x.code} className="flex items-center justify-between gap-2"><span className="text-ink-muted flex-1 truncate">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span><button onClick={() => remove(x.code)} disabled={pending === x.code} className="text-ink-faint hover:text-tap-red shrink-0 disabled:opacity-40" aria-label={"Remove " + x.name} title="Remove"><Icon name="x" size={14} /></button></div>)}</div>}
+              : <div className="space-y-2 text-[13px]">{staged.map(x => <div key={x.code} className="flex items-center justify-between gap-2"><span className="text-ink-muted flex-1 truncate">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span><button onClick={() => unstage(x.code)} className="text-ink-faint hover:text-tap-red shrink-0" aria-label={"Remove " + x.name} title="Remove"><Icon name="x" size={14} /></button></div>)}</div>}
             <Divider className="my-3" />
             <div className="flex items-center justify-between"><span className="text-[12px] text-ink-faint">Total added</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(total)}</span></div>
-            <Btn className="w-full mt-3" disabled={added.length === 0} onClick={() => go("manage")}>Done — back to booking</Btn>
+            <Btn className="w-full mt-3" disabled={staged.length === 0 || busy} onClick={() => total > 0 ? setStep("pay") : commit()}>
+              {staged.length === 0 ? "Add extras to continue" : total > 0 ? <>Review &amp; pay {EUR(total)} →</> : busy ? "Adding…" : "Add to booking →"}
+            </Btn>
           </Card>
         </aside>
       </div>
