@@ -396,7 +396,7 @@ function seedPersonaData(personaId) {
   const u = P.user;
   db.prepare(`INSERT INTO users (id,member_no,first_name,full_name,email,phone,tier,miles,nationality,doc_id,home_airport,card_brand,card_last4,card_exp,card_product,card_categories,affinity,affinity_label,dob,gender,passport_exp)
     VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(u.member_no, u.first_name, u.full_name, process.env.DEMO_EMAIL_TO || u.email, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
+    .run(u.member_no, u.first_name, u.full_name, u.email /* Adobe identity = persona's real unique email; DEMO_EMAIL_TO only overrides the SMTP recipient in email.js, so a shared inbox no longer collapses all personas into one CDP profile */, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
 
   const p = P.prefs;
   db.prepare(`INSERT INTO preferences VALUES (1,?,?,?,?,?)`).run(p.seat, p.seat_note, p.bag, p.meal, p.auto_checkin);
@@ -527,7 +527,7 @@ function applyProfile(profile) {
   if (!profile || !profile.user) return;
   const u = profile.user;
   db.prepare(`UPDATE users SET member_no=?, first_name=?, full_name=?, email=?, phone=?, tier=?, miles=?, nationality=?, doc_id=?, home_airport=?, card_brand=?, card_last4=?, card_exp=?, card_product=?, card_categories=?, affinity=?, affinity_label=?, dob=?, gender=?, passport_exp=? WHERE id=1`)
-    .run(u.member_no, u.first_name, u.full_name, process.env.DEMO_EMAIL_TO || u.email, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
+    .run(u.member_no, u.first_name, u.full_name, u.email /* Adobe identity = persona's real unique email; DEMO_EMAIL_TO only overrides the SMTP recipient in email.js, so a shared inbox no longer collapses all personas into one CDP profile */, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
   if (profile.prefs) { db.exec("DELETE FROM preferences"); const p = profile.prefs; db.prepare(`INSERT INTO preferences VALUES (1,?,?,?,?,?)`).run(p.seat, p.seat_note, p.bag, p.meal, p.auto_checkin); }
   if (profile.voucher) { db.exec("DELETE FROM vouchers"); const v = profile.voucher; db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry) VALUES (1,?,?,?,?)`).run(v.code, v.amount, v.reason, v.expiry); }
 }
