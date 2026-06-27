@@ -12,9 +12,9 @@ import { TapLogo } from "./shell.jsx";
 // login ignored the field and signed you in as whatever persona was last active — which is
 // why entering Daniel's email still showed Lars.)
 const ACCOUNTS = {
-  "daniel.ferreira@consultmail.pt": "daniel", "pt-884512": "daniel", "daniel": "daniel", "daniel ferreira": "daniel",
-  "sofia.marques@familymail.pt": "sofia", "pt-552037": "sofia", "sofia": "sofia", "sofia marques": "sofia",
-  "lars.andersen@globalconsult.de": "lars", "de-100294": "lars", "lars": "lars", "lars andersen": "lars",
+  "anant.direct2links+daniel@gmail.com": "daniel", "pt-990001": "daniel", "daniel": "daniel", "daniel ferreira": "daniel",
+  "anant.direct2links+sofia@gmail.com": "sofia", "pt-990002": "sofia", "sofia": "sofia", "sofia marques": "sofia",
+  "anant.direct2links+lars@gmail.com": "lars", "de-100294": "lars", "de-990003": "lars", "lars": "lars", "lars andersen": "lars",
 };
 function resolvePersona(v) {
   const k = (v || "").trim().toLowerCase();
@@ -33,9 +33,9 @@ function resolvePersona(v) {
 // One-tap demo sign-in so any of the three members can be reached without typing the exact
 // email (which is why login kept defaulting to whoever was active — usually Daniel).
 const DEMO = [
-  { id: "daniel", name: "Daniel Ferreira", tier: "Gold", hub: "Porto · OPO", email: "daniel.ferreira@consultmail.pt" },
-  { id: "sofia", name: "Sofia Marques", tier: "Silver", hub: "Lisbon · LIS", email: "sofia.marques@familymail.pt" },
-  { id: "lars", name: "Lars Andersen", tier: "Platinum", hub: "Frankfurt · FRA", email: "lars.andersen@globalconsult.de" },
+  { id: "daniel", name: "Daniel Ferreira", tier: "Gold", hub: "Porto · OPO", email: "anant.direct2links+daniel@gmail.com" },
+  { id: "sofia", name: "Sofia Marques", tier: "Silver", hub: "Lisbon · LIS", email: "anant.direct2links+sofia@gmail.com" },
+  { id: "lars", name: "Lars Andersen", tier: "Platinum", hub: "Frankfurt · FRA", email: "anant.direct2links+lars@gmail.com" },
 ];
 
 export function LoginModal({ profile, onClose, onLogin }) {
