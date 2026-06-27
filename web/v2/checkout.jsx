@@ -15,11 +15,11 @@ const CAT_SUB = (pax = 1, nights = 8) => ({ Hotels: `${nights} night${nights !==
 const CAT_QTY = { Insurance: true, "Lounge & services": true, Experiences: true };
 
 // Live session countdown — ticks every second so "price locked" reflects real remaining time (Split #4).
-function SessionTimer({ minutes = 15, prefix = "price locked", className }) {
+function SessionTimer({ minutes = 15, prefix = "price locked", suffix = "", className }) {
   const [s, setS] = useState(minutes * 60);
   useEffect(() => { const id = setInterval(() => setS(x => (x > 0 ? x - 1 : 0)), 1000); return () => clearInterval(id); }, []);
   const mm = String(Math.floor(s / 60)).padStart(2, "0"), ss = String(s % 60).padStart(2, "0");
-  return <span className={className}>{prefix} <span className="v2-num font-semibold">{mm}:{ss}</span></span>;
+  return <span className={className}>{prefix ? prefix + " " : ""}<span className="v2-num font-semibold">{mm}:{ss}</span>{suffix}</span>;
 }
 
 /* seed the default extras so the basket reads like the Figma. Each carries a source so the
@@ -970,7 +970,7 @@ export function Payment({ shared, go }) {
       <div className="mx-auto max-w-page px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Payment</h1><Pill tone="slate"><Icon name="lock" size={11} /> Secure checkout · powered by Stripe</Pill></div>
         <p className="text-[13px] text-ink-muted mt-1">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
-        <div className="flex flex-wrap items-center gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {trip.pax > 1 ? "+ " + (trip.pax - 1) : ""}</Chip><span className="ml-auto inline-flex items-center gap-2 rounded-lg bg-surface-mute px-3 py-1.5"><span className="w-2 h-2 rounded-full bg-tap-red inline-block" /><span className="leading-tight"><span className="block text-[9px] font-bold uppercase tracking-wide text-ink-faint">Price locked</span><span className="block text-[12px] font-bold text-ink v2-num">14:32 remaining</span></span></span></div>
+        <div className="flex flex-wrap items-center gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {trip.pax > 1 ? "+ " + (trip.pax - 1) : ""}</Chip><span className="ml-auto inline-flex items-center gap-2 rounded-lg bg-surface-mute px-3 py-1.5"><span className="w-2 h-2 rounded-full bg-tap-red inline-block" /><span className="leading-tight"><span className="block text-[9px] font-bold uppercase tracking-wide text-ink-faint">Price locked</span><SessionTimer prefix="" suffix=" remaining" className="block text-[12px] font-bold text-ink v2-num" /></span></span></div>
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-5 items-start">
           <div className="space-y-5">
@@ -1077,7 +1077,7 @@ export function Confirmation({ shared, go }) {
                   <div className="text-right"><div className="text-[26px] font-bold v2-num leading-none">{c.flight.arr}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.dest} · Terminal 1</div></div>
                 </div>
               ))}
-              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="user" size={10} /> {p.first} {p.last} · {n === 0 ? (trip.seat || "14A") : (["14B", "14C", "14D"][n - 1] || "14A")}</span>)}<span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="bag" size={10} /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="seat" size={10} /> Standard seat</span><span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-surface-mute text-ink-muted rounded-full px-2.5 py-1"><Icon name="leaf" size={10} /> Meal included</span></div>
+              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {n === 0 ? (trip.seat || "14A") : (["14B", "14C", "14D"][n - 1] || "14A")}</span>)}<span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="seat" size={11} className="text-ink-muted" /> Standard seat</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="leaf" size={11} className="text-ink-muted" /> Snack</span></div>
               <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button className="hover:underline">Add to Wallet</button><button className="hover:underline">Add to Calendar</button><button className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
@@ -1135,6 +1135,7 @@ export function ExpressCheckout({ shared, go }) {
   const [, force] = useState(0);
   const [seat, setSeat] = useState(null);
   const [bag, setBag] = useState(true), [carbon, setCarbon] = useState(true), [seatUp, setSeatUp] = useState(true), [agree, setAgree] = useState(true), [busy, setBusy] = useState(false);
+  const [showFare, setShowFare] = useState(false); // #22: See fare rules toggle
 
   useEffect(() => {
     api.get("/seat-recommendation").then(setSeat).catch(() => {});
@@ -1171,7 +1172,7 @@ export function ExpressCheckout({ shared, go }) {
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
 
-  const Sec = ({ title, action, onAction, children }) => <Card className="p-5"><div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">{title}</div>{action && <button onClick={onAction} className="text-[12px] font-semibold text-tap-greenDeep hover:underline underline-offset-2">{action}</button>}</div>{children}</Card>;
+  const Sec = ({ title, action, onAction, children }) => <Card className="p-5"><div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">{title}</div>{action && <button onClick={onAction} className="text-[12px] font-bold text-tap-greenDeep underline underline-offset-2 hover:text-tap-green">{action}</button>}</div>{children}</Card>;
 
   return (
     <div className="bg-surface-soft min-h-screen">
@@ -1189,25 +1190,32 @@ export function ExpressCheckout({ shared, go }) {
                     <div className="flex items-center gap-3"><div><div className="text-[18px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="h-px bg-line-strong my-1" /><div className="font-semibold text-ink-muted">{c.flight.flight_no} · {c.flight.aircraft}</div></div><div className="text-right"><div className="text-[18px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest}</div></div></div>
                   </div>
                 ))}
-                <div className="mt-2 pt-3 border-t border-line flex items-start justify-between gap-3"><div><div className="text-[13px] font-bold">Fare: Classic</div><div className="text-[11px] text-ink-muted mt-0.5">23kg bag · seat select · 50% refund · changes for fee</div></div><button className="text-[12px] font-semibold text-tap-greenDeep hover:underline underline-offset-2 shrink-0">See fare rules</button></div>
+                <div className="mt-2 pt-3 border-t border-line flex items-start justify-between gap-3"><div><div className="text-[13px] font-bold">Fare: Classic</div><div className="text-[11px] text-ink-muted mt-0.5">23kg bag · seat select · 50% refund · changes for fee</div></div><button onClick={() => setShowFare(v => !v)} className="text-[12px] font-bold text-tap-greenDeep underline underline-offset-2 hover:text-tap-green shrink-0">{showFare ? "Hide fare rules" : "See fare rules"}</button></div>
+                {showFare && <div className="mt-2 rounded-xl border border-line bg-surface-soft p-3 text-[12px] text-ink-muted space-y-1.5 v2-in">
+                  <div className="flex justify-between"><span>Cabin bag (8kg) + checked bag (23kg)</span><span className="font-semibold text-ink">Included</span></div>
+                  <div className="flex justify-between"><span>Seat selection</span><span className="font-semibold text-ink">Included</span></div>
+                  <div className="flex justify-between"><span>Date / time change</span><span className="font-semibold text-ink">Fee + fare difference</span></div>
+                  <div className="flex justify-between"><span>Cancellation refund</span><span className="font-semibold text-ink">50% of fare</span></div>
+                  <div className="flex justify-between"><span>Miles earned</span><span className="font-semibold text-ink">100% (Classic)</span></div>
+                </div>}
               </Sec>
-              <Sec title="Passenger" action="Edit">
+              <Sec title="Passenger" action="Edit" onAction={() => go("passenger")}>
                 <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{(u.first_name || "D")[0]}</span><div><div className="font-bold text-[14px] flex items-center gap-2">{u.full_name || u.first_name} <Pill tone="gold">{u.tier} · {u.member_no}</Pill></div><div className="text-[11px] text-ink-faint">DOB {u.dob || "—"} · Passport ••••{(u.doc_id || "0000").slice(-4)} · Nationality {u.nationality || "PT"}</div><div className="text-[11px] text-tap-greenDeep font-semibold mt-0.5">Frequent flyer benefits applied: priority boarding, lounge</div></div></div>
               </Sec>
-              <Sec title="Baggage" action="+ Add bag">
+              <Sec title="Baggage" action="+ Add bag" onAction={() => go("cart")}>
                 <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Cabin bag · 8kg</div><div className="text-[11px] text-ink-faint">Included in fare</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink rounded px-2 py-0.5">Included</span></div>
                 <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Checked bag · 23kg ×1</div><div className="text-[11px] text-ink-faint">Outbound + return</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{eur2(25)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">Added</span></span></div>
               </Sec>
-              <Sec title="Payment method" action="+ Change">
-                <div className="flex items-center justify-between"><div className="text-[14px] font-semibold flex items-center gap-2">{u.first_name}'s Card <span className="text-[10px] font-bold tracking-wide bg-surface-mute text-ink rounded px-1.5 py-0.5">VISA</span></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5"><Icon name="lock" size={10} /> Encrypted</span></div>
+              <Sec title="Payment method" action="+ Change" onAction={() => go("payment")}>
+                <div className="flex items-center justify-between"><div className="text-[14px] font-semibold flex items-center gap-2">{u.first_name}'s Card <span className="text-[10px] font-bold tracking-wide bg-lime-tint text-tap-greenDeep rounded px-1.5 py-0.5">VISA</span></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5"><Icon name="lock" size={10} /> Encrypted</span></div>
                 <div className="text-[13px] v2-num mt-1 tracking-wide">XXXX XXXX XXXX {u.card_last4 || "4242"}</div>
                 <div className="mt-3 rounded-xl border border-dashed border-line bg-surface-soft p-3 flex items-center gap-3 text-[12px]"><span className="w-8 h-8 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="lock" size={13} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask for a code, push, or biometric.</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink-muted rounded px-2 py-0.5 shrink-0">3-D Secure 2.0</span></div>
               </Sec>
-              <Sec title="Seat selection" action="Change seat">
+              <Sec title="Seat selection" action="Change seat" onAction={() => go("seatchange")}>
                 <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Outbound · {seatNo} (Window, extra legroom)</div><div className="text-[11px] text-ink-faint">{o.flight.flight_no} · {o.flight.aircraft} · Seat {seatNo}</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{eur2(18)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">Added</span></span></div>
                 <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Return · 14C (Aisle, standard)</div><div className="text-[11px] text-ink-faint">{i?.flight?.flight_no || ""}{i ? ` · ${i.flight.aircraft} · Seat 14C` : ""}</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink rounded px-2 py-0.5">Free · {u.tier}</span></div>
               </Sec>
-              <Sec title="Contact details" action="Edit">
+              <Sec title="Contact details" action="Edit" onAction={() => go("passenger")}>
                 <div className="text-[13px]">{(u.email || "d•••@gmail.com").replace(/(.).+(@.+)/, "$1•••••$2")} · {u.phone || "+351 ••• 482"}</div>
                 <div className="text-[11px] text-ink-faint mt-0.5">Boarding pass, receipt and IROPS alerts go here.</div>
               </Sec>

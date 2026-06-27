@@ -198,7 +198,7 @@ export function ManageBooking({ shared, go }) {
             <div className="space-y-2.5">
               <Field label="Booking reference"><Input defaultValue={booking.pnr} /></Field>
               <Field label="Last name"><Input defaultValue={lastName(u)} placeholder="Surname" /></Field>
-              <Btn variant="outline" className="w-full" onClick={() => go("manage")}>Retrieve booking</Btn>
+              <Btn variant="outline" className="w-full" onClick={() => go("retrieve")}>Retrieve booking</Btn>
             </div>
           </Card>
           <Card className="p-4 text-[12px] space-y-2.5">
@@ -212,31 +212,136 @@ export function ManageBooking({ shared, go }) {
   );
 }
 
+/* ═══════════ J1 · RETRIEVE BOOKING ═══════════ */
+export function Retrieve({ shared, go }) {
+  const [mode, setMode] = useState("pnr");          // pnr | eticket | miles (#2)
+  const [pnr, setPnr] = useState("6ZK4PD");
+  const [last, setLast] = useState("Pinto");
+  const [email, setEmail] = useState("");
+  const [found, setFound] = useState(false);        // booking-found panel (#8)
+  const recent = [                                  // recent on this device (#7)
+    { pnr: "6ZK4PD", name: "Silva", route: "Lisbon–Porto", date: "12 Jun" },
+    { pnr: "A23JQM", name: "Costa", route: "Lisbon–Porto", date: "04 Aug" },
+  ];
+  const find = (ref) => { if (ref) setPnr(ref); setFound(true); window.scrollTo({ top: 0 }); };
+  return (
+    <div className="mx-auto max-w-page px-6 py-8">
+      <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: "Retrieve booking" }]} />
+      <h1 className="text-[26px] font-black">Retrieve your booking</h1>
+      {/* supporting description (#1) */}
+      <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Find any booking — direct, agent, or partner. Then check in, add extras, or change seats.</p>
+
+      <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
+        <div>
+          <Card className="p-5">
+            {/* retrieval options (#2) */}
+            <div className="flex flex-wrap gap-2">
+              {[["pnr", "By PNR"], ["eticket", "By eTicket"], ["miles", "Sign in to Miles & Go"]].map(([k, l]) => (
+                <button key={k} onClick={() => setMode(k)} className={cx("rounded-full px-4 py-2 text-[13px] font-bold transition-colors", mode === k ? "bg-tap-green text-white" : "border border-line-strong text-ink hover:border-tap-green")}>{l}</button>
+              ))}
+            </div>
+            {/* styled booking-reference field with spaced characters (#3) */}
+            <label className="block rounded-2xl border border-line bg-surface-soft px-4 py-3 mt-4 cursor-text focus-within:border-tap-green transition-colors">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{mode === "eticket" ? "eTicket number" : "Booking reference / PNR"}</div>
+              <input value={pnr} onChange={e => setPnr(e.target.value.toUpperCase())} className="w-full bg-transparent outline-none text-[18px] font-black text-ink mt-0.5 tracking-[0.35em] uppercase v2-num" />
+            </label>
+            {/* styled last-name field (#4) */}
+            <label className="block rounded-2xl border border-line bg-surface-soft px-4 py-3 mt-3 cursor-text focus-within:border-tap-green transition-colors">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Last name</div>
+              <input value={last} onChange={e => setLast(e.target.value)} placeholder="Surname" className="w-full bg-transparent outline-none text-[16px] font-semibold text-ink mt-0.5" />
+            </label>
+            {/* email (optional) field (#5) */}
+            <label className="block rounded-2xl border border-line bg-surface-soft px-4 py-3 mt-3 cursor-text focus-within:border-tap-green transition-colors">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Email <span className="text-ink-faint font-medium normal-case">(optional)</span></div>
+              <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" className="w-full bg-transparent outline-none text-[16px] font-semibold text-ink mt-0.5" />
+            </label>
+            {/* solid green CTA with arrow (#6) */}
+            <Btn size="lg" className="w-full mt-4" onClick={() => find()}>Retrieve booking <Icon name="arrow" size={15} /></Btn>
+          </Card>
+
+          {/* recent on this device (#7) */}
+          <div className="mt-6">
+            <div className="font-bold text-[15px] mb-2.5">Recent on this device</div>
+            <div className="space-y-2.5">
+              {recent.map(r => (
+                <button key={r.pnr} onClick={() => find(r.pnr)} className="w-full flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 hover:border-tap-green transition-colors text-left">
+                  <span className="text-[11px] font-bold rounded-md bg-surface-dark text-white px-2.5 py-1 v2-num shrink-0">{r.pnr}</span>
+                  <span className="text-[13px] text-ink-muted flex-1 min-w-0 truncate">{r.name} · {r.route} · {r.date}</span>
+                  <span className="text-[13px] font-bold text-tap-greenDeep inline-flex items-center gap-1 shrink-0">Open <Icon name="arrow" size={13} /></span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* booking-found panel (#8) */}
+        <aside className="lg:sticky lg:top-6">
+          {found ? (
+            <Card className="p-5 ring-2 ring-tap-green/40 bg-lime-tint/20 v2-in">
+              <div className="text-[12px] font-bold text-tap-greenDeep flex items-center gap-1.5"><Icon name="check" size={13} /> Booking found</div>
+              <div className="text-[22px] font-black mt-1">PNR {pnr.toUpperCase()}</div>
+              <div className="text-[13px] text-ink-muted mt-1">{last || "Pinto"}, Carlos +1 · Lisbon–Porto</div>
+              <div className="text-[12px] text-ink-faint mt-0.5">Wed 22 Jul · TP 73 · 16:45</div>
+              <div className="mt-3 rounded-lg border border-[#f5d9a8] bg-[#fffaf0] text-[#7a5a10] text-[12px] px-3 py-2 flex items-center gap-1.5"><Icon name="info" size={12} /> Booked via Despegar.com</div>
+              <div className="mt-4">
+                <div className="text-[12px] font-bold mb-1.5">Available online:</div>
+                <ul className="text-[12px] text-ink-muted space-y-1">
+                  <li className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green" /> Check in online</li>
+                  <li className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green" /> Add bag · seat · lounge</li>
+                  <li className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green" /> View receipt</li>
+                  <li className="flex items-center gap-1.5 text-ink-faint"><Icon name="info" size={12} /> Cabin upgrade (agent only)</li>
+                </ul>
+              </div>
+              <Btn size="lg" className="w-full mt-4" onClick={() => go("manage")}>Open My Trip</Btn>
+            </Card>
+          ) : (
+            <Card className="p-6 text-center">
+              <span className="w-10 h-10 rounded-full bg-surface-soft inline-flex items-center justify-center mb-2"><Icon name="search" size={18} className="text-ink-faint" /></span>
+              <div className="text-[13px] text-ink-muted">Enter your booking reference and last name, or pick a recent booking, to find your trip.</div>
+            </Card>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════ A9 · CABIN UPGRADE ═══════════ */
 export function CabinUpgrade({ shared, go }) {
   const { booking, loading, err } = useActiveBooking();
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [sel, setSel] = useState("exec");   // chosen upgrade option (#4)
   if (loading) return <Loading label="Loading upgrade options…" />;
   if (err || !booking) return <Empty go={go} />;
-  // Upgrade price derived from the booking's own fare (≈60%, min €60), with the miles
-  // price kept consistent with the cash price via MILES_RATE — not a fixed magic number.
+  // Upgrade prices derived from the booking's own fare so the demo numbers track the real
+  // booking. Executive ≈60% of fare (min €60); Premium Economy ≈55% of the Executive step.
   const baseFare = booking.flight?.price || 180;
-  const fareDiff = Math.max(60, Math.round(baseFare * 0.6 / 5) * 5);
+  const execDiff = Math.max(60, Math.round(baseFare * 0.6 / 5) * 5);
+  const premDiff = Math.max(40, Math.round(execDiff * 0.55 / 5) * 5);
+  const UPGRADE_BENEFITS = ["Lie-flat seat (Executive)", "Priority boarding", "Lounge access included", "2 bags 32kg free", "Premium meal & wine"];
+  const REISSUE = ["New boarding pass pushed to Apple Wallet & Google Pay", "Confirmation email & push notification sent", "Old BP invalidated · gate/seat updates continue on new BP"];
+  const OPTS = {
+    prem: { name: "Premium Economy", diff: premDiff, seats: 8, rec: false },
+    exec: { name: "Executive", diff: execDiff, seats: 3, rec: true },
+  };
+  const chosen = OPTS[sel];
+  const fareDiff = chosen.diff;                 // selected upgrade cost
+  const newTotal = baseFare + fareDiff;
   const milesPrice = Math.round(fareDiff / MILES_RATE / 500) * 500;
   const confirm = async () => {
     setBusy(true);
-    // The "cabin-executive" code isn't seeded in the ancillaries table (demo): the
-    // endpoint returns {ok:false}; we still advance to success so the journey is demoable.
-    await api.post("/bookings/ancillary", { code: "cabin-executive" }).catch(() => ({ ok: false }));
+    // The cabin code isn't seeded in the ancillaries table (demo): the endpoint returns
+    // {ok:false}; we still advance to success so the journey is demoable.
+    await api.post("/bookings/ancillary", { code: "cabin-" + sel }).catch(() => ({ ok: false }));
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
   if (done) return (
     <div className="mx-auto max-w-content px-6 py-8">
-      <SuccessHead title="Upgraded to Executive" sub={`PNR ${booking.pnr} · confirmation on its way`} />
+      <SuccessHead title={`Upgraded to ${chosen.name}`} sub={`PNR ${booking.pnr} · confirmation on its way`} />
       <Card className="p-5 mt-6 v2-in">
         <BookingBand booking={booking} airports={shared.airports} />
-        <div className="flex flex-wrap gap-2 mt-3"><Pill tone="gold">Executive cabin</Pill><Pill tone="lime">Lie-flat seat</Pill><Pill tone="slate">Lounge access</Pill><Pill tone="slate">2× checked bags</Pill></div>
+        <div className="flex flex-wrap gap-2 mt-3"><Pill tone="gold">{chosen.name} cabin</Pill><Pill tone="lime">Lie-flat seat</Pill><Pill tone="slate">Lounge access</Pill><Pill tone="slate">2× checked bags</Pill></div>
         <Divider className="my-4" />
         <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Upgrade charged</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(fareDiff)}</span></div>
       </Card>
@@ -244,22 +349,60 @@ export function CabinUpgrade({ shared, go }) {
     </div>
   );
   return (
-    <div className="mx-auto max-w-content px-6 py-8">
+    <div className="mx-auto max-w-page px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr} — ${cityOf(shared.airports, booking.flight?.origin)}–${cityOf(shared.airports, booking.flight?.dest)} · ${fmtDate(booking.flight_date)}`, page: "manage" }, { label: "Cabin upgrade" }]} />
-      <h1 className="text-[26px] font-black">Upgrade your cabin</h1>
-      <p className="text-[13px] text-ink-muted mt-1">You're checked in. Pick fixed price or place a bid. New boarding pass auto-reissued.</p>
-      <div className="rounded-xl bg-surface-soft border border-line px-4 py-2.5 mt-5 text-[13px] flex items-center gap-2 flex-wrap">
-        <span className="text-ink-muted">Current:</span><span className="font-semibold">Economy · Seat {booking.seat || "24F"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
-      </div>
-      <div className="grid gap-4 mt-4">
-        <Card className="p-5 ring-2 ring-tap-green/30 v2-in"><div className="flex items-center justify-between"><Eyebrow>Upgrade to</Eyebrow><Pill tone="gold">Executive</Pill></div><div className="text-[18px] font-bold mt-1">Executive</div><ul className="text-[12px] text-ink-muted mt-3 space-y-1.5"><li>Lie-flat seat + lounge</li><li>2 checked bags · fast track</li><li>Earn 125% miles</li></ul></Card>
-      </div>
-      <Card className="p-5 mt-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div><div className="text-[12px] text-ink-faint">Upgrade from</div><div className="text-[22px] font-black v2-num">{EUR(fareDiff)} <span className="text-[12px] font-medium text-ink-muted">or {miles(milesPrice)} miles</span></div></div>
-          <Btn size="lg" disabled={busy} onClick={confirm}>{busy ? "Confirming…" : `Upgrade for ${EUR(fareDiff)}`}</Btn>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-[26px] font-black">Upgrade your cabin</h1>
+          <p className="text-[13px] text-ink-muted mt-1">You're checked in. Pick a fixed price — your new boarding pass is auto-reissued.</p>
         </div>
-      </Card>
+        <Pill tone="green"><Icon name="check" size={11} /> Checked in</Pill>
+      </div>
+      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+        <div>
+          <div className="rounded-xl bg-surface-soft border border-line px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
+            <span className="text-ink-muted">Current:</span><span className="font-semibold">Economy · Seat {booking.seat || "24F"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 mt-4">
+            {["prem", "exec"].map(k => { const o = OPTS[k]; const on = sel === k; return (
+              <Card key={k} onClick={() => setSel(k)} className={cx("p-5 cursor-pointer transition-all v2-in", on ? "ring-2 ring-tap-green bg-lime-tint/25" : "hover:border-line-strong")}>
+                <div className="flex items-start justify-between gap-2"><div className="text-[16px] font-black">{o.name}</div>{o.rec && <Pill tone="gold">Recommended</Pill>}</div>
+                <div className="mt-1.5"><span className="text-[20px] font-black v2-num">{k === "exec" ? "+" : ""}{EUR(o.diff)}</span><span className="text-[12px] text-ink-faint"> {k === "exec" ? "to upgrade" : "currently"}</span></div>
+                <div className="text-[11px] font-semibold text-tap-greenDeep mt-2">Fixed price · instant</div>
+                <div className="text-[11px] text-ink-muted mt-0.5">{o.seats > 5 ? `Available · ${o.seats} seats` : `${o.seats} seats left`}</div>
+                <ul className="text-[12px] text-ink-muted mt-3 space-y-1.5">{UPGRADE_BENEFITS.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
+                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" disabled={busy} onClick={e => { e.stopPropagation(); setSel(k); confirm(); }}>Upgrade for {EUR(baseFare + o.diff)}</Btn>
+              </Card>
+            ); })}
+          </div>
+          <div className="flex flex-wrap gap-2 mt-4">
+            {[`Save ${EUR(120)} vs. buying at gate`, `Lounge value alone ≈ ${EUR(38)}`, `+${miles(1240)} bonus miles`].map(b => <span key={b} className="text-[11px] font-semibold rounded-full border border-tap-green/40 bg-lime-tint/50 text-tap-greenDeep px-3 py-1.5">{b}</span>)}
+          </div>
+          <Card className="p-5 mt-4">
+            <div className="font-bold text-[14px] mb-2.5">After upgrade — auto-reissue</div>
+            <ul className="text-[12px] text-ink-muted space-y-1.5">{REISSUE.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
+          </Card>
+        </div>
+
+        <aside className="lg:sticky lg:top-6 space-y-3">
+          <Card className="p-5">
+            <div className="font-bold text-[16px] mb-3">Upgrade summary</div>
+            <div className="space-y-2 text-[13px]">
+              <div className="flex justify-between"><span className="text-ink-muted">Current Economy fare</span><span className="v2-num">{EUR(baseFare)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Cabin upgrade · {chosen.name}</span><span className="v2-num">+{EUR(fareDiff)}</span></div>
+            </div>
+            <Divider className="my-3" />
+            <div className="flex items-end justify-between"><span className="font-bold">New total</span><span className="text-[22px] font-black v2-num">{EUR(newTotal)}</span></div>
+            <div className="text-[11px] text-ink-faint mt-1">or {miles(milesPrice)} miles</div>
+            <Btn size="lg" className="w-full mt-3" disabled={busy} onClick={confirm}>{busy ? "Confirming…" : `Upgrade for ${EUR(newTotal)} →`}</Btn>
+            <Btn variant="outline" className="w-full mt-2" onClick={() => go("manage")}>No thanks, keep Economy</Btn>
+          </Card>
+          <div className="rounded-xl border border-[#f5d9a8] bg-[#fffaf0] px-4 py-3 text-[12px]">
+            <div className="font-bold text-[#b45309]">{chosen.seats} {chosen.name} seats remaining</div>
+            <div className="text-ink-muted">Window closes 4 h before departure</div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

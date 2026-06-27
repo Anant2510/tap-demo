@@ -8,7 +8,7 @@ import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
 import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
 import { AIConcierge } from "./ai.jsx";
-import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddExtras, Refund } from "./mmb.jsx";
+import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddExtras, Refund, Retrieve } from "./mmb.jsx";
 import { DemoConsole } from "./demo.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
@@ -510,6 +510,7 @@ export const ROUTES = {
   checkin: { title: "Online check-in", comp: CheckInIndirect },
   addextras: { title: "Add extras", comp: AddExtras },
   refund: { title: "Cancel & refund", comp: Refund },
+  retrieve: { title: "Retrieve booking", comp: Retrieve },
   express: { title: "Express checkout", comp: ExpressCheckout },
   hold: { title: "Hold My Fare", phase: 2, plan: "Free 48h fare hold for tier members (A8).", reuses: "/api/fare-lock, /api/hold" },
   disruption: { title: "Disruption / IROPS", comp: Rebook },
