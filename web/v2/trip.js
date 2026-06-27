@@ -14,19 +14,22 @@ export const trip = {
 // the right-rail summary and the basket window in lock-step.
 const _listeners = new Set();
 export function onTripChange(fn) { _listeners.add(fn); return () => _listeners.delete(fn); }
-function notify() { _listeners.forEach(fn => { try { fn(); } catch { } }); }
+function notify() { _listeners.forEach(fn => { try { fn(); } catch { } }); saveTrip(); }
 export function pingBasket() { notify(); }
 
 export function setLeg(leg, choice) { trip[leg] = choice; notify(); }
 // Clear the basket back to its initial state (called on login / persona switch / logout,
 // so a new context never inherits a previous session's in-progress cart).
 export function resetTrip() {
+  _resetting = true;
   Object.assign(trip, {
     type: "round", pax: 1, cabin: "Economy",
     origin: null, dest: null, date: null, ret: null,
     outbound: null, inbound: null, extras: [],
     passengers: [], contact: null, payment: null, pnr: null,
   });
+  try { localStorage.removeItem(TKEY); } catch {}
+  _resetting = false;
   notify();
 }
 export function hasExtra(code) { return trip.extras.some(x => x.code === code); }
@@ -47,6 +50,45 @@ export function tripSnapshot() {
     extras: trip.extras.map(e => ({ code: e.code, name: e.name, price: e.price, qty: e.qty || 1, cat: e.cat, source: e.source || "user", ...(e.rate != null ? { rate: e.rate } : {}), ...(e.nights != null ? { nights: e.nights } : {}) })),
   };
 }
+// ── Local session persistence (Important #4) ────────────────────────────────
+// Keep the in-progress trip across a hard refresh: the in-memory `trip` is the
+// source of truth during a session, but a reload wipes module state, so we mirror
+// it to localStorage and rehydrate on boot. Cleared on login/logout/persona switch
+// (resetTrip) so a new member context never inherits a previous session's cart.
+const TKEY = "flytap_trip";
+let _resetting = false;
+export function saveTrip() {
+  if (_resetting) return;
+  try {
+    const snap = {
+      type: trip.type, pax: trip.pax, cabin: trip.cabin,
+      origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret,
+      outbound: trip.outbound, inbound: trip.inbound,
+      extras: trip.extras, passengers: trip.passengers, contact: trip.contact,
+    };
+    if (!snap.outbound && !snap.extras.length && !snap.passengers.length) localStorage.removeItem(TKEY);
+    else localStorage.setItem(TKEY, JSON.stringify(snap));
+  } catch {}
+}
+export function loadTrip() {
+  try {
+    const raw = localStorage.getItem(TKEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw) || {};
+    if (!s.outbound && !(s.extras || []).length && !(s.passengers || []).length) return false;
+    Object.assign(trip, {
+      type: s.type || "round", pax: s.pax || 1, cabin: s.cabin || "Economy",
+      origin: s.origin ?? null, dest: s.dest ?? null, date: s.date ?? null, ret: s.ret ?? null,
+      outbound: s.outbound || null, inbound: s.inbound || null,
+      extras: Array.isArray(s.extras) ? s.extras : [],
+      passengers: Array.isArray(s.passengers) ? s.passengers : [],
+      contact: s.contact || null,
+    });
+    notify();
+    return true;
+  } catch { return false; }
+}
+
 // Rebuild an abandoned basket from the server snapshot so a returning member resumes
 // exactly where they left off (flight + add-ons), with the count showing in the nav.
 export function restoreFromSaved(saved) {

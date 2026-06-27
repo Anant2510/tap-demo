@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./lib.js";
-import { resetTrip, restoreFromSaved } from "./trip.js";
+import { resetTrip, restoreFromSaved, loadTrip, saveTrip } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
 import { LoginModal } from "./auth.jsx";
@@ -32,7 +32,7 @@ function App() {
     window.location.hash = `#/${r}${qs}`;
   }, []);
 
-  const loadShared = useCallback(async () => {
+  const loadShared = useCallback(async (skipBasketRestore = false) => {
     setShared(s => ({ ...s, loading: true }));
     try {
       const [profile, destinations, airports, journey, suggested, basket] = await Promise.all([
@@ -44,12 +44,40 @@ function App() {
         api.get("/basket").catch(() => null),
       ]);
       // Resume an abandoned, still-open basket so a returning member sees their saved
-      // add-ons (and the nav count) without re-doing anything. 'cleared' is left empty.
-      if (basket?.status === "open") restoreFromSaved(basket);
+      // add-ons (and the nav count) without re-doing anything. Skipped on a refresh that
+      // already has a richer in-progress trip in localStorage (#4) — that one wins.
+      if (!skipBasketRestore && basket?.status === "open") restoreFromSaved(basket);
       setShared({ profile, destinations, airports, journey, suggested, basket, loading: false });
     } catch { setShared(s => ({ ...s, loading: false })); }
   }, []);
-  useEffect(() => { loadShared(); }, [loadShared]);
+
+  // Boot (#4 session persistence): re-apply the saved persona to the server so the
+  // member's identity survives a hard refresh, hydrate shared data, then restore any
+  // in-progress trip (cart/flights/passengers) from localStorage. Local state takes
+  // precedence over the server basket so nothing the user entered is lost on refresh.
+  useEffect(() => {
+    (async () => {
+      let hasLocal = false;
+      try {
+        hasLocal = !!localStorage.getItem("flytap_trip");
+        const persona = localStorage.getItem("flytap_persona");
+        if (persona && localStorage.getItem("flytap_auth") === "1") { try { await api.post("/persona", { persona }); } catch {} }
+      } catch {}
+      await loadShared(hasLocal);
+      loadTrip();
+    })();
+  }, [loadShared]);
+
+  // Persist the in-progress trip on tab close/refresh so a reload restores it (#4).
+  useEffect(() => {
+    const on = () => saveTrip();
+    window.addEventListener("beforeunload", on);
+    return () => window.removeEventListener("beforeunload", on);
+  }, []);
+
+  // Always land at the top of a new page, and after login the personalized home
+  // commits before this runs, so the user starts at the hero — not mid-page (#5).
+  useEffect(() => { requestAnimationFrame(() => window.scrollTo({ top: 0 })); }, [route, loggedIn]);
 
   // Log in as the persona matching the entered email (Daniel/Sofia/Lars). Switching the
   // persona re-seeds the live record, so we reload the shared profile/destinations/journey

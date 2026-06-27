@@ -270,7 +270,7 @@ export function Results({ shared, params, go }) {
               const key = k === "Eco-friendly" ? "Eco" : k === "All flights" ? "All" : k;
               const on = sort === key;
               const label = k === "Best" && leg === "inbound" ? "Best pairing" : k;
-              return <button key={k} onClick={() => setSort(key)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-bold transition-colors", on ? "bg-lime-tint text-tap-greenDeep" : "text-ink-muted hover:bg-surface-mute")}>
+              return <button key={k} onClick={() => setSort(key)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-bold transition-colors", on ? "bg-tap-green text-white shadow-sm" : "text-ink-muted hover:bg-surface-mute")}>
                 {label}
               </button>;
             })}

@@ -129,9 +129,9 @@ export function ManageBooking({ shared, go }) {
   const earn = Math.round(total * 2.77);
   return (
     <div className="mx-auto max-w-page px-6 py-8">
-      <Crumb go={go} trail={[{ label: "My Trip", page: "home" }, { label: "Basket" }]} />
-      <h1 className="text-[30px] font-black">Your basket</h1>
-      <div className="text-[13px] text-ink-muted mt-1">{list.length} trip{list.length !== 1 ? "s" : ""} bundled · you save {EUR(savings)} with the multi-trip discount</div>
+      <Crumb go={go} trail={[{ label: "Home", page: "home" }, { label: "My trips" }]} />
+      <h1 className="text-[30px] font-black">My trips</h1>
+      <div className="text-[13px] text-ink-muted mt-1">{list.length} upcoming flight{list.length !== 1 ? "s" : ""} · manage seats, check-in, extras and more</div>
 
       <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
         <div className="space-y-4">
@@ -151,8 +151,8 @@ export function ManageBooking({ shared, go }) {
                     <div className="text-[12px] text-ink-muted mt-0.5">1 adult · {f.flight_no || b.flight_no} · Class {b.cabin || "Economy"}</div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-[18px] font-black v2-num">{eur2(priceOf(b))}</div>
-                    <div className="text-[11px] text-ink-faint">incl. taxes</div>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded-full px-2.5 py-1"><Icon name="check" size={10} /> Confirmed</span>
+                    <div className="text-[11px] text-ink-faint mt-1">{(b.days_to_go ?? 0) > 0 ? `In ${b.days_to_go} day${b.days_to_go !== 1 ? "s" : ""}` : "Today"} · {b.pnr || b.flight_no}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-3 flex-wrap text-[12px] text-ink-muted">
@@ -162,40 +162,36 @@ export function ManageBooking({ shared, go }) {
                   {!(b.items || []).length && <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="bag" size={11} /> Carry-on</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
+                  <button onClick={() => go("addextras")} className="inline-flex items-center gap-1.5 rounded-full bg-tap-green text-white px-3.5 py-1.5 text-[12px] font-bold hover:bg-tap-greenDeep transition-colors"><Icon name="refresh" size={12} /> Update flight</button>
                   {ACTIONS.map(([lbl, page, ic]) => (
                     <button key={lbl} onClick={() => go(page)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name={ic} size={12} /> {lbl}</button>
                   ))}
-                  <button onClick={() => go("refund")} className="ml-auto rounded-full px-3 py-1.5 text-[12px] font-bold text-tap-red hover:underline">Remove</button>
                 </div>
               </Card>
             );
           })}
           <button onClick={() => go("home")} className="w-full rounded-2xl border border-dashed border-line-strong py-3.5 px-5 text-[13px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors flex items-center justify-between">
-            <span>+ Add another trip to basket</span>
-            <span className="text-[11px] text-ink-faint">Save up to {EUR(15)} per extra trip</span>
+            <span>+ Book another trip</span>
+            <span className="text-[11px] text-ink-faint">Search flights & add to your trips</span>
           </button>
         </div>
 
         <aside className="space-y-4 lg:sticky lg:top-6">
           <Card className="p-5">
-            <div className="font-bold text-[17px] mb-2">Basket summary</div>
-            <div className="text-[12px] text-ink-muted pb-3 border-b border-line">{cityOf(airports, list[0].flight?.origin)}–{cityOf(airports, list[0].flight?.dest)} · {list.length} trip{list.length !== 1 ? "s" : ""} · {list.length} item{list.length !== 1 ? "s" : ""} in cart</div>
+            <div className="font-bold text-[17px] mb-1">Trip overview</div>
+            <div className="text-[12px] text-ink-muted pb-3 border-b border-line">{list.length} upcoming flight{list.length !== 1 ? "s" : ""} on this profile</div>
             <div className="space-y-2 text-[13px] mt-3">
               {list.map((b, i) => (
-                <div key={i} className="flex justify-between gap-3"><span className="text-ink-muted">Trip {i + 1} · {cityOf(airports, b.flight?.origin)}–{cityOf(airports, b.flight?.dest)}</span><span className="font-semibold v2-num">{eur2(priceOf(b))}</span></div>
+                <div key={i} className="flex justify-between gap-3"><span className="text-ink-muted">{cityOf(airports, b.flight?.origin)}–{cityOf(airports, b.flight?.dest)}</span><span className="font-semibold v2-num text-ink-faint">{fmtDate(b.flight_date)}</span></div>
               ))}
             </div>
             <Divider className="my-3" />
-            <div className="space-y-2 text-[13px]">
-              <div className="flex justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num">{eur2(taxes)}</span></div>
-              <div className="flex justify-between"><span className="text-tap-greenDeep">Bundle savings</span><span className="font-semibold v2-num text-tap-greenDeep">−{eur2(savings)}</span></div>
+            <div className="grid grid-cols-2 gap-2">
+              <Btn variant="outline" size="sm" onClick={() => go("checkin")}><Icon name="doc" size={13} /> Check in</Btn>
+              <Btn variant="outline" size="sm" onClick={() => go("addextras")}><Icon name="bag" size={13} /> Add extras</Btn>
             </div>
-            <Divider className="my-3" />
-            <div className="flex items-end justify-between"><div><div className="font-bold">Total to pay</div><div className="text-[10px] text-ink-faint">Includes taxes & fees</div></div><div className="text-[24px] font-black v2-num">{eur2(total)}</div></div>
-            <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span>You'll earn</span><span className="v2-num">{miles(earn)} miles</span></div>
-            <Btn size="lg" className="w-full mt-3" onClick={() => go("express")}>Checkout →</Btn>
+            <Btn size="lg" className="w-full mt-2" onClick={() => go("home")}>Book another trip →</Btn>
           </Card>
-          <div className="rounded-xl border border-tap-green/30 bg-lime-tint/40 px-4 py-3 text-[12px]"><span className="font-bold">You save {EUR(savings)} today</span><div className="text-ink-muted">Add a 4th trip and unlock €15 more.</div></div>
           <Card className="p-5">
             <div className="font-bold text-[15px]">Retrieve your booking</div>
             <div className="text-[11px] text-ink-muted mt-0.5 mb-3">Find any booking — direct, agent, or partner. Then check in, add extras, or change seats.</div>
@@ -206,8 +202,8 @@ export function ManageBooking({ shared, go }) {
             </div>
           </Card>
           <Card className="p-4 text-[12px] space-y-2.5">
-            <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="clock" size={15} /></span><div><div className="font-semibold">Price locked for 15 min</div><div className="text-ink-faint">Complete checkout to keep this rate.</div></div></div>
             <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="refresh" size={15} /></span><div><div className="font-semibold">24h free cancellation</div><div className="text-ink-faint">On flights & most extras.</div></div></div>
+            <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="doc" size={15} /></span><div><div className="font-semibold">Boarding passes</div><div className="text-ink-faint">Available 24h before departure.</div></div></div>
             <div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="heart" size={15} /></span><div><div className="font-semibold">24/7 {u.tier || "Gold"} care</div><div className="text-ink-faint">WhatsApp · phone · live chat.</div></div></div>
           </Card>
         </aside>

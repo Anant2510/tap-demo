@@ -10,7 +10,6 @@ import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, W
 const EARN = (t) => Math.round(t * 2.88);
 const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const CAT_ORDER = ["Hotels", "Cars & transfers", "Insurance", "Lounge & services", "Onboard", "Experiences", "Seats & baggage", "Carbon offset", "Extras"];
-const CAT_TAG = { Hotels: "8 nights", "Cars & transfers": "", Insurance: "× 2", "Lounge & services": "", Experiences: "" };
 const CAT_ICON = { Hotels: "home", "Cars & transfers": "arrow", Insurance: "shield", "Lounge & services": "star", Onboard: "bag", Experiences: "star", "Seats & baggage": "seat", "Carbon offset": "leaf", Extras: "cart" };
 const CAT_SUB = (pax = 1, nights = 8) => ({ Hotels: `${nights} night${nights !== 1 ? "s" : ""} · ${pax} adult${pax > 1 ? "s" : ""}`, "Cars & transfers": "Private sedan · 1-way", Insurance: `${pax} traveler${pax > 1 ? "s" : ""}`, "Lounge & services": `Pre-flight · ${pax} adult${pax > 1 ? "s" : ""}`, Onboard: "Both flights", Experiences: `${pax} traveler${pax > 1 ? "s" : ""}`, "Seats & baggage": "Both flights", "Carbon offset": "This trip" });
 const CAT_QTY = { Insurance: true, "Lounge & services": true, Experiences: true };
@@ -369,13 +368,13 @@ function CartView({ go, mode = "cart", shared }) {
       <div className="text-right"><div className="text-[13px] font-bold v2-num">{locked ? "Included" : eur2(price)}</div>{!locked && <div className="text-[10px] text-ink-faint">per bag · per flight</div>}</div>
     </label>
   ); };
-  const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec }) => { const on = hasExtra(code); return (
+  const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec }) => { const on = hasExtra(code); const nn = tripDays; const tot = pn > 0 ? pn * nn : total; return (
     <div className={cx("flex gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
       <Img seed={"hotel-" + code} src={imageFor("hotel-" + code)} alt={name} className="w-28 h-20 rounded-lg shrink-0 object-cover" />
       <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">{tags.map(t => <span key={t} className="text-[10px] uppercase tracking-wide text-ink-faint">{t}</span>)}</div>
         <div className="text-[11px] text-ink-muted mt-1">★ {rating} Excellent · {reviews} reviews</div></div>
-      <div className="text-right shrink-0"><div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div><div className="text-[11px] text-ink-faint v2-num">{eur2(total)} total for {pn > 0 ? Math.round(total / pn) : 8} nights</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, total, "Hotels", { rate: pn, nights: pn > 0 ? Math.round(total / pn) : 8 })}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
+      <div className="text-right shrink-0"><div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div><div className="text-[11px] text-ink-faint v2-num">{eur2(tot)} total for {nn} night{nn !== 1 ? "s" : ""}</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, tot, "Hotels", { rate: pn, nights: nn })}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
     </div>
   ); };
   const Row = ({ code, name, sub, rate, unit, cat, tag }) => {
@@ -746,6 +745,17 @@ const PaxSectionTitle = ({ title, sub, info, className }) => (
   </div>
 );
 
+// Mix-method payment row. Defined at module scope (NOT inside Payment's render) so the
+// slider input it wraps keeps a stable identity across re-renders — re-creating this
+// component on every keystroke remounted the <input type=range> and broke drag (#11).
+const MixComp = ({ on, title, sub, right, onToggle, onEdit, children }) => (
+  <div className={cx("rounded-xl border p-3.5", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
+    <div className="flex items-center gap-3"><button onClick={onToggle} className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[11px]", on ? "bg-tap-green" : "bg-surface-mute text-ink-faint")}>{on ? "✓" : ""}</button><div className="flex-1"><div className="text-[13px] font-bold">{title}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>{right}<button onClick={onEdit || onToggle} className="text-[12px] font-bold text-tap-greenDeep ml-1 shrink-0 hover:underline">Edit</button></div>
+    {children}
+  </div>
+);
+
+
 function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
   const [p, setP] = useState(lead && prefill ? prefill : {});
   const [saveDoc, setSaveDoc] = useState(true);
@@ -905,6 +915,7 @@ export function Payment({ shared, go }) {
   const [seat, setSeat] = useState(null);                 // recommended seat from history (DB)
   const [splitTab, setSplitTab] = useState("Split Equally");
   const [mix, setMix] = useState({ card: null, miles: 0, voucher: false, cashback: 0 }); // Payment Composer amounts
+  const [editMiles, setEditMiles] = useState(false); // #7: Edit reveals an exact-amount field
   useEffect(() => { api.get("/seat-recommendation").then(setSeat).catch(() => {}); }, []);
   const cashbackBal = 38;
   let voucher_amt = 0, miles_used = 0, miles_amt = 0, cashback_amt = 0;
@@ -994,19 +1005,15 @@ export function Payment({ shared, go }) {
               {method === "Miles & Go" && <div className="text-[13px]"><div className="font-bold text-[15px] mb-2 flex items-center gap-2"><Icon name="spark" size={14} className="text-tap-green" /> Pay with Miles &amp; Go</div><div className="rounded-xl border border-tap-green bg-lime-tint/40 p-4"><div className="flex items-center justify-between"><span>Balance</span><span className="font-bold v2-num">{miles(u.miles)} miles</span></div><div className="flex items-center justify-between mt-1.5"><span>Using for this trip</span><span className="font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span></div>{voucher_amt > 0 && <div className="flex items-center justify-between mt-1.5"><span>Voucher applied</span><span className="font-bold v2-num text-tap-greenDeep">−{EUR(voucher_amt)}</span></div>}<Divider className="my-2" /><div className="flex items-center justify-between font-bold"><span>Remaining on saved card</span><span className="v2-num">{EUR(card_amt)}</span></div></div></div>}
               {method === "Mix Method" && (() => {
                 const milesMax = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE));
-                const Comp = ({ on, title, sub, right, onToggle, onEdit, children }) => (
-                  <div className={cx("rounded-xl border p-3.5", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-                    <div className="flex items-center gap-3"><button onClick={onToggle} className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[11px]", on ? "bg-tap-green" : "bg-surface-mute text-ink-faint")}>{on ? "✓" : ""}</button><div className="flex-1"><div className="text-[13px] font-bold">{title}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>{right}<button onClick={onEdit || onToggle} className="text-[12px] font-bold text-tap-greenDeep ml-1 shrink-0 hover:underline">Edit</button></div>
-                    {children}
-                  </div>
-                );
+                const clampMiles = v => Math.max(0, Math.min(milesMax, Math.round((+v || 0) / 100) * 100));
                 return <div className="space-y-3"><div className="font-bold text-[15px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Payment Composer</div><p className="text-[12px] text-ink-muted">Mix card · miles · voucher · cashback. Live total updates as you adjust.</p>
-                  <Comp on={card_amt > 0} title={`Card · Visa •••• ${u.card_last4 || "4242"}`} sub="Available: unlimited" right={<span className="text-[13px] font-bold v2-num">{EUR(card_amt)}</span>} onToggle={() => { }} onEdit={() => setMethod("Card")} />
-                  <Comp on={mix.miles > 0} title="TAP miles" sub={`Balance ${miles(u.miles)} · 1mi=${EUR(MILES_RATE)}`} onToggle={() => setMix(m => ({ ...m, miles: m.miles > 0 ? 0 : milesMax }))} right={<span className="text-[13px] font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span>}>
-                    <div className="px-1 mt-3"><input type="range" min="0" max={milesMax} step="500" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: +e.target.value }))} className="w-full accent-[#46a41a]" /></div>
-                  </Comp>
-                  <Comp on={mix.voucher && voucher > 0} title={`Voucher${voucher ? " TAP-" + (shared.profile?.vouchers?.[0]?.code || "XYZ") : ""}`} sub={voucher ? `Eligible: ${EUR(voucher)}` : "No active voucher"} onToggle={() => voucher && setMix(m => ({ ...m, voucher: !m.voucher }))} right={<span className="text-[13px] font-bold v2-num">{EUR(voucher_amt)}</span>} />
-                  <Comp on={cashback_amt > 0} title="Cashback wallet" sub={`Balance: ${EUR(cashbackBal)}`} onToggle={() => setMix(m => ({ ...m, cashback: m.cashback > 0 ? 0 : cashbackBal }))} right={<span className="text-[13px] font-bold v2-num">{EUR(cashback_amt)}</span>} />
+                  <MixComp on={card_amt > 0} title={`Card · Visa •••• ${u.card_last4 || "4242"}`} sub="Available: unlimited" right={<span className="text-[13px] font-bold v2-num">{EUR(card_amt)}</span>} onToggle={() => { }} onEdit={() => setMethod("Card")} />
+                  <MixComp on={mix.miles > 0} title="TAP miles" sub={`Balance ${miles(u.miles)} · 1mi=${EUR(MILES_RATE)}`} onToggle={() => setMix(m => ({ ...m, miles: m.miles > 0 ? 0 : milesMax }))} onEdit={() => setEditMiles(v => !v)} right={<span className="text-[13px] font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span>}>
+                    <div className="px-1 mt-3"><input type="range" min="0" max={milesMax} step="100" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: +e.target.value }))} className="w-full accent-[#46a41a]" /></div>
+                    {editMiles && <div className="px-1 mt-2.5 flex items-center gap-2 text-[12px]"><span className="text-ink-muted">Use exactly</span><input type="number" min="0" max={milesMax} step="100" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: clampMiles(e.target.value) }))} className="w-28 rounded-lg border border-line-strong px-2 py-1 text-[13px] font-bold v2-num" /><span className="text-ink-faint">miles = {EUR(miles_amt)}</span><button onClick={() => setMix(m => ({ ...m, miles: milesMax }))} className="ml-auto text-[11px] font-bold text-tap-greenDeep hover:underline">Max</button></div>}
+                  </MixComp>
+                  <MixComp on={mix.voucher && voucher > 0} title={`Voucher${voucher ? " TAP-" + (shared.profile?.vouchers?.[0]?.code || "XYZ") : ""}`} sub={voucher ? `Eligible: ${EUR(voucher)}` : "No active voucher"} onToggle={() => voucher && setMix(m => ({ ...m, voucher: !m.voucher }))} right={<span className="text-[13px] font-bold v2-num">{EUR(voucher_amt)}</span>} />
+                  <MixComp on={cashback_amt > 0} title="Cashback wallet" sub={`Balance: ${EUR(cashbackBal)}`} onToggle={() => setMix(m => ({ ...m, cashback: m.cashback > 0 ? 0 : cashbackBal }))} right={<span className="text-[13px] font-bold v2-num">{EUR(cashback_amt)}</span>} />
                   <p className="text-[11px] text-ink-faint">Your live payment breakdown is shown in My trip basket on the right.</p>
                 </div>;
               })()}
