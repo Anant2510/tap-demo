@@ -1,5 +1,5 @@
 "use strict";
-/* ── Adobe RT-CDP — real-time EVENT streaming (DCS inlet) ───────────────────────
+/* ── Adobe RT-CDP — real-time EVENT streaming (DCS inlet) ──────────────────────
    Streams demo behaviour (search, booking, check-in) into the TAP Traveller Event
    dataset via the Data Collection (DCS) streaming inlet, so the unified profile
    keeps learning and segments re-qualify from activity.
@@ -67,9 +67,24 @@ async function streamEvent(stage, identity, step = {}) {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const text = await r.text().catch(() => "");
     entry.ok = r.ok; entry.status = r.status;
-    if (r.ok) _state.sent++; else { _state.failed++; entry.error = text.slice(0, 200); }
+    if (r.ok) {
+      _state.sent++;
+    } else {
+      _state.failed++;
+      // FULL error capture (was sliced to 200, which chopped off Adobe's report{}).
+      // Keep the whole response body, the parsed validation report, and the exact
+      // payload we sent — so /api/admin/cdp/events shows which field the schema rejected.
+      entry.error = String(text).slice(0, 6000);
+      try {
+        const j = JSON.parse(text);
+        if (j && j.title)  entry.title  = j.title;
+        if (j && j.detail) entry.detail = j.detail;
+        if (j && j.report) entry.report = j.report;   // <-- names the offending field(s)
+      } catch { /* non-JSON error body kept as entry.error */ }
+      entry.payload = payload;                          // <-- the rejected XDM, for comparison
+    }
     _state.recent.unshift(entry); _state.recent = _state.recent.slice(0, 20);
-    return { ok: r.ok, status: r.status, body: text.slice(0, 300) };
+    return { ok: r.ok, status: r.status, body: String(text).slice(0, 1000) };
   } catch (e) {
     entry.ok = false; entry.error = String((e && e.message) || e);
     _state.failed++; _state.recent.unshift(entry); _state.recent = _state.recent.slice(0, 20);
