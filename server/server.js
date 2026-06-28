@@ -539,15 +539,15 @@ const _safeJSON = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { retu
 app.get("/api/basket", (req, res) => {
   // Latest basket that's either still in progress ('open') or explicitly emptied ('cleared').
   // The web app uses the status to decide: resume an abandoned basket vs. respect a clear vs. seed.
-  const b = db.prepare("SELECT * FROM baskets WHERE user_id=1 AND status IN ('open','cleared') ORDER BY id DESC LIMIT 1").get();
+  const b = db.prepare("SELECT * FROM baskets WHERE user_id=? AND status IN ('open','cleared') ORDER BY id DESC LIMIT 1").get(req.uid);
   if (!b) return res.json(null);
   res.json({ ...b, items: _safeJSON(b.items_json, []), snapshot: _safeJSON(b.snapshot_json, null) });
 });
 app.post("/api/basket", (req, res) => {
   const { flight_no, items, snapshot } = req.body;
-  db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
-  const r = db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,snapshot_json,updated_at) VALUES (1,?,?,?,?)")
-    .run(flight_no, JSON.stringify(items || []), snapshot ? JSON.stringify(snapshot) : null, now());
+  db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=? AND status='open'").run(req.uid);
+  const r = db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,snapshot_json,updated_at) VALUES (?,?,?,?,?)")
+    .run(req.uid, flight_no, JSON.stringify(items || []), snapshot ? JSON.stringify(snapshot) : null, now());
   log("basket_saved", { flight_no, items });
   res.json({ id: Number(r.lastInsertRowid), ok: true });
 });
@@ -555,9 +555,9 @@ app.post("/api/basket", (req, res) => {
 // member isn't re-seeded a recommended basket on their next visit — only an explicit add
 // (which inserts a fresh 'open' basket) brings items back.
 app.post("/api/basket/clear", (req, res) => {
-  db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=1 AND status='open'").run();
-  db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,snapshot_json,status,updated_at) VALUES (1,?,?,?, 'cleared', ?)")
-    .run(req.body?.flight_no || null, "[]", null, now());
+  db.prepare("UPDATE baskets SET status='superseded' WHERE user_id=? AND status='open'").run(req.uid);
+  db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,snapshot_json,status,updated_at) VALUES (?,?,?,?, 'cleared', ?)")
+    .run(req.uid, req.body?.flight_no || null, "[]", null, now());
   log("basket_cleared", {});
   res.json({ ok: true });
 });
@@ -568,11 +568,11 @@ app.post("/api/fare-lock", (req, res) => {
   const f = flightByNo(flight_no);
   if (active) {
     const exp = new Date(Date.now() + 24 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
-    db.prepare("INSERT INTO fare_locks (user_id,flight_no,locked_price,expires_at) VALUES (1,?,?,?)").run(flight_no, f.price, exp);
+    db.prepare("INSERT INTO fare_locks (user_id,flight_no,locked_price,expires_at) VALUES (?,?,?,?)").run(req.uid, flight_no, f.price, exp);
     log("fare_locked", { flight_no, price: f.price, expires: exp });
     res.json({ ok: true, expires: exp, price: f.price });
   } else {
-    db.prepare("UPDATE fare_locks SET status='released' WHERE flight_no=? AND status='active'").run(flight_no);
+    db.prepare("UPDATE fare_locks SET status='released' WHERE user_id=? AND flight_no=? AND status='active'").run(req.uid, flight_no);
     res.json({ ok: true });
   }
 });
@@ -582,15 +582,15 @@ app.post("/api/hold", async (req, res) => {
   const hours = duration === "7d" ? 168 : duration === "48h" ? 48 : 24;
   const holdFee = Number(fee) || (duration === "7d" ? 39 : duration === "48h" ? 18 : 9);
   const exp = new Date(Date.now() + hours * 3600e3).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  db.prepare("INSERT INTO holds (user_id,flight_no,items_json,total,expires_at,created_at) VALUES (1,?,?,?,?,?)")
-    .run(flight_no, JSON.stringify({ items: items || [], duration: duration || "48h", fee: holdFee }), total, exp, now());
+  db.prepare("INSERT INTO holds (user_id,flight_no,items_json,total,expires_at,created_at) VALUES (?,?,?,?,?,?)")
+    .run(req.uid, flight_no, JSON.stringify({ items: items || [], duration: duration || "48h", fee: holdFee }), total, exp, now());
   log("hold_created", { flight_no, total, fee: holdFee, duration: duration || "48h", expires: exp });
   // Record the hold as a personalization signal: stream a CDP event + unified-profile touch so
   // segments, offer tiles and the ledger can react ("considering / price-sensitive booker").
   const hf = flightByNo(flight_no);
   try {
-    cdpEvents.emit("hold", liveIdentity(), { origin: hf && hf.origin, destination: hf && hf.dest, travelDate: hf && hf.flight_date, flightNumber: flight_no, cabin: "Economy", channel: "Web app", holdDuration: duration || "48h", holdFee, abandoned: true });
-    cdpProfile.record({ identity: liveIdentity(), channel: "web", type: "hold", dest: hf && hf.dest });
+    cdpEvents.emit("hold", liveIdentity(req.uid), { origin: hf && hf.origin, destination: hf && hf.dest, travelDate: hf && hf.flight_date, flightNumber: flight_no, cabin: "Economy", channel: "Web app", holdDuration: duration || "48h", holdFee, abandoned: true });
+    cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "hold", dest: hf && hf.dest });
   } catch { }
   // Every hold decision triggers a confirmation email to the active customer.
   const email = await sendEmail("hold_confirmation", { f: flightByNo(flight_no), total: Number(total) || 0, expires: exp, duration: duration || "48h", fee: holdFee });
