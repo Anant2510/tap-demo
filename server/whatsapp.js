@@ -14,19 +14,20 @@
      bookings, rebooking, ancillaries, cancellations all hit the same
      database and feed the same personalization.
    ────────────────────────────────────────────────────────────── */
-const { db, now, searchToday, currentBooking, getDataSource, PERSONAS } = require("./db");
+const { db, now, searchToday, currentBooking, getDataSource } = require("./db");
 const { AIRPORTS } = require("./routes-data");
 const { phraseFromFacts } = require("./claude");
+const session = require("./session");   // step-1 seam: phone→uid + wa:<tail> session binding (no cycle)
 
 // CDP forwarder for WhatsApp-channel events (written here, outside server.js's log()).
 let _cdpEvents = null; try { _cdpEvents = require("./cdp-events"); } catch { _cdpEvents = null; }
-function _cdpIdent() { try { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; return { loyaltyId: u.member_no, email: u.email }; } catch { return {}; } }
-function cdpForward(type, attrs, rowId) {
+function _cdpIdent(uid = 1) { try { const u = db.prepare("SELECT member_no, email FROM users WHERE id=?").get(uid) || {}; return { loyaltyId: u.member_no, email: u.email }; } catch { return {}; } }
+function cdpForward(type, attrs, rowId, uid = 1) {
   (async () => {
     let ok = false;
     try {
-      if (_cdpEvents && typeof _cdpEvents.streamEvent === "function") ok = (await _cdpEvents.streamEvent(type, _cdpIdent(), attrs || {})) !== false;
-      else if (_cdpEvents && typeof _cdpEvents.emit === "function") { _cdpEvents.emit(type, _cdpIdent(), attrs || {}); ok = true; }
+      if (_cdpEvents && typeof _cdpEvents.streamEvent === "function") ok = (await _cdpEvents.streamEvent(type, _cdpIdent(uid), attrs || {})) !== false;
+      else if (_cdpEvents && typeof _cdpEvents.emit === "function") { _cdpEvents.emit(type, _cdpIdent(uid), attrs || {}); ok = true; }
     } catch { ok = false; }
     try { if (rowId) db.prepare("UPDATE events SET delivery=? WHERE id=?").run(ok ? "sent" : "pending", rowId); } catch { }
   })();
@@ -49,25 +50,11 @@ const waAddr = (n) => {
 };
 const bareNumber = (n) => String(n || "").replace(/^whatsapp:/, "");
 
-// Resolve an inbound WhatsApp sender to a known persona by their REGISTERED mobile, so any
-// registered member — not just whoever is currently seeded — gets their own 360° experience.
-// Matches on the trailing 9 digits to tolerate "whatsapp:+351 …" prefixes and spacing.
+// Trailing-9-digits of a number — tolerates "whatsapp:+351 …" prefixes/spacing. Used to
+// resolve phone→uid (session.userByPhone) and to key the wa:<tail> session binding.
+// (The old personaForPhone/activePersonaId helpers are gone: identity is now resolved by
+//  phone→uid at handleIncoming entry and threaded via the wa:<tail> session binding.)
 const phoneTail = (s) => String(s || "").replace(/[^0-9]/g, "").slice(-9);
-function personaForPhone(from) {
-  const tail = phoneTail(from);
-  if (!tail) return null;
-  for (const id in PERSONAS) {
-    if (phoneTail((PERSONAS[id].user || {}).phone) === tail) return id;
-  }
-  return null;
-}
-// The persona currently seeded as the live customer (users.id=1) — authoritative, derived
-// from the seeded member number rather than any cached flag.
-function activePersonaId() {
-  const u = db.prepare("SELECT member_no FROM users WHERE id=1").get() || {};
-  for (const id in PERSONAS) if (PERSONAS[id].user.member_no === u.member_no) return id;
-  return null;
-}
 
 const logWA = (direction, wa_id, type, body, payload, status) =>
   db.prepare(`INSERT INTO wa_messages (direction,wa_id,msg_type,body,payload_json,status,created_at)
@@ -163,23 +150,28 @@ async function sendList(to, header, body, buttonLabel, rows, menuMap) {
   return sendText(to, `${header ? "*" + header + "*\n" : ""}${body ? body + "\n\n" : ""}${lines}\n\n0 for menu`);
 }
 
-/* ── Internal API helper — reuses the portal's own endpoints ─── */
-const apiCall = (method, p, body) =>
+/* ── Internal API helper — reuses the portal's own endpoints ───
+   Carries the sender's bound session (X-Session-Id: wa:<tail>) so the server acts as
+   the RIGHT user (step-1 seam). Pass `to` (the WhatsApp number) at every call site. */
+const apiCall = (method, p, body, to) =>
   fetch(`http://localhost:${PORT()}/api${p}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(to ? { "X-Session-Id": "wa:" + phoneTail(to) } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   }).then(r => r.json());
 
-const latestBooking = () => currentBooking();   // shared "soonest upcoming" trip (same as web + home)
+// Resolve the per-message uid from the sender's bound session (set at handleIncoming entry).
+// NEVER cache uid in a module-level var — derive per message from the phone (Risk D).
+const waUid = (to) => (session.getSession("wa:" + phoneTail(to)) || {}).uid || 1;
+const latestBooking = (to) => currentBooking(waUid(to));   // this user's "soonest upcoming" trip
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
-// Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
-const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
+// Live loyalty tier + boarding group for the acting user (never hardcode "Gold").
+const userTier = (to) => (db.prepare("SELECT tier FROM users WHERE id=?").get(waUid(to)) || {}).tier || "Gold";
 const boardingGroup = (tier) => `${(tier || "Gold") === "Silver" ? "B" : "A"} (${tier || "Gold"})`;
 
 // ── Cross-channel journey: persist the WhatsApp step + selections to the shared
 //    journey so web / AI / WhatsApp can all resume at the exact stage. ────────
-async function saveJourneyWA(stage, d) {
+async function saveJourneyWA(stage, d, to) {
   const f = d?.flight_no ? flightByNo(d.flight_no) : null;
   if (!f) return;
   try {
@@ -187,10 +179,10 @@ async function saveJourneyWA(stage, d) {
       origin: f.origin, dest: f.dest, date: f.flight_date, device: "WhatsApp", stage,
       flight_no: d.flight_no, seat: d.seat || undefined,
       items: (d.items || []).filter(c => c !== "seat"), cabin: d.cabin || "Economy",
-    });
+    }, to);
   } catch {}
 }
-const readJourney = () => apiCall("GET", "/journey").catch(() => null);
+const readJourney = (to) => apiCall("GET", "/journey", null, to).catch(() => null);
 
 /* ── Per-sender menu context: maps the number the user just typed
       (1,2,3…) back to an action id, based on the last menu we sent.
@@ -258,12 +250,13 @@ function resolvePick(t, flights) {
 
 /* ── Conversation logic ──────────────────────────────────────── */
 async function sendMainMenu(to) {
-  const u = db.prepare("SELECT first_name, miles, tier, affinity_label FROM users WHERE id=1").get();
-  const pat = db.prepare("SELECT flight_no FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY id DESC LIMIT 1").get();
+  const uid = waUid(to);
+  const u = db.prepare("SELECT first_name, miles, tier, affinity_label FROM users WHERE id=?").get(uid);
+  const pat = db.prepare("SELECT flight_no FROM bookings WHERE user_id=? AND status='confirmed' ORDER BY id DESC LIMIT 1").get(uid);
   // If there's an unfinished cross-channel journey, surface a Resume row at the top.
-  const j = await readJourney();
+  const j = await readJourney(to);
   // Usual route + recommended next date, so the express option shows what & when.
-  const prof = await apiCall("GET", "/profile").catch(() => null);
+  const prof = await apiCall("GET", "/profile", null, to).catch(() => null);
   const P = prof?.pattern || {};
   const usualDesc = (P.origin && P.dest)
     ? `${cityName(P.origin)}→${cityName(P.dest)}${P.recommendedLabel ? ` · ${P.recommendedLabel}` : ""} · one tap`
@@ -298,11 +291,11 @@ async function sendMainMenu(to) {
 /* ── Booking-flow step helpers (flight → seat → extras → checkout → pay) ── */
 
 // Price a draft: flight + paid extras, with the persona's voucher + miles applied
-function priceDraft(d, f) {
+function priceDraft(d, f, to) {
   const anc = db.prepare("SELECT code,price FROM ancillaries").all();
   const extras = (d.items || []).reduce((s, c) => s + (anc.find(a => a.code === c)?.price || 0), 0);
   const gross = +(((f?.price) || 72) + extras).toFixed(2);
-  const v = db.prepare("SELECT amount FROM vouchers WHERE user_id=1 AND status='active' ORDER BY id DESC LIMIT 1").get();
+  const v = db.prepare("SELECT amount FROM vouchers WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1").get(waUid(to));
   const voucher = Math.min(v?.amount || 0, gross);
   const miles_used = 6000, miles_amt = 18;
   const card = Math.max(0, +(gross - voucher - miles_amt).toFixed(2));
@@ -311,14 +304,14 @@ function priceDraft(d, f) {
 
 // SEAT step — recommend the seat the persona uses most (from history)
 async function startSeatStep(to, f) {
-  const rec = await apiCall("GET", "/seat-recommendation");
-  const recSeat = rec?.seat || (db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get() || {}).seat || "12A";
+  const rec = await apiCall("GET", "/seat-recommendation", null, to);
+  const recSeat = rec?.seat || (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(waUid(to)) || {}).seat || "12A";
   // offer the recommended seat first, then a few sensible alternatives (de-duped)
   const alts = [recSeat, "2A", "4C", "10F", "14F"].filter((s, i, arr) => arr.indexOf(s) === i);
   const map = { "0": "MENU" }; const lines = [];
   alts.slice(0, 4).forEach((s, i) => { const n = String(i + 1); map[n] = `SEAT_${s}`; lines.push(`${n}️⃣  Seat ${s}${s === recSeat ? "  ⭐ your usual" : ""}`); });
   setMenu(to, map);
-  await saveJourneyWA("seat", getDraft(to));
+  await saveJourneyWA("seat", getDraft(to), to);
   await sendText(to,
 `✈️ ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
 
@@ -332,7 +325,7 @@ ${lines.join("\n")}
 // EXTRAS step — history-personalized ancillaries, toggle then done
 async function startExtrasStep(to, note) {
   const d = getDraft(to);
-  const anc = await apiCall("GET", "/ancillaries");   // includes bought/reason/recommended
+  const anc = await apiCall("GET", "/ancillaries", null, to);   // includes bought/reason/recommended
   const paid = anc.filter(a => a.price > 0);
   const map = {}; const lines = [];
   paid.forEach((a, i) => {
@@ -344,7 +337,7 @@ async function startExtrasStep(to, note) {
   });
   map["9"] = "XDONE";
   setMenu(to, map);
-  await saveJourneyWA("extras", d);
+  await saveJourneyWA("extras", d, to);
   const head = note ? `${note}\n\n` : "";
   await sendText(to,
 `${head}🧳 Add extras (reply a number to toggle):
@@ -359,11 +352,11 @@ async function startCheckoutReview(to) {
   const d = getDraft(to);
   const f = flightByNo(d.flight_no);
   if (!f) { await sendText(to, "Your selection expired — reply \"menu\" to start again."); clearDraft(to); return sendMainMenu(to); }
-  const priced = priceDraft(d, f);
+  const priced = priceDraft(d, f, to);
   const anc = db.prepare("SELECT code,name,price FROM ancillaries").all();
   const extraNames = d.items.filter(c => !["seat","bag","meal"].includes(c)).map(c => anc.find(a => a.code === c)?.name || c);
-  const card = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
-  await saveJourneyWA("review", d);
+  const card = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=?").get(waUid(to)) || {};
+  await saveJourneyWA("review", d, to);
   await sendButtons(to,
 `🧾 *Review your booking*
 ${f.flight_no} ${cityName(f.origin)} → ${cityName(f.dest)} · ${f.flight_date} · ${f.dep}–${f.arr}
@@ -382,8 +375,8 @@ Total €${priced.gross.toFixed(2)}
 // trip resumes across channels (web ⇄ WhatsApp) at exactly this point.
 async function startExpressReview(to, f) {
   const d = getDraft(to);
-  const priced = priceDraft(d, f);
-  const u = db.prepare("SELECT full_name, tier, member_no, card_brand, card_last4 FROM users WHERE id=1").get() || {};
+  const priced = priceDraft(d, f, to);
+  const u = db.prepare("SELECT full_name, tier, member_no, card_brand, card_last4 FROM users WHERE id=?").get(waUid(to)) || {};
   const tier = (u.tier || "Gold").toUpperCase();
   const miles = Math.round(priced.gross * 11);
   // Standalone express flow — does NOT write the shared journey, so it never
@@ -409,7 +402,7 @@ Everything's pre-filled — just confirm.`,
 async function handleAction(to, id) {
   /* Resume the shared cross-channel journey at the exact step the customer left. */
   if (id === "RESUME") {
-    const j = await readJourney();
+    const j = await readJourney(to);
     if (!j || !j.stage) { await sendText(to, "Nothing in progress to resume — let's start a new search."); return sendMainMenu(to); }
     const f = j.flight_no ? flightByNo(j.flight_no) : null;
     // Rebuild the WhatsApp draft from the saved journey.
@@ -429,18 +422,18 @@ async function handleAction(to, id) {
     return startSeatStep(to, f);
   }
   if (id === "START_FRESH") {
-    await apiCall("POST", "/journey/clear");
+    await apiCall("POST", "/journey/clear", null, to);
     clearDraft(to);
     await sendText(to, "Starting fresh. Where would you like to fly? (e.g. \"flights to Madrid\")");
     return;
   }
   if (id === "BOOK_USUAL") {
-    const prof = await apiCall("GET", "/profile");
+    const prof = await apiCall("GET", "/profile", null, to);
     const pat = prof?.pattern || {};
     const origin = pat.origin || prof?.user?.home_airport || "OPO";
     const dest = pat.dest || "LIS";
     const dateQ = pat.recommendedDate ? `&date=${pat.recommendedDate}` : "";
-    const flights = await apiCall("GET", `/flights?dest=${dest}&origin=${origin}${dateQ}`);
+    const flights = await apiCall("GET", `/flights?dest=${dest}&origin=${origin}${dateQ}`, null, to);
     const f = flights.find(x => x.flight_no === pat.topFlight) || flights[0];
     if (!f) { await sendText(to, "Couldn't load your usual flight — try the menu."); return sendMainMenu(to); }
     const seat = (prof?.prefs?.seat || "").split(" ")[0] || "";
@@ -453,7 +446,7 @@ async function handleAction(to, id) {
     const fno = id.slice(5);
     const f = flightByNo(fno);
     if (!f) { await sendText(to, "That flight's no longer available — reply \"menu\" to start over."); return; }
-    const prefSeat = (db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get() || {}).seat || "";
+    const prefSeat = (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(waUid(to)) || {}).seat || "";
     const d = getDraft(to); d.flight_no = f.flight_no; d.seat = prefSeat; d.items = ["seat","bag","meal"];
     return startSeatStep(to, f);
   }
@@ -482,9 +475,9 @@ async function handleAction(to, id) {
     const d = getDraft(to);
     const f = flightByNo(d.flight_no);
     if (!f) { await sendText(to, "Your selection expired — reply \"menu\" to start again."); clearDraft(to); return sendMainMenu(to); }
-    const priced = priceDraft(d, f);
-    const r = await apiCall("POST", "/pay", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross, voucher_amt: priced.voucher, miles_used: priced.miles_used, miles_amt: priced.miles_amt, card_amt: priced.card });
-    const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+    const priced = priceDraft(d, f, to);
+    const r = await apiCall("POST", "/pay", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross, voucher_amt: priced.voucher, miles_used: priced.miles_used, miles_amt: priced.miles_amt, card_amt: priced.card }, to);
+    const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=?").get(waUid(to)) || {};
     const cardStr = "your saved card";
     const facts = { action: "checkout", state: "booked", pnr: r.pnr, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: f.flight_date, seat: d.seat, card: cardStr, extras: d.items.filter(c=>!["seat","bag","meal"].includes(c)), split: { voucher: priced.voucher, miles: priced.miles_used, miles_eur: priced.miles_amt, card: priced.card } };
     await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
@@ -496,15 +489,15 @@ async function handleAction(to, id) {
   if (id === "DO_HOLD") {
     const d = getDraft(to);
     const f = flightByNo(d.flight_no);
-    const priced = priceDraft(d, f);
-    const r = await apiCall("POST", "/hold", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross });
+    const priced = priceDraft(d, f, to);
+    const r = await apiCall("POST", "/hold", { flight_no: d.flight_no, items: d.items, seat: d.seat, total: priced.gross }, to);
     setMenu(to, { "1": "DO_PAY", "0": "MENU" });
-    await sendText(to, `⏳ Held until ${r.expires} — price, seat ${d.seat} and extras frozen, free as a ${userTier()} benefit. Hold confirmation emailed.\n\nReply 1 to complete payment · 0 for menu`);
+    await sendText(to, `⏳ Held until ${r.expires} — price, seat ${d.seat} and extras frozen, free as a ${userTier(to)} benefit. Hold confirmation emailed.\n\nReply 1 to complete payment · 0 for menu`);
     return;
   }
 
   if (id === "MY_BOOKING") {
-    const b = latestBooking();
+    const b = latestBooking(to);
     if (!b) {
       const facts = { action: "my_booking", state: "no_booking", message: "You have no upcoming booking right now." };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message + " Reply 1 to book your usual flight." }));
@@ -521,7 +514,7 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     return;
   }
   if (id === "CHECKIN") {
-    const b = latestBooking();
+    const b = latestBooking(to);
     // Verify real DB state first — never claim success blindly.
     if (!b) {
       const facts = { action: "check_in", state: "no_booking", message: "You don't have any upcoming flight to check in for right now." };
@@ -531,9 +524,9 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     const f = flightByNo(b.flight_no) || {};
     const route = `${cityName(f.origin)}→${cityName(f.dest)}`;
     if (b.checked_in) {
-      const facts = { action: "check_in", state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, seat: b.seat, group: boardingGroup(userTier()) };
+      const facts = { action: "check_in", state: "already_checked_in", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, seat: b.seat, group: boardingGroup(userTier(to)) };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
-        fallback: `You're already checked in for ${b.pnr} (${b.flight_no} ${route}, ${b.flight_date}), seat ${b.seat}, boarding group ${userTier() === "Silver" ? "B" : "A"}. Nothing more to do — your boarding pass is in the app.` }));
+        fallback: `You're already checked in for ${b.pnr} (${b.flight_no} ${route}, ${b.flight_date}), seat ${b.seat}, boarding group ${userTier(to) === "Silver" ? "B" : "A"}. Nothing more to do — your boarding pass is in the app.` }));
       return;
     }
     if (f.status === "cancelled") {
@@ -544,10 +537,10 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
     // Action actually happens here
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
     { const _waEv = db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_checkin',?,?)").run(JSON.stringify({ pnr: b.pnr }), now());
-      cdpForward("wa_checkin", { pnr: b.pnr, channel: "WhatsApp" }, Number(_waEv.lastInsertRowid)); }
-    const facts = { action: "check_in", state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, dep: f.dep, seat: b.seat, group: boardingGroup(userTier()) };
+      cdpForward("wa_checkin", { pnr: b.pnr, channel: "WhatsApp" }, Number(_waEv.lastInsertRowid), waUid(to)); }
+    const facts = { action: "check_in", state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route, date: b.flight_date, dep: f.dep, seat: b.seat, group: boardingGroup(userTier(to)) };
     await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp",
-      fallback: `🎫 Checked in for ${b.pnr} — ${b.flight_no} ${route}, ${b.flight_date}${f.dep ? " · departs " + f.dep : ""}. Boarding group ${boardingGroup(userTier())}, seat ${b.seat}. Boarding pass issued; it updates live if anything changes.` }));
+      fallback: `🎫 Checked in for ${b.pnr} — ${b.flight_no} ${route}, ${b.flight_date}${f.dep ? " · departs " + f.dep : ""}. Boarding group ${boardingGroup(userTier(to))}, seat ${b.seat}. Boarding pass issued; it updates live if anything changes.` }));
     return;
   }
 
@@ -562,9 +555,9 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
   }
   if (id.startsWith("ANC_")) {
     const code = id.slice(4);
-    const r = await apiCall("POST", "/bookings/ancillary", { code });
+    const r = await apiCall("POST", "/bookings/ancillary", { code }, to);
     if (r.ok) {
-      const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+      const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=?").get(waUid(to)) || {};
       const card = "your saved card";
       const facts = { action: "add_extra", state: "added", item: r.name, price: r.price, pnr: r.pnr, card };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ Added ${r.name} (€${r.price}) to ${r.pnr} — charged to ${card}. Updated itinerary emailed.` }));
@@ -576,7 +569,7 @@ Reply:  1 to Check in now   ·   2 to Add extras   ·   0 for menu`);
   }
 
   if (id === "MADE_FOR_YOU") {
-    const rec = await apiCall("GET", "/recommendation");
+    const rec = await apiCall("GET", "/recommendation", null, to);
     if (!rec?.package) { await sendText(to, "No package available right now — try the main menu."); return sendMainMenu(to); }
     const p = rec.package;
     const emoji = rec.affinity === "football" ? "⚽" : rec.affinity === "golf" ? "⛳" : "🎵";
@@ -600,20 +593,20 @@ _${cat ? "From your card: " + cat : "From your card spend"}_
     return;
   }
   if (id === "PKG_BOOK") {
-    const rec = await apiCall("GET", "/recommendation");
+    const rec = await apiCall("GET", "/recommendation", null, to);
     const p = rec?.package;
     if (p) await sendText(to, `🎉 Nice one! Your *${p.event}* package (€${p.total}) is held — event ticket, ${p.hotelNights} nights at ${p.hotel}, and your return flight. Our team will email the confirmation to complete payment.${p.addon ? ` Your ${p.addon.label} is included at €${p.addon.price}.` : ""}`);
     return sendMainMenu(to);
   }
   if (id.startsWith("SEARCHTO_")) {
     const code = id.slice(9);
-    const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
-    return searchRoute(from, home, code, searchToday(), "package flight");
+    const home = db.prepare("SELECT home_airport FROM users WHERE id=?").get(waUid(to))?.home_airport || "OPO";
+    return searchRoute(to, home, code, searchToday(), "package flight");   // was `from` (undefined in this scope) — pre-existing bug
   }
 
   if (id === "SEATMAP_INFO") {
-    const u = db.prepare("SELECT tier FROM users WHERE id=1").get();
-    const b = db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY flight_date LIMIT 1").get();
+    const u = db.prepare("SELECT tier FROM users WHERE id=?").get(waUid(to));
+    const b = db.prepare("SELECT seat FROM bookings WHERE user_id=? AND status='confirmed' ORDER BY flight_date LIMIT 1").get(waUid(to));
     const cur = b?.seat || "4C";
     const tier = u?.tier || "Gold";
     const biz = tier === "Platinum" ? "included" : "€90";
@@ -633,8 +626,8 @@ Just tell me a seat (e.g. "change my seat to 12A") or a preference ("window in b
   }
 
   if (id === "WALLET") {
-    const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=1").get();
-    const v = db.prepare("SELECT code, amount, status, expiry FROM vouchers WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+    const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=?").get(waUid(to));
+    const v = db.prepare("SELECT code, amount, status, expiry FROM vouchers WHERE user_id=? ORDER BY id DESC LIMIT 1").get(waUid(to));
     const milesVal = (u.miles * 0.003).toFixed(2);
     const facts = { action: "wallet", miles: u.miles, miles_value_eur: +milesVal, voucher: v ? { code: v.code, amount: v.amount, available: v.status === "active", expiry: v.expiry } : null, card: "Saved card" };
     const vLine = v && v.status === "active" ? `🎟️ Voucher ${v.code}: €${v.amount} (expires ${v.expiry})` : "🎟️ No active voucher";
@@ -645,7 +638,7 @@ Just tell me a seat (e.g. "change my seat to 12A") or a preference ("window in b
   }
 
   if (id === "STATUS") {
-    const b = latestBooking();
+    const b = latestBooking(to);
     const f = b ? flightByNo(b.flight_no) : null;
     if (!f) {
       const facts = { action: "flight_status", state: "no_booking", message: "You have no upcoming flight on file." };
@@ -664,7 +657,7 @@ Just tell me a seat (e.g. "change my seat to 12A") or a preference ("window in b
   }
 
   if (id === "CANCEL") {
-    const b = latestBooking();
+    const b = latestBooking(to);
     if (!b) {
       const facts = { action: "cancel", state: "no_booking", message: "You have no active booking to cancel." };
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: facts.message }));
@@ -680,10 +673,10 @@ Reply:  1 to confirm cancel   ·   0 to keep my booking`);
     return;
   }
   if (id.startsWith("CONFIRM_CANCEL_")) {
-    const r = await apiCall("POST", "/bookings/cancel", {});
+    const r = await apiCall("POST", "/bookings/cancel", {}, to);
     if (r.ok) {
       const facts = { action: "cancel", state: "cancelled", pnr: r.pnr, refund: r.refund || { note: "original payment split" } };
-      const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=1").get() || {};
+      const cardRow = db.prepare("SELECT card_brand, card_last4 FROM users WHERE id=?").get(waUid(to)) || {};
       await sendText(to, await phraseFromFacts(facts, { channel: "whatsapp", fallback: `✅ ${r.pnr} cancelled. Refund issued instantly: miles restored, voucher reactivated, card amount returned to your saved card. Confirmation emailed — no forms, no queue.` }));
     } else {
       const facts = { action: "cancel", state: "no_booking", message: "No active booking was found to cancel." };
@@ -697,8 +690,8 @@ Reply:  1 to confirm cancel   ·   0 to keep my booking`);
   if (id.startsWith("REBOOK_")) {
     const optId = id.slice(7);
     const label = optId === "KEEP" ? "Keep my original flight" : `Move to ${optId}`;
-    await apiCall("POST", "/rebook", { option: { id: optId === "KEEP" ? (latestBooking()?.flight_no || "TP1927") : optId, label } });
-    const keptSeat = (latestBooking()?.seat) || (db.prepare("SELECT seat FROM preferences WHERE user_id=1").get() || {}).seat?.split(" ")[0] || "your seat";
+    await apiCall("POST", "/rebook", { option: { id: optId === "KEEP" ? (latestBooking(to)?.flight_no || "TP1927") : optId, label } }, to);
+    const keptSeat = (latestBooking(to)?.seat) || (db.prepare("SELECT seat FROM preferences WHERE user_id=?").get(waUid(to)) || {}).seat?.split(" ")[0] || "your seat";
     await sendText(to, `✅ Done — ${label.toLowerCase()}. New boarding pass issued, seat ${keptSeat} kept, confirmation emailed. Nothing else to do.`);
     return;
   }
@@ -727,7 +720,7 @@ function matchAncillary(t) {
 
 // Offer of the week — the SAME personalized offer the home screen shows.
 async function showOffer(to) {
-  const o = await apiCall("GET", "/offers/today").catch(() => null);
+  const o = await apiCall("GET", "/offers/today", null, to).catch(() => null);
   if (!o) { await sendText(to, "No offer available right now — reply \"menu\"."); return sendMainMenu(to); }
   setMenu(to, { "1": `OFFERBOOK_${o.origin}_${o.dest}`, "0": "MENU" });
   await sendText(to,
@@ -746,21 +739,17 @@ async function handleIncoming({ from, text }) {
   if (!from) return;
   const bare = bareNumber(from);
 
-  // Make the conversation belong to whoever is texting: if their number maps to a known persona
-  // that isn't the one currently active, switch the live customer to it (same re-seed the
-  // website's persona picker uses), so each registered member gets their OWN 360° personalization
-  // — not just whoever happened to be seeded. Done first so the inbound log below survives the
-  // re-seed. Unknown numbers keep the active persona.
-  const pid = personaForPhone(from);
-  if (pid && pid !== activePersonaId()) {
-    try { await apiCall("POST", "/persona", { persona: pid }); } catch {}
-    clearDraft(from); clearConvo(from); delete menuContext[bare];
-  }
+  // Resolve identity ONCE by phone and bind a stable wa:<tail> session, so every internal
+  // apiCall (via X-Session-Id) and every direct DB read acts as THIS user. Per-sender state
+  // (draft/convo/menu/ctx) is already keyed by phone, so senders never collide. Unknown
+  // sender → uid 1 (regression-safe default; cutover step 11 swaps default-to-1 for guest).
+  const uid = (session.userByPhone(from) || {}).id || 1;
+  session.bindSession("wa:" + phoneTail(from), uid, getDataSource());
 
   logWA("in", from, "text", text, { from, text }, "received");
   { const _waEv = db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('wa_inbound',?,?)").run(JSON.stringify({ from: bare, text }), now());
-    cdpForward("wa_inbound", { from: bare, text, channel: "WhatsApp" }, Number(_waEv.lastInsertRowid)); }
-  db.prepare("UPDATE users SET wa_id=? WHERE id=1").run(bare);   // remember partner for proactive push
+    cdpForward("wa_inbound", { from: bare, text, channel: "WhatsApp" }, Number(_waEv.lastInsertRowid), uid); }
+  db.prepare("UPDATE users SET wa_id=? WHERE id=?").run(bare, uid);   // remember partner for proactive push
 
   const t = (text || "").trim().toLowerCase();
 
@@ -794,7 +783,7 @@ async function handleIncoming({ from, text }) {
     const toM = t.match(/\bto\s+([a-zà-ÿ]+(?:\s+[a-zà-ÿ]+)?)/);
     const destFromText = toM ? detectDest(toM[1].trim()) : null;
     if (destFromText) {
-      const home = (db.prepare("SELECT home_airport FROM users WHERE id=1").get() || {}).home_airport || "OPO";
+      const home = (db.prepare("SELECT home_airport FROM users WHERE id=?").get(uid) || {}).home_airport || "OPO";
       const parsed = parseDate(t);
       if (destFromText === home) {
         // "to <home>" — can't fly home→home; just acknowledge and show the menu.
@@ -887,7 +876,7 @@ async function handleIncoming({ from, text }) {
 
     // Only fire the deterministic search when we have a real destination.
     if (destCode && destCode !== originCode) {
-      const home = db.prepare("SELECT home_airport FROM users WHERE id=1").get()?.home_airport || "OPO";
+      const home = db.prepare("SELECT home_airport FROM users WHERE id=?").get(uid)?.home_airport || "OPO";
       return searchRoute(from, originCode || home, destCode, parsedDate || searchToday(), text);
     }
   }
@@ -906,7 +895,7 @@ async function runAgent(to, text) {
     // Send the running conversation so the agent has context across turns.
     pushConvo(to, "user", text);
     const messages = getConvo(to);
-    const r = await apiCall("POST", "/ai/agent", { messages, screen: "whatsapp", sessionId: bareNumber(to) });
+    const r = await apiCall("POST", "/ai/agent", { messages, screen: "whatsapp", sessionId: bareNumber(to) }, to);   // header drives req.uid; body.sessionId stays the agent scratch key
     if (!r || (!r.reply && !(r.cards && r.cards.length))) return sendMainMenu(to);
 
     // If the agent produced a flight list, present it as a numbered pick menu
@@ -1038,7 +1027,7 @@ function parseDate(t) {
 
 /* Free-route search → numbered flight list (mirrors the web AI chat). */
 async function searchRoute(to, origin, dest, date = searchToday(), userText) {
-  const r = await apiCall("GET", `/search?origin=${origin}&dest=${dest}&date=${date}`);
+  const r = await apiCall("GET", `/search?origin=${origin}&dest=${dest}&date=${date}`, null, to);
   if (userText) pushConvo(to, "user", userText);
   if (!r.ok || !r.flights?.length) {
     const msg = `Hmm, I couldn't find a ${cityName(origin)} → ${cityName(dest)} flight in our network. Try another city, or reply "menu".`;
@@ -1069,9 +1058,11 @@ ${lines.join("\n")}
 }
 
 /* ── Proactive push: portal disruption → WhatsApp text ───────── */
-async function pushDisruption(f, recovery) {
-  const to = process.env.WHATSAPP_DEFAULT_TO || db.prepare("SELECT wa_id FROM users WHERE id=1").get()?.wa_id;
+async function pushDisruption(f, recovery, uid = 1) {
+  const to = process.env.WHATSAPP_DEFAULT_TO || db.prepare("SELECT wa_id FROM users WHERE id=?").get(uid)?.wa_id;
   if (!to) { logWA("out", "", "skipped", "Disruption push skipped — no WhatsApp recipient known yet", {}, "no recipient"); return "no recipient"; }
+  // Bind this user's wa:<tail> session so a follow-up REBOOK apiCall acts as THEM (not uid 1).
+  session.bindSession("wa:" + phoneTail(to), uid, getDataSource());
   const opts = (recovery.options || []).slice(0, 2);
   const keep = opts[0]?.label || "Keep my flight";
   const move = opts[1]?.label || "Move me to the next flight";

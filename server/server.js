@@ -681,7 +681,7 @@ Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${fl
   }
 
   const email = await sendEmail("disruption", { f, recovery });
-  const wa = await whatsapp.pushDisruption(f, recovery);   // proactive WhatsApp with one-tap rebook buttons
+  const wa = await whatsapp.pushDisruption(f, recovery, req.uid);   // proactive WhatsApp with one-tap rebook buttons (acts as the disrupted user)
   res.json({ recovery, email, ai });
 });
 
