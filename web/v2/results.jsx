@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { api, EUR, miles, fmtDate } from "./lib.js";
 import { Btn, Card, Pill, Icon, cx } from "./ui.jsx";
-import { trip, setLeg } from "./trip.js";
+import { trip, setLeg, pingBasket } from "./trip.js";
 
 const roundTo = (n, s) => Math.round(n / s) * s;
 
@@ -48,6 +48,25 @@ export function Results({ shared, params, go }) {
   const date = (leg === "inbound" ? params.ret : params.date) || _isoPlus(leg === "inbound" ? 5 : 3);
   const retDate = params.ret || _isoPlus(5);
   const pax = +params.pax || 1, cabin = params.cabin || "Economy";
+
+  // #56/#57 + My Trip Cart #7 — propagate the user's actual search selections (dates,
+  // passenger count, trip type) into the shared trip state as soon as results load, so
+  // every downstream screen (View & Customize, basket, cart summary, pricing) reflects
+  // what the user chose instead of the module defaults (1 adult / fixed range). Previously
+  // this only happened on fare-pick, so screens reached before/around that showed stale
+  // defaults. Keyed on the actual values so it re-syncs whenever the search changes.
+  useEffect(() => {
+    const out = leg === "inbound" ? (params.date || trip.date) : (params.date || date);
+    const back = params.ret || (type === "round" ? retDate : null);
+    Object.assign(trip, {
+      type, pax, cabin,
+      origin: params.origin || trip.origin || origin,
+      dest: params.dest || trip.dest || dest,
+      date: out,
+      ret: type === "oneway" ? null : back,
+    });
+    pingBasket(); // notify the nav badge / summaries to re-read trip
+  }, [pax, type, cabin, params.origin, params.dest, params.date, params.ret, leg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [flights, setFlights] = useState(null);
   const [week, setWeek] = useState([]);
@@ -145,8 +164,14 @@ export function Results({ shared, params, go }) {
           <Chip label="From" value={`${cityOf(origin)} · ${origin}`} />
           <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="px-1.5 text-ink hover:text-tap-greenDeep" title="Swap origin and destination" aria-label="Swap"><Icon name="swap" size={18} /></button>
           <Chip label="To" value={`${cityOf(dest)} · ${dest}`} />
-          <Chip label="Dates" value={type === "round" ? `${fmtDate(date)} — ${fmtDate(retDate)}`.replace(/ \d{4}/g, "") : fmtDate(date)} />
-          <Chip label="Pax" value={`${pax} adult · ${cabin === "Business" ? "Business" : "Eco"}`} />
+          <Chip label="Dates" value={
+            type !== "round"
+              ? fmtDate(date)
+              : leg === "inbound"
+                ? `Returning ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")            // #34 — return leg: single date, not a range
+                : `${fmtDate(date)} — ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")   // outbound: full trip span
+          } />
+          <Chip label="Pax" value={`${pax} adult${pax > 1 ? "s" : ""} · ${cabin === "Business" ? "Business" : "Eco"}`} />
           <Btn variant="outline" size="sm" className="ml-auto text-ink border-line-strong" onClick={() => go("home")}>Edit search</Btn>
         </div>
       </div>

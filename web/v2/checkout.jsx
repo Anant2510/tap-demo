@@ -737,11 +737,11 @@ const DateInput = ({ value, onChange, err, max, min }) => (
 const PaxSectionTitle = ({ title, sub, info, className }) => (
   <div className={cx("mb-3", className)}>
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-[15px] font-bold text-ink leading-none">{title}</span>
+      <span className="text-[12px] font-black uppercase tracking-[0.12em] text-tap-greenDeep leading-none">{title}</span>
       {info && <Icon name="info" size={12} className="text-ink-faint" />}
-      {sub && <span className="text-[12px] text-ink-faint leading-none">· {sub}</span>}
+      {sub && <span className="text-[11px] text-ink-faint leading-none normal-case tracking-normal font-medium">· {sub}</span>}
     </div>
-    <div className="h-[3px] w-9 rounded-full bg-lime mt-2" />
+    <div className="h-[3px] w-9 rounded-full bg-tap-green mt-2" />
   </div>
 );
 

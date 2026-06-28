@@ -162,9 +162,9 @@ export function ManageBooking({ shared, go }) {
                   {!(b.items || []).length && <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="bag" size={11} /> Carry-on</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
-                  <button onClick={() => go("addextras")} className="inline-flex items-center gap-1.5 rounded-full bg-tap-green text-white px-3.5 py-1.5 text-[12px] font-bold hover:bg-tap-greenDeep transition-colors"><Icon name="refresh" size={12} /> Update flight</button>
+                  <button onClick={() => go("rebook", { pnr: b.pnr })} className="inline-flex items-center gap-1.5 rounded-full bg-tap-green text-white px-3.5 py-1.5 text-[12px] font-bold hover:bg-tap-greenDeep transition-colors"><Icon name="refresh" size={12} /> Update flight</button>
                   {ACTIONS.map(([lbl, page, ic]) => (
-                    <button key={lbl} onClick={() => go(page)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name={ic} size={12} /> {lbl}</button>
+                    <button key={lbl} onClick={() => go(page, page === "addextras" ? { pnr: b.pnr } : undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name={ic} size={12} /> {lbl}</button>
                   ))}
                 </div>
               </Card>
@@ -792,7 +792,7 @@ export function CheckInIndirect({ shared, go }) {
 }
 
 /* ═══════════ J4 · ADD EXTRAS ═══════════ */
-export function AddExtras({ shared, go }) {
+export function AddExtras({ shared, go, params }) {
   const { all, loading, err } = useActiveBooking();
   const u = shared.profile?.user || {};
   const airports = shared.airports;
@@ -802,7 +802,21 @@ export function AddExtras({ shared, go }) {
   const [staged, setStaged] = useState([]);      // [{code,name,price}] — committed only at pay
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+  const [enhanceCat, setEnhanceCat] = useState("all");   // #3 — Enhance-your-trip category filter
+  // #8 — when arriving from a specific flight card ("Add extras"/"Update flight"),
+  // the flight is already chosen. Deep-link via ?pnr= so we skip the trip-picker and
+  // open extras for that booking directly. The ?intent= ("update") just tunes copy.
+  const deepPnr = params?.pnr || null;
+  const intent = params?.intent || null;
   useEffect(() => { api.get("/ancillaries").then(setAnc).catch(() => setAnc([])); }, []);
+  // #8 — deep-link: when a pnr is passed (from a My Trip flight card), pre-select that
+  // booking and skip straight to the extras step, so the user isn't asked to pick a trip
+  // they already chose. Falls back to the picker if the pnr doesn't match.
+  useEffect(() => {
+    if (!deepPnr || !all) return;
+    const match = all.find(b => b.pnr === deepPnr && b.status === "confirmed");
+    if (match) { setSel(match); setStaged([]); setStep("extras"); }
+  }, [deepPnr, all]);
   const ICON = { seat: "seat", bag: "bag", meal: "star", wifi: "spark", car: "arrow", transfer: "arrow", lounge: "star" };
 
   if (loading) return <Loading label="Loading your trips…" />;
@@ -916,48 +930,162 @@ export function AddExtras({ shared, go }) {
   }
 
   /* ── STEP 2 · add extras to the chosen trip ───────────────────── */
+  const f = sel?.flight || {};
+  const routeLabel = `${f.origin || sel?.origin || "—"} → ${f.dest || sel?.dest || "—"}`;
+  // #2 — group the flat ancillary list into 3 bundles. We pick representative items by
+  // icon/keyword so the bundles stay meaningful even as the catalog changes, and fall
+  // back gracefully when a category is absent.
+  const byKind = (kw) => anc.filter(a => {
+    const s = `${a.code} ${a.name} ${a.icon}`.toLowerCase();
+    return kw.some(k => s.includes(k));
+  });
+  const seatItems = byKind(["seat"]);
+  const bagItems = byKind(["bag", "luggage", "baggage"]);
+  const mealItems = byKind(["meal", "food", "cater"]);
+  const loungeItems = byKind(["lounge"]);
+  const wifiItems = byKind(["wifi", "wi-fi", "internet"]);
+  const flexItems = byKind(["flex", "refund", "change", "insur", "protect"]);
+  const uniq = (arr) => { const seen = new Set(); return arr.filter(a => a && !seen.has(a.code) && seen.add(a.code)); };
+  const bundleDefs = [
+    { id: "comfort", name: "Comfort bundle", tag: "Most popular", desc: "Seat + bag + a hot meal — the essentials, bundled and discounted.",
+      items: uniq([seatItems[0], bagItems[0], mealItems[0]]).filter(Boolean) },
+    { id: "seat", name: "Just the seat", tag: "", desc: "Reserve your preferred seat — nothing else.",
+      items: uniq([seatItems[0]]).filter(Boolean) },
+    { id: "premium", name: "Premium bundle", tag: "Best value", desc: "Everything in Comfort, plus lounge access, Wi-Fi and flexibility.",
+      items: uniq([seatItems[0], bagItems[0], mealItems[0], loungeItems[0], wifiItems[0], flexItems[0]]).filter(Boolean) },
+  ].filter(b => b.items.length);
+  const bundlePrice = (b) => b.items.reduce((s, a) => s + (a.price || 0), 0);
+  const bundleSaving = (b) => b.id === "seat" ? 0 : Math.round(bundlePrice(b) * 0.12); // bundle discount
+  const bundleNet = (b) => Math.max(0, bundlePrice(b) - bundleSaving(b));
+  const bundleStaged = (b) => b.items.every(a => staged.some(x => x.code === a.code));
+  const addBundle = (b) => setStaged(s => {
+    const next = [...s];
+    b.items.forEach(a => { if (!next.some(x => x.code === a.code) && !onBooking.has(a.code)) next.push({ code: a.code, name: a.name, price: a.price || 0 }); });
+    return next;
+  });
+  // #3 — "Enhance your trip": the remaining à-la-carte items, filterable by category.
+  const CATS = [
+    { id: "all", label: "All" },
+    { id: "seat", label: "Seats", match: ["seat"] },
+    { id: "lounge", label: "Lounge", match: ["lounge"] },
+    { id: "meal", label: "Dining", match: ["meal", "food", "cater"] },
+    { id: "flex", label: "Insurance", match: ["insur", "flex", "protect", "refund"] },
+  ];
+  const enhanceItems = anc; // full à-la-carte catalog
+  const catMatch = (a, cat) => {
+    if (cat === "all") return true;
+    const def = CATS.find(c => c.id === cat); if (!def?.match) return true;
+    const s = `${a.code} ${a.name} ${a.icon}`.toLowerCase();
+    return def.match.some(k => s.includes(k));
+  };
+
   return (
     <div className="mx-auto max-w-page px-6 py-8">
+      {/* #1 — breadcrumb now carries flight context (route) so the user always sees which flight */}
+      <Crumb go={go} trail={[
+        { label: "My Trip", page: "manage" },
+        { label: `${sel.pnr}${sel.flight_no || f.flight_no ? " · " + (f.flight_no || sel.flight_no) : ""}`, page: "manage" },
+        { label: `Add extras · ${routeLabel}` },
+      ]} />
       <button onClick={() => { setStaged([]); setStep("pick"); }} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Choose a different trip</button>
-      <h1 className="text-[26px] font-black">Upgrade your trip</h1>
+      <h1 className="text-[26px] font-black">{intent === "update" ? "Update your trip" : "Upgrade your trip"}</h1>
       <p className="text-[13px] text-ink-muted mt-1">Add bags, seats, meals &amp; lounge — paid direct to TAP. Agency does not need to be involved.</p>
       <div className="mt-4"><BookingBand booking={sel} airports={airports} /></div>
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-5 items-start">
-        <div className="grid sm:grid-cols-2 gap-4">
-          {anc.map(a => {
-            const already = onBooking.has(a.code);
-            const isStaged = staged.some(x => x.code === a.code);
-            return (
-              <Card key={a.code} className={cx("p-4 v2-in", already ? "bg-surface-mute/60" : isStaged ? "ring-1 ring-tap-green/50 bg-lime-tint/30" : a.recommended && "ring-1 ring-tap-green/30")}>
-                <div className="flex items-start gap-3">
-                  <span className="w-9 h-9 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={ICON[a.icon] || "bag"} size={16} /></span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && !already && <Pill tone="green">Recommended</Pill>}{already && <Pill tone="slate">On your booking</Pill>}{isStaged && <Pill tone="lime">Added</Pill>}</div>
-                    <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
-                    {a.reason && !already && <div className="text-[11px] text-tap-greenDeep mt-1 flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
-                    {a.recommended && a.reason && !already && <WhyChip reason={a.reason} signals={a.signals} className="mt-1" />}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mt-3">
-                  <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
-                  {already
-                    ? <span className="text-[12px] font-semibold text-ink-faint inline-flex items-center gap-1"><Icon name="check" size={13} className="text-tap-green" /> Added</span>
-                    : <Btn size="sm" variant={isStaged ? "outline" : "primary"} onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
-                </div>
-              </Card>
-            );
-          })}
+
+      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+        <div className="space-y-7">
+          {/* #2 — BUNDLES: grouped, priced, one CTA each */}
+          {bundleDefs.length > 0 && (
+            <section>
+              <div className="flex items-baseline justify-between mb-3">
+                <h2 className="text-[17px] font-black">Choose a bundle</h2>
+                <span className="text-[12px] text-ink-faint">Save more than buying à la carte</span>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4">
+                {bundleDefs.map(b => {
+                  const on = bundleStaged(b), saving = bundleSaving(b);
+                  return (
+                    <Card key={b.id} className={cx("p-5 flex flex-col v2-in", b.tag === "Best value" ? "ring-1 ring-tap-green/40" : "", on && "ring-1 ring-tap-green/60 bg-lime-tint/25")}>
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold text-[15px]">{b.name}</div>
+                        {b.tag && <Pill tone={b.tag === "Best value" ? "green" : "lime"}>{b.tag}</Pill>}
+                      </div>
+                      <div className="text-[12px] text-ink-muted mt-1 min-h-[34px]">{b.desc}</div>
+                      <ul className="mt-3 space-y-1.5 flex-1">
+                        {b.items.map(a => <li key={a.code} className="flex items-center gap-2 text-[12px]"><Icon name="check" size={12} className="text-tap-green shrink-0" /> <span className="truncate">{a.name}</span></li>)}
+                      </ul>
+                      <div className="mt-4 flex items-end justify-between">
+                        <div>
+                          <div className="text-[20px] font-black text-tap-green v2-num">{EUR(bundleNet(b))}</div>
+                          {saving > 0 && <div className="text-[11px] text-ink-faint v2-num">Save {EUR(saving)} · was {EUR(bundlePrice(b))}</div>}
+                        </div>
+                      </div>
+                      <Btn size="sm" variant={on ? "outline" : "primary"} className="w-full mt-3" disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={12} /> Added</> : "Add bundle"}</Btn>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* #3 — ENHANCE YOUR TRIP: category-filtered à-la-carte cards */}
+          <section>
+            <div className="flex items-baseline justify-between mb-3">
+              <h2 className="text-[17px] font-black">Enhance your trip</h2>
+              <span className="text-[12px] text-ink-faint">{enhanceItems.length} add-ons available</span>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {CATS.map(c => {
+                const on = enhanceCat === c.id;
+                return <button key={c.id} onClick={() => setEnhanceCat(c.id)} className={cx("text-[12px] font-semibold rounded-full px-3.5 py-1.5 border transition-colors", on ? "bg-tap-green text-white border-tap-green" : "border-line-strong text-ink hover:border-tap-green/50")}>{c.label}</button>;
+              })}
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {enhanceItems.filter(a => catMatch(a, enhanceCat)).map(a => {
+                const already = onBooking.has(a.code);
+                const isStaged = staged.some(x => x.code === a.code);
+                return (
+                  <Card key={a.code} className={cx("p-4 v2-in", already ? "bg-surface-mute/60" : isStaged ? "ring-1 ring-tap-green/50 bg-lime-tint/30" : a.recommended && "ring-1 ring-tap-green/30")}>
+                    <div className="flex items-start gap-3">
+                      <span className="w-9 h-9 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={ICON[a.icon] || "bag"} size={16} /></span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && !already && <Pill tone="green">Recommended</Pill>}{already && <Pill tone="slate">On your booking</Pill>}{isStaged && <Pill tone="lime">Added</Pill>}</div>
+                        <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
+                        {a.reason && !already && <div className="text-[11px] text-tap-greenDeep mt-1 flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
+                        {a.recommended && a.reason && !already && <WhyChip reason={a.reason} signals={a.signals} className="mt-1" />}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-3">
+                      <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
+                      {already
+                        ? <span className="text-[12px] font-semibold text-ink-faint inline-flex items-center gap-1"><Icon name="check" size={13} className="text-tap-green" /> Added</span>
+                        : <Btn size="sm" variant={isStaged ? "outline" : "primary"} onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </section>
         </div>
+
+        {/* #4 — itemized "Your add-ons" summary with total, recommendation & Pay CTA */}
         <aside>
           <Card className="p-5 sticky top-20">
-            <div className="font-bold text-[15px] mb-2">Your extras</div>
+            <div className="font-bold text-[15px] mb-3">Your add-ons</div>
             {staged.length === 0
-              ? <div className="text-[12px] text-ink-faint">Nothing added yet. Tap “Add” to build your trip.</div>
-              : <div className="space-y-2 text-[13px]">{staged.map(x => <div key={x.code} className="flex items-center justify-between gap-2"><span className="text-ink-muted flex-1 truncate">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span><button onClick={() => unstage(x.code)} className="text-ink-faint hover:text-tap-red shrink-0" aria-label={"Remove " + x.name} title="Remove"><Icon name="x" size={14} /></button></div>)}</div>}
+              ? <div className="rounded-xl border border-dashed border-line-strong px-3 py-4 text-center text-[12px] text-ink-faint">Nothing added yet.<br />Pick a bundle or tap “+ Add” to build your trip.</div>
+              : <div className="space-y-2.5 text-[13px]">{staged.map(x => <div key={x.code} className="flex items-center justify-between gap-2"><span className="text-ink flex-1 truncate">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span><button onClick={() => unstage(x.code)} className="text-ink-faint hover:text-tap-red shrink-0" aria-label={"Remove " + x.name} title="Remove"><Icon name="x" size={14} /></button></div>)}</div>}
             <Divider className="my-3" />
-            <div className="flex items-center justify-between"><span className="text-[12px] text-ink-faint">Total added</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(total)}</span></div>
+            <div className="flex items-center justify-between"><span className="text-[13px] font-bold">Total add-ons</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(total)}</span></div>
+            {/* recommendation block */}
+            {staged.length > 0 && total > 0 && bundleDefs[0] && !bundleStaged(bundleDefs.find(b => b.id === "premium") || bundleDefs[0]) && (
+              <button onClick={() => addBundle(bundleDefs.find(b => b.id === "premium") || bundleDefs[0])} className="mt-3 w-full text-left rounded-xl bg-lime-tint border border-tap-green/30 px-3 py-2.5 hover:bg-lime-tint/70 transition-colors">
+                <div className="text-[12px] font-bold text-tap-greenDark flex items-center gap-1.5"><Icon name="spark" size={13} /> Add to your trip</div>
+                <div className="text-[11px] text-ink-muted mt-0.5">Upgrade to the Premium bundle and save vs. à la carte.</div>
+              </button>
+            )}
             <Btn className="w-full mt-3" disabled={staged.length === 0 || busy} onClick={() => total > 0 ? setStep("pay") : commit()}>
-              {staged.length === 0 ? "Add extras to continue" : total > 0 ? <>Review &amp; pay {EUR(total)} →</> : busy ? "Adding…" : "Add to booking →"}
+              {staged.length === 0 ? "Add extras to continue" : total > 0 ? <>Pay {EUR(total)} →</> : busy ? "Adding…" : "Add to booking →"}
             </Btn>
           </Card>
         </aside>
@@ -1018,6 +1146,12 @@ export function Refund({ shared, go }) {
   const fareRef = sub("fare"), extrasRef = sub("extras"), taxRef = sub("taxes");
   const refundTotal = fareRef + extrasRef + taxRef;
   const destName = (REFUND_DESTS.find(d => d.id === dest)?.name || "Visa").split(" ")[0];
+  // #7 — when the refund method is TAP Miles, express the refund value in miles
+  // (with the euro equivalent shown alongside), so the summary matches the selection.
+  const isMiles = dest === "miles";
+  const milesFor = (e) => Math.round(e / MILES_RATE);            // €→miles via the shared rate
+  const fmtRefund = (e) => isMiles ? `${miles(milesFor(e))} mi` : eur2(e);  // miles when miles is selected
+  const refundTotalMi = milesFor(refundTotal);
   return (
     <div className="mx-auto max-w-page px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr}${booking.flight_no ? " — " + booking.flight_no : ""}`, page: "manage" }, { label: "Refund request" }]} />
@@ -1071,14 +1205,15 @@ export function Refund({ shared, go }) {
             </div>
             <Divider className="my-3" />
             <div className="space-y-2 text-[13px]">
-              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · fare</span><span className="font-semibold v2-num">{eur2(fareRef)}</span></div>
-              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · extras</span><span className="font-semibold v2-num">{eur2(extrasRef)}</span></div>
-              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · taxes</span><span className="font-semibold v2-num">{eur2(taxRef)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · fare</span><span className="font-semibold v2-num">{fmtRefund(fareRef)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · extras</span><span className="font-semibold v2-num">{fmtRefund(extrasRef)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · taxes</span><span className="font-semibold v2-num">{fmtRefund(taxRef)}</span></div>
             </div>
             <Divider className="my-3" />
-            <div className="flex justify-between items-center"><span className="font-bold">Refund to {destName}</span><span className="font-black v2-num text-tap-greenDeep text-[16px]">{eur2(refundTotal)}</span></div>
+            <div className="flex justify-between items-center"><span className="font-bold">Refund to {destName}</span><span className="font-black v2-num text-tap-greenDeep text-[16px]">{isMiles ? `${miles(refundTotalMi)} mi` : eur2(refundTotal)}</span></div>
+            {isMiles && refundTotal > 0 && <div className="text-[11px] text-ink-faint text-right mt-0.5 v2-num">≈ {eur2(refundTotal)} value</div>}
             <div className="mt-3 rounded-lg bg-[#eef4ff] border border-[#d6e3ff] px-3 py-2.5 text-[12px]"><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="text-[#3b6fd6]" /> Why these amounts?</div><div className="text-ink-muted mt-0.5">Discount fare: non-refundable. 20% admin fee on refundable items. See full policy.</div></div>
-            <Btn size="lg" className="w-full mt-4" disabled={busy || refundTotal <= 0} onClick={cancel}>{busy ? "Processing…" : `Process refund · ${eur2(refundTotal)} →`}</Btn>
+            <Btn size="lg" className="w-full mt-4" disabled={busy || refundTotal <= 0} onClick={cancel}>{busy ? "Processing…" : `Process refund · ${isMiles ? miles(refundTotalMi) + " mi" : eur2(refundTotal)} →`}</Btn>
             <button onClick={() => go("manage")} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Cancel request</button>
           </Card>
         </aside>

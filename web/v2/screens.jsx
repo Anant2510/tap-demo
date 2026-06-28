@@ -29,12 +29,18 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
   const [cabin, setCabin] = useState("Economy");
   const [stopover, setStopover] = useState(false);
   return (
-    <Card className="p-4 sm:p-5">
-      <div className="flex gap-1 overflow-x-auto v2-track -mx-1 px-1 pb-3">
+    // #32 — two-container layout: OUTER translucent/glass frame (blur lives here only),
+    // INNER solid white box holds the tabs + form. Tabs restyled to pills with a clear
+    // active state. Replaces the previous single flat Card.
+    <div className="rounded-[26px] bg-white/55 backdrop-blur-2xl border border-white/60 shadow-pop p-2.5 sm:p-3">
+      {/* tab bar — pill style, on the glass frame */}
+      <div className="flex gap-1.5 overflow-x-auto v2-track px-1.5 pt-1 pb-2.5">
         {TRIP_TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors", tab === t ? "bg-lime-tint text-tap-greenDeep" : "text-ink-muted hover:bg-surface-mute")}>{t}</button>
+          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 px-4 py-2 rounded-full text-[12px] font-bold transition-colors", tab === t ? "bg-tap-green text-white shadow-sm" : "bg-white/60 text-ink-muted hover:bg-white")}>{t}</button>
         ))}
       </div>
+      {/* inner solid white box — the form content */}
+      <div className="rounded-[20px] bg-surface shadow-sm p-4 sm:p-5">
       <div className="flex gap-4 text-[12px] font-semibold text-ink-muted mb-3">
         {[["round", "Round trip"], ["oneway", "One way"], ["multi", "Multi-city"]].map(([k, l]) => (
           <button key={k} onClick={() => setType(k)} className={cx("pb-1 border-b-2", type === k ? "border-tap-green text-ink" : "border-transparent")}>{l}</button>
@@ -54,7 +60,8 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
         <label className="flex items-center gap-2 text-[12px] font-medium text-ink-muted"><input type="checkbox" checked={stopover} onChange={e => setStopover(e.target.checked)} className="accent-[#46a41a]" /> Add Portugal Stopover <span className="text-ink-faint">· free, up to 10 days</span></label>
         <Btn size="lg" className="ml-auto" onClick={() => onSearch({ origin: from, dest: to, date, ret, pax, cabin, type, stopover })}><Icon name="search" /> Search flights</Btn>
       </div>
-    </Card>
+      </div>
+    </div>
   );
 }
 
