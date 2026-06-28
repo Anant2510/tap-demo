@@ -12,7 +12,7 @@ const cdpIngest = require("./cdp-ingest");
 const cdpEvents = require("./cdp-events");
 const aem = require("./aem");
 // Identity for streamed events — loyaltyId (primary) from the live customer record.
-function liveIdentity() { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; return { loyaltyId: u.member_no, email: u.email }; }
+function liveIdentity(uid = 1) { const u = db.prepare("SELECT member_no, email FROM users WHERE id=?").get(uid) || {}; return { loyaltyId: u.member_no, email: u.email }; }
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -90,7 +90,7 @@ const log = (type, payload) => {
 };
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 // Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
-const userTier = () => (db.prepare("SELECT tier FROM users WHERE id=1").get() || {}).tier || "Gold";
+const userTier = (uid = 1) => (db.prepare("SELECT tier FROM users WHERE id=?").get(uid) || {}).tier || "Gold";
 const boardingGroup = (tier) => `${(tier || "Gold") === "Silver" ? "B" : "A"} (${tier || "Gold"})`;
 // Card identity is never exposed anywhere — UI, DB inspector, API payloads, AI prompts, emails.
 // (No card network brand, no last-4, no expiry.) Spend categories remain for personalization.
@@ -231,8 +231,8 @@ app.get("/api/search", (req, res) => {
    search → book flow produces NO abandonment emails — only a genuinely abandoned search does. */
 const followupTimers = {};   // `${origin}-${dest}` -> { followup, offer }
 const FOLLOWUP_MS = Number(process.env.SEARCH_FOLLOWUP_MS) || 15000, OFFER_MS = Number(process.env.SEARCH_OFFER_MS) || 60000;
-const bookedToDest = (dest) => db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
-  WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(dest).c > 0;
+const bookedToDest = (dest, uid = 1) => db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
+  WHERE b.user_id=? AND b.status!='cancelled' AND f.dest=?`).get(uid, dest).c > 0;
 
 function scheduleSearchFollowup(origin, dest, date, flights) {
   const low = flights.length ? Math.min(...flights.map(f => f.price)) : 0;
@@ -363,8 +363,8 @@ app.get("/api/profile", (req, res) => {
    Stages: search → results → seat → extras → review.  Cleared on payment or
    explicit start-over.                                                        */
 const STAGE_ORDER = ["search", "results", "seat", "extras", "review"];
-function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin }) {
-  const prev = db.prepare("SELECT * FROM synced_searches WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin }, uid = 1) {
+  const prev = db.prepare("SELECT * FROM synced_searches WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
   // If this update is for the same route, keep the furthest stage reached (don't regress
   // the badge when a later channel just re-opens an earlier screen) unless selections advance.
   const sameRoute = prev && prev.origin === origin && prev.dest === dest;
@@ -381,16 +381,16 @@ function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items
     items: items !== undefined ? items : (sameRoute && prev?.items_json ? JSON.parse(prev.items_json) : []),
     cabin: cabin || (sameRoute ? prev?.cabin : null) || "Economy",
   };
-  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
+  db.prepare("DELETE FROM synced_searches WHERE user_id=?").run(uid);
   db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at,stage,flight_no,seat,items_json,cabin,updated_at)
-    VALUES (1,?,?,?,1,?,?,?,?,?,?,?,?)`).run(
-      merged.origin, merged.dest, merged.date, merged.device, now(),
+    VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?)`).run(
+      uid, merged.origin, merged.dest, merged.date, merged.device, now(),
       merged.stage, merged.flight_no || null, merged.seat || null,
       JSON.stringify(merged.items || []), merged.cabin, now());
   return merged;
 }
-function getJourney() {
-  const j = db.prepare("SELECT * FROM synced_searches WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+function getJourney(uid = 1) {
+  const j = db.prepare("SELECT * FROM synced_searches WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
   if (!j) return null;
   return {
     origin: j.origin, dest: j.dest, date: j.travel_date, device: j.device,
@@ -908,7 +908,7 @@ function seatPrice(seat, tier) {
   return c.basePrice || 0;
 }
 function seatCabinLabel(seat) { const c = cabinForRow(parseInt(seat)); return c ? c.label : "Economy"; }
-function prefSeat() { return (db.prepare("SELECT seat FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get() || {}).seat || "4C"; }
+function prefSeat(uid = 1) { return (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(uid) || {}).seat || "4C"; }
 // Compute a basket's live total: flight fare + sum of paid ancillaries currently in the basket.
 function basketTotal(sel) {
   const f = flightByNo(sel.flight_no) || {};
@@ -1646,19 +1646,19 @@ app.get("/api/offers/today", (req, res) => {
    audience membership. Each tile carries a reason + an explicit list of signals naming the
    exact source (DB table or RT-CDP audience) so the "Why this?" control and the admin
    personalization ledger can show precisely what drove it. Degrades to DB-only when CDP is off. */
-async function buildOfferTiles(identity) {
-  const u = db.prepare("SELECT first_name, tier, miles, home_airport, member_no, affinity_label FROM users WHERE id=1").get() || {};
+async function buildOfferTiles(identity, uid = 1) {
+  const u = db.prepare("SELECT first_name, tier, miles, home_airport, member_no, affinity_label FROM users WHERE id=?").get(uid) || {};
   const home = u.home_airport || "OPO";
   const tier = u.tier || "Gold";
   const milesBal = u.miles || 0;
   const milesPerk = tier === "Platinum" ? "Triple miles" : tier === "Silver" ? "25% bonus miles" : "Double miles";
-  const routeRow = db.prepare("SELECT route, COUNT(*) c FROM travel_history WHERE user_id=1 GROUP BY route ORDER BY c DESC LIMIT 1").get();
+  const routeRow = db.prepare("SELECT route, COUNT(*) c FROM travel_history WHERE user_id=? GROUP BY route ORDER BY c DESC LIMIT 1").get(uid);
   const flownRoute = routeRow ? routeRow.route : null;
   const flownCount = routeRow ? routeRow.c : 0;
-  const bookedRow = db.prepare("SELECT f.dest d, COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' GROUP BY f.dest ORDER BY c DESC LIMIT 1").get();
+  const bookedRow = db.prepare("SELECT f.dest d, COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=? AND b.status!='cancelled' GROUP BY f.dest ORDER BY c DESC LIMIT 1").get(uid);
   const topDest = bookedRow ? bookedRow.d : (flownRoute ? flownRoute.split("→")[1] : "LIS");
   const topDestCity = cityName(topDest);
-  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status!='cancelled'").all();
+  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=? AND status!='cancelled'").all(uid);
   const aCounts = {};
   past.forEach(b => { try { JSON.parse(b.items_json || "[]").forEach(x => aCounts[x] = (aCounts[x] || 0) + 1); } catch { } });
   let topAnc = null, topAncN = 0;
@@ -1870,11 +1870,11 @@ const CDP_EVENT_NAMES = {
   search_offer_sent: "Offer Sent", hold_created: "Booking Held",
   wa_inbound: "Message Received", routes_suggested: "Recommendations Served",
 };
-function toCdpTrack(type, payload, at) {
-  const u = db.prepare("SELECT email, tier FROM users WHERE id=1").get();
+function toCdpTrack(type, payload, at, uid = 1) {
+  const u = db.prepare("SELECT member_no, email, tier FROM users WHERE id=?").get(uid);
   return {
     type: "track",
-    userId: "user_1",
+    userId: (u && u.member_no) || ("user_" + uid),
     event: CDP_EVENT_NAMES[type] || type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
     properties: payload || {},
     context: { traits: { email: u?.email, loyaltyTier: u?.tier || "Gold" }, channel: (payload && payload.channel) || "web", app: "TAP Pre-Travel" },
