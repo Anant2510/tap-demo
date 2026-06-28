@@ -207,16 +207,16 @@ app.get("/api/search", (req, res) => {
   if (req.query.bg) return res.json({ ok: true, origin, dest, date, route, flights: stored, bg: true });
   // Log the search itself — this is behavioural data the CDP would use
   db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at)
-    VALUES (1,?,?,?,?,?,?,?)`).run(origin, dest, date, 1, stored.length, "Web app", now());
+    VALUES (?,?,?,?,?,?,?,?)`).run(req.uid, origin, dest, date, 1, stored.length, "Web app", now());
   // Keep the cross-channel journey LIVE at the RESULTS stage for this real search.
   const pax = Number(req.query.pax) || 1;
-  saveJourney({ origin, dest, date, device: "Web app", stage: "results" });
+  saveJourney({ origin, dest, date, device: "Web app", stage: "results" }, req.uid);
   // Search-abandonment journey: queue a follow-up. If no booking on this route
   // follows shortly, an offer email goes out too. (Demo timings are compressed.)
   scheduleSearchFollowup(origin, dest, date, stored);
   log("flight_search", { origin, dest, date, results: stored.length });
-  cdpEvents.emit("results", liveIdentity(), { origin, destination: dest, travelDate: date, cabin: "Economy", channel: "Web app", abandoned: false });
-  cdpProfile.record({ identity: liveIdentity(), channel: "web", type: "search", dest });   // online touch → unified profile
+  cdpEvents.emit("results", liveIdentity(req.uid), { origin, destination: dest, travelDate: date, cabin: "Economy", channel: "Web app", abandoned: false });
+  cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "search", dest });   // online touch → unified profile
   res.json({ ok: true, origin, dest, date, route, flights: stored });
 });
 
@@ -401,18 +401,18 @@ function getJourney(uid = 1) {
   };
 }
 // Read the current journey (web/AI/WhatsApp all poll this to resume).
-app.get("/api/journey", (req, res) => { res.json(getJourney() || { stage: null }); });
+app.get("/api/journey", (req, res) => { res.json(getJourney(req.uid) || { stage: null }); });
 // Save/advance the journey stage from any channel.
 app.post("/api/journey", (req, res) => {
   const { origin, dest, date, device, stage, flight_no, seat, items, cabin } = req.body || {};
   if (!origin || !dest) return res.status(400).json({ ok: false, message: "origin and dest required" });
-  const saved = saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin });
+  const saved = saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin }, req.uid);
   log("journey_saved", { stage: saved.stage, route: `${origin}→${dest}`, flight: saved.flight_no, seat: saved.seat });
-  res.json({ ok: true, journey: getJourney() });
+  res.json({ ok: true, journey: getJourney(req.uid) });
 });
 // Explicit start-over: clear the saved journey.
 app.post("/api/journey/clear", (req, res) => {
-  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
+  db.prepare("DELETE FROM synced_searches WHERE user_id=?").run(req.uid);
   log("journey_cleared", {});
   res.json({ ok: true });
 });
