@@ -61,7 +61,7 @@ function personaToXDM(P, c) {
       },
       wallet: vc.code ? {
         voucherCode: vc.code, voucherAmount: vc.amount, voucherCurrency: "EUR",
-        voucherReason: vc.reason, voucherExpiry: vc.expiry,
+        voucherReason: vc.reason, voucherExpiry: toISODate(vc.expiry),
       } : undefined,
       consents: { marketing: { collect: { val: "y" } }, personalize: { content: { val: "y" } } },
     },
