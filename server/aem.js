@@ -26,7 +26,7 @@ function aemConfig() {
 
 async function execPersisted(name) {
   const c = aemConfig();
-  const url = `${c.base}/graphql/execute.json/${c.project}/${name}`;
+  const url = `${c.base}/graphql/execute.json/${c.project}/${name}?ts=${Date.now()}`;
   const headers = { Accept: "application/json" };
   if (c.token) headers.Authorization = `Bearer ${c.token}`;
   const r = await fetch(url, { headers });
