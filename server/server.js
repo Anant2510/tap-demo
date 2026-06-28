@@ -21,7 +21,7 @@ const { packageFor } = require("./packages");
 const whatsapp = require("./whatsapp");
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
-const { appCtx, currentApp } = require("./appctx");
+const { appCtx, currentApp, currentUid } = require("./appctx");
 const pss = require("./pss");   // PSS (3rd-party) ingestion → SQLite + RT-CDP
 const cdpProfile = require("./cdp-profile");   // unified profile + identity stitching + segments
 const segments = require("./segments");   // per-member local segment engine
@@ -59,7 +59,7 @@ const session = require("./session");
 // constant — never a literal 1 (Risk B: keeps agent and request on the same default).
 const SERVER_DEFAULT_UID = session.SERVER_DEFAULT_UID;
 const SYSTEM_UID = session.SYSTEM_UID;
-app.use((req, _res, next) => { req.uid = session.resolveUid(req); req.profileSource = session.sessionSource(req); next(); });
+app.use((req, _res, next) => { req.uid = session.resolveUid(req); req.profileSource = session.sessionSource(req); const s = appCtx.getStore(); if (s) s.uid = req.uid; next(); });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // Events that must NOT auto-forward to Adobe RT-CDP:
@@ -68,6 +68,9 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 //    here prevents a duplicate, lower-fidelity copy being sent under the raw log type.
 const CDP_NO_FORWARD = new Set([
   "cdp_profile_hydrated", "datasource_switched",
+  // session-lifecycle events — not travel-journey/commerce; the Adobe event schema doesn't
+  // model them (they 400 with SCHEMA_TYPE_MISMATCH), so keep them on-box (logged locally).
+  "auth_login", "auth_logout",
   // high-frequency read telemetry — kept on-box to avoid flooding RT-CDP ingestion
   "api_flights_fetch", "api_flights_noroute", "api_recommendation_fetch", "api_profile_fetch",
   "flight_search", "hold_created", "payment_captured", "booking_checkin", "journey_resumed",
@@ -76,21 +79,23 @@ const CDP_NO_FORWARD = new Set([
 // fire-and-forget so it never blocks or fails the local write / the request. Prefers the
 // awaitable streamEvent (so the row's delivery is recorded), falling back to emit; no-ops
 // cleanly when the CDP module is absent, leaving delivery 'pending' for visibility.
-function cdpForward(type, payload, rowId) {
+function cdpForward(type, payload, rowId, uid = SERVER_DEFAULT_UID) {
   if (CDP_NO_FORWARD.has(type)) return;
   const attrs = Object.assign({ channel: "Web app" }, payload || {});
+  const ident = liveIdentity(uid);   // attribute the streamed event to the ACTING user, not a default
   (async () => {
     let ok = false;
     try {
-      if (cdpEvents && typeof cdpEvents.streamEvent === "function") ok = (await cdpEvents.streamEvent(type, liveIdentity(), attrs)) !== false;
-      else if (cdpEvents && typeof cdpEvents.emit === "function") { cdpEvents.emit(type, liveIdentity(), attrs); ok = true; }
+      if (cdpEvents && typeof cdpEvents.streamEvent === "function") ok = (await cdpEvents.streamEvent(type, ident, attrs)) !== false;
+      else if (cdpEvents && typeof cdpEvents.emit === "function") { cdpEvents.emit(type, ident, attrs); ok = true; }
     } catch { ok = false; }
     try { db.prepare("UPDATE events SET delivery=? WHERE id=?").run(ok ? "sent" : "pending", rowId); } catch { }
   })();
 }
 const log = (type, payload) => {
-  const info = db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload || {}), now(), currentApp());
-  cdpForward(type, payload, Number(info.lastInsertRowid));
+  const uid = currentUid() || SERVER_DEFAULT_UID;   // the acting user for this request/timer
+  const info = db.prepare("INSERT INTO events (type,payload_json,created_at,app,user_id) VALUES (?,?,?,?,?)").run(type, JSON.stringify(payload || {}), now(), currentApp(), uid);
+  cdpForward(type, payload, Number(info.lastInsertRowid), uid);
   return info;
 };
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
@@ -246,10 +251,10 @@ function scheduleSearchFollowup(origin, dest, date, flights, uid = SERVER_DEFAUL
   const app = currentApp();   // remember which frontend searched, so deferred emails tag correctly
   if (followupTimers[key]) { clearTimeout(followupTimers[key].followup); clearTimeout(followupTimers[key].offer); }
   const tagEvent = (type, payload) => {
-    const info = db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)").run(type, JSON.stringify(payload), now(), app);
-    cdpForward(type, payload, Number(info.lastInsertRowid));
+    const info = db.prepare("INSERT INTO events (type,payload_json,created_at,app,user_id) VALUES (?,?,?,?,?)").run(type, JSON.stringify(payload), now(), app, uid);
+    cdpForward(type, payload, Number(info.lastInsertRowid), uid);   // attribute deferred offer/follow-up to the searching user
   };
-  const runIn = (ms, fn) => setTimeout(() => appCtx.run({ app }, fn), ms);   // run callback in the right app-context
+  const runIn = (ms, fn) => setTimeout(() => appCtx.run({ app, uid }, fn), ms);   // run callback in the right app + user context
   followupTimers[key] = {
     followup: runIn(FOLLOWUP_MS, () => {
       if (bookedToDest(dest, uid)) return;
@@ -1841,10 +1846,13 @@ app.get("/api/admin/cdp", (req, res) => {
   }
   // events are app-scoped so the count matches this console's filtered stream
   try { counts.events = db.prepare("SELECT COUNT(*) c FROM events WHERE app=?").get(currentApp()).c; } catch {}
-  const events = db.prepare("SELECT id,type,payload_json,created_at FROM events WHERE app=? ORDER BY id DESC LIMIT 40")
+  const events = db.prepare("SELECT id,type,payload_json,created_at,user_id FROM events WHERE app=? ORDER BY id DESC LIMIT 40")
     .all(currentApp()).map(e => {
       const payload = safeJson(e.payload_json);
-      return { id: e.id, type: e.type, at: e.created_at, payload, cdpPayload: toCdpTrack(e.type, payload, e.created_at) };
+      // Old rows (pre-migration) have NULL user_id → fall back to the demo default so they
+      // display as Daniel (keeps the harness cdp.track.userId canary = PT-990001 for baseline).
+      const uid = e.user_id || SERVER_DEFAULT_UID;
+      return { id: e.id, type: e.type, at: e.created_at, payload, cdpPayload: toCdpTrack(e.type, payload, e.created_at, uid) };
     });
 
   // How each behaviour becomes a standard CDP entity (the integration story)

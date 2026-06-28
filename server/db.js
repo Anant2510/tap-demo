@@ -123,6 +123,7 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN pss_ref TEXT"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN source TEXT DEFAULT 'web'"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN delivery TEXT"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN idem_key TEXT"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN user_id INTEGER"); } catch {}   // acting user per event → correct CDP attribution (multi-user)
 db.exec(`CREATE TABLE IF NOT EXISTS pss_ingest_log (
   id INTEGER PRIMARY KEY, idem_key TEXT UNIQUE, pss_ref TEXT, event_type TEXT, booking_id INTEGER, created_at TEXT
 );`);

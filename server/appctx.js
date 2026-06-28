@@ -5,4 +5,8 @@
 const { AsyncLocalStorage } = require("node:async_hooks");
 const appCtx = new AsyncLocalStorage();
 const currentApp = () => { const s = appCtx.getStore(); return (s && s.app) || "v1"; };
-module.exports = { appCtx, currentApp };
+// The acting user's uid for the current request/timer, stashed into the same store by the
+// resolveUid middleware. Lets identity-blind helpers (log/cdpForward) attribute CDP events
+// to the real actor. null when no request context (caller should fall back to a default).
+const currentUid = () => { const s = appCtx.getStore(); return (s && s.uid) || null; };
+module.exports = { appCtx, currentApp, currentUid };
