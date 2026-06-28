@@ -433,7 +433,7 @@ app.post("/api/journey/resume", (req, res) => {
    a matching event+hotel+flight bundle. This mirrors how a CDP turns card-spend
    signals into an experiential offer. */
 app.get("/api/recommendation", (req, res) => {
-  const user = db.prepare("SELECT * FROM users WHERE id=1").get();
+  const user = db.prepare("SELECT * FROM users WHERE id=?").get(req.uid);
   let categories = [];
   try { categories = JSON.parse(user.card_categories || "[]"); } catch {}
   const pkg = packageFor(user.affinity, user.home_airport);
@@ -806,9 +806,9 @@ app.post("/api/bookings/checkin", (req, res) => {
 /* ── AI endpoints ────────────────────────────────────────────── */
 app.post("/api/ai/plan", async (req, res) => {
   const q = (req.body.prompt || "").slice(0, 500);
-  const u = db.prepare("SELECT first_name, home_airport, affinity, affinity_label, card_product FROM users WHERE id=1").get() || {};
+  const u = db.prepare("SELECT first_name, home_airport, affinity, affinity_label, card_product FROM users WHERE id=?").get(req.uid) || {};
   if (u.card_product) u.card_product = maskCardProduct(u.card_product);
-  let categories = []; try { categories = JSON.parse((db.prepare("SELECT card_categories FROM users WHERE id=1").get()||{}).card_categories || "[]"); } catch {}
+  let categories = []; try { categories = JSON.parse((db.prepare("SELECT card_categories FROM users WHERE id=?").get(req.uid)||{}).card_categories || "[]"); } catch {}
   const pkg = packageFor(u.affinity, u.home_airport);
   log("ai_planner_query", { q, affinity: u.affinity });
   try {
@@ -1558,7 +1558,7 @@ app.post("/api/ai/agent", async (req, res) => {
 // up to 10 days at no extra airfare. Personalized by the traveller's affinity, and
 // shared by the home screen + WhatsApp so the story is identical across channels.
 app.get("/api/stopover", (req, res) => {
-  const u = db.prepare("SELECT first_name, tier, home_airport, affinity, affinity_label FROM users WHERE id=1").get() || {};
+  const u = db.prepare("SELECT first_name, tier, home_airport, affinity, affinity_label FROM users WHERE id=?").get(req.uid) || {};
   const home = u.home_airport || "OPO";
   const hub = home === "LIS" ? "OPO" : "LIS";        // stop in the Portugal hub you're not based at
   const nights = 3;
@@ -1609,11 +1609,11 @@ app.get("/api/stopover", (req, res) => {
 // Offer of the week — deterministic + personalized from travel history, so the SAME
 // offer shows on the home screen and on WhatsApp. Rotates weekly (stable within a week).
 app.get("/api/offers/today", (req, res) => {
-  const u = db.prepare("SELECT first_name, tier, home_airport, miles FROM users WHERE id=1").get() || {};
+  const u = db.prepare("SELECT first_name, tier, home_airport, miles FROM users WHERE id=?").get(req.uid) || {};
   const home = u.home_airport || "OPO";
   const ranked = db.prepare(
-    "SELECT f.dest d, COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest!=? GROUP BY f.dest ORDER BY c DESC, f.dest"
-  ).all(home).map(r => r.d);
+    "SELECT f.dest d, COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=? AND b.status!='cancelled' AND f.dest!=? GROUP BY f.dest ORDER BY c DESC, f.dest"
+  ).all(req.uid, home).map(r => r.d);
   let cands = ranked.length ? ranked
     : db.prepare("SELECT dest FROM routes WHERE origin=? ORDER BY base_fare ASC, dest LIMIT 4").all(home).map(r => r.dest);
   if (!cands.length) cands = ["LIS"];
@@ -1625,7 +1625,7 @@ app.get("/api/offers/today", (req, res) => {
   const price = Math.max(29, Math.round(base * (1 - discountPct / 100)));
   const tier = u.tier || "Gold";
   const milesPerk = tier === "Platinum" ? "Triple miles" : tier === "Silver" ? "25% bonus miles" : "Double miles";
-  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all();
+  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=? AND status='completed'").all(req.uid);
   const counts = {};
   past.forEach(b => { try { JSON.parse(b.items_json || "[]").forEach(x => counts[x] = (counts[x] || 0) + 1); } catch {} });
   let perkAnc = null, best = 0;
@@ -1666,7 +1666,7 @@ async function buildOfferTiles(identity, uid = 1) {
   db.prepare("SELECT code,name FROM ancillaries WHERE price>0").all().forEach(a => { if ((aCounts[a.code] || 0) > topAncN) { topAncN = aCounts[a.code]; topAnc = a; } });
   let localSegs = [], audiences = [], cdpOn = false;
   try { localSegs = (segments.evaluate(u.member_no).segments) || []; } catch { }
-  try { audiences = await cdpAudiences.audiencesFor({ loyaltyId: u.member_no, email: liveIdentity().email }); cdpOn = cdpAudiences.cdpWired(); } catch { }
+  try { audiences = await cdpAudiences.audiencesFor({ loyaltyId: u.member_no, email: liveIdentity(uid).email }); cdpOn = cdpAudiences.cdpWired(); } catch { }
   const topSeg = localSegs[0];
   const affinitySeg = localSegs.find(s => /affinity/i.test(s.id));
   const adobeAffinity = audiences.find(a => /football|golf|music|sport|live|fan/i.test(a));
@@ -1707,7 +1707,7 @@ async function buildOfferTiles(identity, uid = 1) {
     ].filter(Boolean),
   });
   // Active fare hold → a complete-your-hold tile, surfaced first (strong intent signal).
-  const heldRow = db.prepare("SELECT flight_no, total, expires_at FROM holds WHERE user_id=1 AND status='active' ORDER BY id DESC LIMIT 1").get();
+  const heldRow = db.prepare("SELECT flight_no, total, expires_at FROM holds WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1").get(uid);
   if (heldRow) {
     const hf = db.prepare("SELECT dest FROM flights WHERE flight_no=?").get(heldRow.flight_no);
     const hcity = hf ? cityName(hf.dest) : "your trip";
@@ -1723,7 +1723,7 @@ async function buildOfferTiles(identity, uid = 1) {
   return { tier, home, cdpOn, audiences, segments: localSegs, tiles };
 }
 app.get("/api/offers/tiles", async (req, res) => {
-  try { res.json(await buildOfferTiles(liveIdentity())); }
+  try { res.json(await buildOfferTiles(liveIdentity(req.uid), req.uid)); }
   catch (e) { res.json({ tiles: [], error: String(e) }); }
 });
 
@@ -1731,30 +1731,30 @@ app.get("/api/offers/tiles", async (req, res) => {
    supporting rows that drove it, plus the raw DB records and RT-CDP audiences. Read-only;
    lets a demo show the customer the database evidence behind every personalization. */
 app.get("/api/admin/personalization", async (req, res) => {
-  const u = db.prepare("SELECT member_no, email, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get() || {};
+  const u = db.prepare("SELECT member_no, email, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=?").get(req.uid) || {};
   const home = u.home_airport || "OPO";
   let localSegs = [], audiences = [], cdpOn = false;
   try { localSegs = (segments.evaluate(u.member_no).segments) || []; } catch { }
   try { audiences = await cdpAudiences.audiencesFor({ loyaltyId: u.member_no, email: u.email }); cdpOn = cdpAudiences.cdpWired(); } catch { }
-  const travel = db.prepare("SELECT route, trip_date, dep_time, purpose FROM travel_history WHERE user_id=1 ORDER BY trip_date DESC LIMIT 30").all();
-  const searchRows = db.prepare("SELECT origin, dest, travel_date, device, created_at FROM searches WHERE user_id=1 ORDER BY id DESC LIMIT 30").all();
-  const bookingRows = db.prepare("SELECT id, pnr, flight_no, flight_date, seat, items_json, status, source FROM bookings WHERE user_id=1 ORDER BY id DESC LIMIT 30").all()
+  const travel = db.prepare("SELECT route, trip_date, dep_time, purpose FROM travel_history WHERE user_id=? ORDER BY trip_date DESC LIMIT 30").all(req.uid);
+  const searchRows = db.prepare("SELECT origin, dest, travel_date, device, created_at FROM searches WHERE user_id=? ORDER BY id DESC LIMIT 30").all(req.uid);
+  const bookingRows = db.prepare("SELECT id, pnr, flight_no, flight_date, seat, items_json, status, source FROM bookings WHERE user_id=? ORDER BY id DESC LIMIT 30").all(req.uid)
     .map(b => ({ id: b.id, pnr: b.pnr, flight_no: b.flight_no, flight_date: b.flight_date, seat: b.seat, status: b.status, source: b.source, items: _safeJSON(b.items_json, []) }));
-  const holdRows = db.prepare("SELECT flight_no, total, expires_at, status, created_at FROM holds WHERE user_id=1 ORDER BY id DESC LIMIT 10").all();
+  const holdRows = db.prepare("SELECT flight_no, total, expires_at, status, created_at FROM holds WHERE user_id=? ORDER BY id DESC LIMIT 10").all(req.uid);
   const surfaces = [];
-  const ot = await buildOfferTiles(liveIdentity());
+  const ot = await buildOfferTiles(liveIdentity(req.uid), req.uid);
   surfaces.push({ surface: "Home · offer tiles", items: ot.tiles.map(t => ({ title: t.title, via: t.via, reason: t.reason, signals: t.signals })) });
   const destItems = db.prepare("SELECT code, city, tag FROM destinations").all().map(d => {
-    const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=1 AND route LIKE ?").all(`%→${d.code}`);
-    const booked = db.prepare("SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?").get(d.code).c;
-    const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=1 AND dest=?").get(d.code).c;
+    const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=? AND route LIKE ?").all(req.uid, `%→${d.code}`);
+    const booked = db.prepare("SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=? AND b.status!='cancelled' AND f.dest=?").get(req.uid, d.code).c;
+    const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=? AND dest=?").get(req.uid, d.code).c;
     const score = flownRows.length * 3 + booked * 2 + searched;
     return { city: d.city, flown: flownRows.length, booked, searched, score };
   }).filter(d => d.score > 0).sort((a, b) => b.score - a.score).slice(0, 6)
     .map(d => ({ title: d.city, reason: `flown ${d.flown}× · booked ${d.booked}× · searched ${d.searched}×`,
       signals: [d.flown ? `travel_history: ${d.flown} trip(s) to ${d.city}` : null, d.booked ? `bookings: ${d.booked} to ${d.city}` : null, d.searched ? `searches: ${d.searched} for ${d.city}` : null].filter(Boolean) }));
   surfaces.push({ surface: "Home · picked for you (destinations)", items: destItems });
-  const ancPast = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all();
+  const ancPast = db.prepare("SELECT items_json FROM bookings WHERE user_id=? AND status='completed'").all(req.uid);
   const totalTrips = ancPast.length || 1; const aCounts = {};
   ancPast.forEach(b => { _safeJSON(b.items_json, []).forEach(c => aCounts[c] = (aCounts[c] || 0) + 1); });
   const ancItems = db.prepare("SELECT code, name FROM ancillaries WHERE price>0").all()
@@ -1779,7 +1779,7 @@ app.get("/api/admin/personalization", async (req, res) => {
 
 app.post("/api/offers/send", async (req, res) => {
   let offer, ai = "live";
-  const u = db.prepare("SELECT first_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get() || {};
+  const u = db.prepare("SELECT first_name, tier, miles, home_airport, affinity_label FROM users WHERE id=?").get(req.uid) || {};
   try {
     offer = await callClaude([{ role: "user", content:
       `Create ONE personalized commercial offer email for ${u.first_name} (${u.tier}, ${u.miles} miles, home ${u.home_airport}${u.affinity_label ? ", interests: " + u.affinity_label : ""}) using their actual travel history in your context (their recurring route/flight pattern, miles balance, tier). Make it concrete with numbers and address them by first name.
