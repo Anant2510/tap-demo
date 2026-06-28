@@ -271,11 +271,12 @@ function cancelAllSearchFollowups() {
 
 /* ── Profile / personalization data ─────────────────────────── */
 app.get("/api/profile", (req, res) => {
-  const user = db.prepare("SELECT * FROM users WHERE id=1").get();
-  const prefs = db.prepare("SELECT * FROM preferences WHERE user_id=1").get();
-  const vouchers = db.prepare("SELECT * FROM vouchers WHERE user_id=1 AND status='active'").all();
-  const history = db.prepare("SELECT * FROM travel_history WHERE user_id=1 ORDER BY trip_date DESC").all();
-  const search = db.prepare("SELECT * FROM synced_searches WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+  const uid = req.uid;
+  const user = db.prepare("SELECT * FROM users WHERE id=?").get(uid);
+  const prefs = db.prepare("SELECT * FROM preferences WHERE user_id=?").get(uid);
+  const vouchers = db.prepare("SELECT * FROM vouchers WHERE user_id=? AND status='active'").all(uid);
+  const history = db.prepare("SELECT * FROM travel_history WHERE user_id=? ORDER BY trip_date DESC").all(uid);
+  const search = db.prepare("SELECT * FROM synced_searches WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
 
   // Most-flown outbound route from the user's HOME airport, computed live
   // (so it adapts to whichever persona is active, and shifts as they book).
@@ -300,9 +301,9 @@ app.get("/api/profile", (req, res) => {
   history.forEach(h => { if (h.route && h.route.includes("→")) { const d = h.route.split("→")[1]; destCounts[d] = (destCounts[d] || 0) + 1; } });
 
   // Recent searches are behavioural signals too — surface the most-searched destinations
-  const searchRows = db.prepare("SELECT dest, COUNT(*) c FROM searches WHERE user_id=1 GROUP BY dest ORDER BY c DESC, MAX(id) DESC").all();
+  const searchRows = db.prepare("SELECT dest, COUNT(*) c FROM searches WHERE user_id=? GROUP BY dest ORDER BY c DESC, MAX(id) DESC").all(uid);
   const searchedDests = searchRows.map(r => ({ code: r.dest, count: r.c }));
-  const recentSearches = db.prepare("SELECT origin,dest,travel_date,created_at FROM searches WHERE user_id=1 ORDER BY id DESC LIMIT 5").all();
+  const recentSearches = db.prepare("SELECT origin,dest,travel_date,created_at FROM searches WHERE user_id=? ORDER BY id DESC LIMIT 5").all(uid);
 
   // Build a human "usual outbound / usual back" string from real history, and
   // surface the next bookable instance of the usual flight (number + price).
