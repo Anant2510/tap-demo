@@ -51,6 +51,10 @@ app.use(express.urlencoded({ extended: false }));   // Twilio posts x-www-form-u
 // sends nothing → defaults to "v1". Wrapping next() in the ALS context means all downstream
 // handlers (incl. timer-deferred work) can read currentApp() to scope event writes/reads.
 app.use((req, _res, next) => { const h = String(req.headers["x-app"] || "").toLowerCase(); appCtx.run({ app: h === "v2" ? "v2" : "v1" }, next); });
+// Resolve the request's user identity once per request (Goal-B §1.2). resolveUid
+// defaults to user 1 until callers are migrated, so this is a no-op behaviourally.
+const session = require("./session");
+app.use((req, _res, next) => { req.uid = session.resolveUid(req); req.profileSource = session.sessionSource(req); next(); });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // Events that must NOT auto-forward to Adobe RT-CDP:
