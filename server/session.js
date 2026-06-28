@@ -16,6 +16,11 @@ function getSession(sessionId) {
   return sessionId ? sessions.get(sessionId) || null : null;
 }
 
+// Unbind a session (logout). Returns true if a binding was removed.
+function unbindSession(sessionId) {
+  return sessionId ? sessions.delete(sessionId) : false;
+}
+
 // THE resolver. Priority:
 //   1. explicit session binding (web/chat)         — X-Session-Id header or body.sessionId
 //   2. phone→user (WhatsApp)                        — passed in by the WA layer
@@ -41,4 +46,4 @@ function sessionSource(req, opts = {}) {
   return (s && s.source) || require("./db").getDataSource(); // global default if unbound
 }
 
-module.exports = { newSessionId, bindSession, getSession, resolveUid, sessionSource, userByPhone, _sessions: sessions };
+module.exports = { newSessionId, bindSession, getSession, unbindSession, resolveUid, sessionSource, userByPhone, _sessions: sessions };

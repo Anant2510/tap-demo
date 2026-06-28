@@ -1983,6 +1983,78 @@ function currentPersona() {
 const PERSONA_UID = Object.fromEntries(KNOWN_USERS.map(([u, p]) => [p, u]));
 const uidForPersona = (p) => PERSONA_UID[p] || 1;
 
+/* ── Auth / registration (§4) — built on the step-1 session seam ──────────────
+   login binds an existing known user; register allocates a fresh slot (uid 6–15) for
+   an anonymous visitor who then accrues their own history; logout unbinds; me reports
+   who the session is bound to. resolveUid still defaults to 1 (cutover is step 11). */
+const sidOf = (req) => (req.headers["x-session-id"] || (req.body && req.body.sessionId) || (req.query && req.query.sessionId)) || null;
+
+// Allocate the next free registration slot in 6–15 (rows persist until reset; logout
+// only unbinds the session). Returns null when all 10 slots are occupied.
+function nextFreeUid() {
+  const taken = new Set(db.prepare("SELECT id FROM users WHERE id BETWEEN 6 AND 15").all().map(r => r.id));
+  for (let u = 6; u <= 15; u++) if (!taken.has(u)) return u;
+  return null;
+}
+
+// Look up one of the 5 known users by persona id, email, or member_no.
+function findKnownUser({ persona, email, member_no }) {
+  if (persona && PERSONAS[persona]) return db.prepare("SELECT * FROM users WHERE id=?").get(uidForPersona(persona));
+  if (member_no) { const u = db.prepare("SELECT * FROM users WHERE member_no=?").get(member_no); if (u) return u; }
+  if (email) { const u = db.prepare("SELECT * FROM users WHERE lower(email)=lower(?)").get(email); if (u) return u; }
+  return null;
+}
+
+app.post("/api/auth/login", (req, res) => {
+  const { persona, email, member_no } = req.body || {};
+  const u = findKnownUser({ persona, email, member_no });
+  if (!u) return res.status(404).json({ ok: false, error: "no matching user — pass a known persona, email, or member_no" });
+  let sid = sidOf(req) || session.newSessionId();
+  session.bindSession(sid, u.id, getDataSource());
+  log("auth_login", { uid: u.id, member_no: u.member_no, via: persona ? "persona" : member_no ? "member_no" : "email" });
+  res.json({ ok: true, sessionId: sid, uid: u.id, user: { uid: u.id, member_no: u.member_no, full_name: u.full_name, first_name: u.first_name, tier: u.tier, home_airport: u.home_airport, source: getDataSource() } });
+});
+
+app.post("/api/auth/register", (req, res) => {
+  const { first_name, email, phone, home_airport } = req.body || {};
+  if (!first_name || !email) return res.status(400).json({ ok: false, error: "first_name and email are required" });
+  if (db.prepare("SELECT id FROM users WHERE lower(email)=lower(?)").get(email)) return res.status(409).json({ ok: false, error: "that email is already registered — log in instead" });
+  const uid = nextFreeUid();
+  if (!uid) return res.status(409).json({ ok: false, error: "registration full — reset the demo to free slots" });
+  const member_no = "TP-9900" + String(uid).padStart(2, "0");   // continues the 99000x sequence; resolvable by PSS/stitch
+  const home = (home_airport || "LIS").toUpperCase();
+  // Blank, VALID users row — tier Member, miles 0, no card/affinity/voucher/history.
+  db.prepare(`INSERT INTO users (id,member_no,first_name,full_name,email,phone,tier,miles,home_airport)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(uid, member_no, first_name, first_name, email, phone || null, "Member", 0, home);
+  // Default (empty) preferences so profile/checkout helpers have a row to read.
+  db.prepare(`INSERT INTO preferences (user_id,seat,seat_note,bag,meal,auto_checkin) VALUES (?,?,?,?,?,?)`)
+    .run(uid, "Any available seat", "No saved seat yet", "Cabin bag only", "No meal preference", 0);
+  // Members directory entry so PSS bookings / identity stitching resolve this new member.
+  db.prepare(`INSERT OR REPLACE INTO members (member_no,email,full_name,first_name,tier,miles,affinity,affinity_label,home_airport)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(member_no, email, first_name, first_name, "Member", 0, null, null, home);
+  let sid = sidOf(req) || session.newSessionId();
+  session.bindSession(sid, uid, getDataSource());
+  log("auth_register", { uid, member_no, home });
+  const u = db.prepare("SELECT * FROM users WHERE id=?").get(uid);
+  res.json({ ok: true, sessionId: sid, uid, user: { uid, member_no, full_name: u.full_name, first_name: u.first_name, tier: u.tier, home_airport: u.home_airport, source: getDataSource() } });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const sid = sidOf(req);
+  const removed = session.unbindSession(sid);
+  log("auth_logout", { unbound: removed });
+  res.json({ ok: true, unbound: removed });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  const sid = sidOf(req);
+  const s = session.getSession(sid);
+  if (!s || !s.uid) return res.json({ ok: true, bound: false, guest: true, message: "no session bound — log in or register" });
+  const u = db.prepare("SELECT * FROM users WHERE id=?").get(s.uid);
+  if (!u) return res.json({ ok: true, bound: false, guest: true, message: "session points to a missing user (reset?)" });
+  res.json({ ok: true, bound: true, uid: u.id, member_no: u.member_no, full_name: u.full_name, first_name: u.first_name, tier: u.tier, source: s.source || getDataSource() });
+});
+
 app.get("/api/personas", (req, res) => {
   res.json({
     active: currentPersona(),
