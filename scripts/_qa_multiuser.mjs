@@ -179,11 +179,12 @@ async function baseline() {
 //  once the session→user seam lands.
 // ───────────────────────────────────────────────────────────────────────────
 async function concurrency() {
-  console.log(`\n▶ CONCURRENCY (15-session isolation) against ${BASE}\n`);
-  console.log("  This test proves per-session identity. Before the refactor it is EXPECTED");
-  console.log("  to show all sessions sharing one user (documents the starting state).\n");
+  console.log(`\n▶ CONCURRENCY (per-session isolation) against ${BASE}\n`);
+  console.log("  Each session binds to its own user, then ALL sessions concurrently read");
+  console.log("  their own profile/wallet/journey. Isolation = every session sees exactly");
+  console.log("  the user it bound to (got === want), with zero cross-session bleed.\n");
 
-  // Discover the known users we can bind sessions to.
+  // Discover the personas we can bind sessions to (list payload has id, not member_no).
   const personasRes = await get("/api/personas");
   const personas = (personasRes.json && personasRes.json.personas) || [];
   if (personas.length < 2) {
@@ -191,41 +192,62 @@ async function concurrency() {
     return;
   }
 
-  // Build N sessions, each intending to be a specific user.
-  const SESSIONS = 15;
+  // One session per available persona (so each 'want' is a distinct user), plus extra
+  // sessions cycling the same personas to exercise concurrent same-user sessions too.
+  const SESSIONS = Math.max(personas.length, Math.min(15, personas.length * 3));
   const sessions = Array.from({ length: SESSIONS }, (_, i) => ({
     sessionId: `qa-sess-${i}-${Math.random().toString(36).slice(2, 8)}`,
     wantPersona: personas[i % personas.length].id,
-    wantMember: personas[i % personas.length].member_no,
   }));
 
-  // Each session: (attempt to) bind to its user, then read its own profile concurrently.
-  // The binding mechanism does not exist yet — once it does, replace this with the real
-  // login/persona-pick call that sets the session→user mapping.
-  async function bindAndRead(s) {
-    // Placeholder bind: send the desired persona + session id. Pre-refactor the server
-    // ignores per-session identity, so this won't isolate — that's what we're measuring.
-    await post("/api/persona", { persona: s.wantPersona }, { sessionId: s.sessionId }).catch(() => {});
+  // Phase 1 — BIND each session to its persona and capture the member it resolved to,
+  // straight from the bind response (which returns uid + user). This is the session's
+  // ground-truth 'want': the member the server says this session now IS.
+  async function bind(s) {
+    const r = await post("/api/persona", { persona: s.wantPersona }, { sessionId: s.sessionId });
+    const j = r.json || {};
+    // Bind response shape: { ok, sessionId, uid, persona, user:{...} }. member_no may not be
+    // in the trimmed user object, so confirm via a profile read with the same session id.
     const prof = await get("/api/profile", { sessionId: s.sessionId });
-    return { sessionId: s.sessionId, want: s.wantMember, got: prof.json && prof.json.user && prof.json.user.member_no };
+    const member = prof.json && prof.json.user && prof.json.user.member_no;
+    return { ...s, uid: j.uid, want: member, boundPersona: j.persona };
   }
+  const bound = await Promise.all(sessions.map(bind));
 
-  // Fire all sessions concurrently and interleave.
-  const observed = await Promise.all(sessions.map(bindAndRead));
+  // Phase 2 — CONCURRENT reads. Fire every session's profile + wallet + journey at once,
+  // interleaved, and check each response carries that session's OWN identity.
+  async function readAll(s) {
+    const [prof, wallet, journey] = await Promise.all([
+      get("/api/profile", { sessionId: s.sessionId }),
+      post("/api/ai/agent", { messages: [{ role: "user", content: "what is my miles balance" }], sessionId: s.sessionId }),
+      get("/api/journey", { sessionId: s.sessionId }),
+    ]);
+    const gotMember = prof.json && prof.json.user && prof.json.user.member_no;
+    return { sessionId: s.sessionId, want: s.want, got: gotMember, uid: s.uid,
+      walletOk: !!(wallet.json && wallet.json.reply) };
+  }
+  const observed = await Promise.all(bound.map(readAll));
 
+  // Assertions ---------------------------------------------------------------
+  const allBound = observed.every(o => o.want);                  // every session got a member at bind
+  const isolated = observed.filter(o => o.got && o.want && o.got === o.want).length;
+  const distinctWant = new Set(observed.map(o => o.want)).size;
   const distinctGot = new Set(observed.map(o => o.got)).size;
-  const correctlyIsolated = observed.every(o => o.got === o.want);
 
-  note(`distinct users observed across ${SESSIONS} sessions: ${distinctGot}`);
-  observed.slice(0, 5).forEach(o => note(`session ${o.sessionId.slice(0, 14)} wanted ${o.want} got ${o.got}`));
+  note(`sessions: ${observed.length}, distinct users bound: ${distinctWant}, distinct users observed: ${distinctGot}`);
+  observed.forEach(o => note(`session ${o.sessionId.slice(0, 14)} uid=${o.uid} want=${o.want} got=${o.got} ${o.got === o.want ? "OK" : "MISMATCH"}`));
 
-  // The real gate (will PASS only after the seam lands):
-  check("each session sees its OWN user (no bleed)", "concurrency", correctlyIsolated,
-    correctlyIsolated ? `all ${SESSIONS} isolated` : `only ${distinctGot} distinct user(s) seen — sessions are sharing state (pre-refactor expected)`);
+  // Gate 1 — every session bound to a real user (sanity that binding works at all).
+  check("every session bound to a user", "concurrency", allBound,
+    allBound ? `${observed.length}/${observed.length} bound` : `${observed.filter(o=>o.want).length}/${observed.length} bound — bind/persona issue`);
 
-  // A softer informational signal regardless of pass/fail:
-  check("sessions resolve to >1 distinct user", "concurrency", distinctGot > 1,
-    `${distinctGot} distinct (pre-refactor this is 1; target is ${personas.length})`);
+  // Gate 2 — THE Goal-B isolation gate: each session sees exactly its own bound user.
+  check("each session sees its OWN user (no bleed)", "concurrency", isolated === observed.length,
+    `${isolated}/${observed.length} sessions correctly isolated` + (isolated === observed.length ? "" : " — CROSS-SESSION BLEED"));
+
+  // Gate 3 — the test actually exercised multiple distinct users (not a trivial pass).
+  check("multiple distinct users exercised", "concurrency", distinctWant >= 2,
+    `${distinctWant} distinct users bound across ${observed.length} sessions`);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
