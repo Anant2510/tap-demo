@@ -357,7 +357,7 @@ app.get("/api/profile", (req, res) => {
     searchedDests,
   };
   log("api_profile_fetch", { source: "users, preferences, vouchers, travel_history, searches", topRoute, topFlight });
-  res.json({ user: maskUserCard(user), prefs, vouchers, history, pattern, syncedSearch: search ? { ...search, days_to_go: daysToGo(search.travel_date) } : search, recentSearches, today: todayISO(), source: getDataSource(), cdp: cdpSummary() });
+  res.json({ user: maskUserCard(user), prefs, vouchers, history, pattern, syncedSearch: search ? { ...search, days_to_go: daysToGo(search.travel_date) } : search, recentSearches, today: todayISO(), source: req.profileSource, cdp: cdpSummary(req.uid, req.profileSource) });
 });
 
 /* ── Cross-channel journey state ───────────────────────────────────────────
@@ -1853,9 +1853,9 @@ app.get("/api/admin/cdp", (req, res) => {
   ];
 
   res.json({
-    source: getDataSource(),
+    source: req.profileSource,
     adobe: cdp.cdpConfig(),
-    provenance: getDataSource() === "adobe" ? _cdpProvenance : null,
+    provenance: req.profileSource === "adobe" ? (_cdpProvenance[req.uid] || null) : null,
     db: { path: DB_PATH, engine: "SQLite (node:sqlite)", writeMode: "live — every action commits a row" },
     counts,
     totalRows: Object.values(counts).reduce((a, b) => a + b, 0),
@@ -1979,9 +1979,11 @@ function currentPersona() {
   const row = db.prepare("SELECT v FROM app_state WHERE k='persona'").get();
   return (row && row.v) || DEFAULT_PERSONA;
 }
-// Fixed persona→uid map (§3.3), derived from the canonical KNOWN_USERS list in db.js.
+// Fixed persona↔uid maps (§3.3), derived from the canonical KNOWN_USERS list in db.js.
 const PERSONA_UID = Object.fromEntries(KNOWN_USERS.map(([u, p]) => [p, u]));
+const UID_PERSONA = Object.fromEntries(KNOWN_USERS.map(([u, p]) => [u, p]));
 const uidForPersona = (p) => PERSONA_UID[p] || 1;
+const personaForUid = (uid) => UID_PERSONA[uid] || null;   // null for registered users 6–15 (no CDP persona)
 
 /* ── Auth / registration (§4) — built on the step-1 session seam ──────────────
    login binds an existing known user; register allocates a fresh slot (uid 6–15) for
@@ -2079,32 +2081,43 @@ app.post("/api/persona", (req, res) => {
    Hydrates the live profile (users/preferences/vouchers) from the chosen
    source. Operational tables are untouched, so all personalization across
    web portal + web AI chat + WhatsApp re-points the instant you switch. */
-let _cdpProvenance = null;   // cached provenance for the active (adobe) persona
-async function hydrateActiveSource(personaId) {
-  const id = personaId || currentPersona();
-  if (getDataSource() === "adobe") {
-    const { profile, provenance } = await cdp.getProfileFromCdp(id);
-    applyProfile(profile);
-    _cdpProvenance = { ...provenance, persona: id, at: new Date().toISOString() };
-    log("cdp_profile_hydrated", { persona: id, mode: provenance.mode, audiences: provenance.audiences.length });
+// Per-uid provenance cache (option b): each user can be SQLite- or Adobe-hydrated
+// independently. Keyed by uid → the last adobe-hydration snapshot (absent = sqlite).
+const _cdpProvenance = {};
+// Hydrate ONE user's profile rows from the chosen source. Generalized from uid-1.
+//   uid       — which user's users/preferences/vouchers rows to overwrite
+//   personaId — the persona to pull from (CDP/local); falls back to that uid's persona
+//   source    — 'adobe' | 'sqlite' (the SESSION's source, not the global default)
+async function hydrateActiveSource(uid = 1, personaId = null, source = getDataSource()) {
+  const persona = personaId || personaForUid(uid);
+  // Risk C guard: registered users (6–15) have NO CDP persona. Never call
+  // getProfileFromCdp(undefined) (it would default to Daniel and clobber them) —
+  // leave their accrued SQLite rows untouched.
+  if (!persona) { delete _cdpProvenance[uid]; return null; }
+  if (source === "adobe") {
+    const { profile, provenance } = await cdp.getProfileFromCdp(persona);
+    applyProfile(profile, uid);
+    _cdpProvenance[uid] = { ...provenance, persona, at: new Date().toISOString() };
+    log("cdp_profile_hydrated", { uid, persona, mode: provenance.mode, audiences: provenance.audiences.length });
   } else {
-    applyProfile(localProfile(id));   // restore the local SQLite profile (profile-only; keeps bookings)
-    _cdpProvenance = null;
+    applyProfile(localProfile(persona), uid);   // restore the local SQLite profile (profile-only; keeps bookings)
+    delete _cdpProvenance[uid];
   }
-  return _cdpProvenance;
+  return _cdpProvenance[uid] || null;
 }
-function cdpSummary() {
-  if (getDataSource() !== "adobe" || !_cdpProvenance) return null;
-  const p = _cdpProvenance;
+function cdpSummary(uid = 1, source = getDataSource()) {
+  const p = source === "adobe" ? _cdpProvenance[uid] : null;
+  if (!p) return null;
   return { mode: p.mode, sandbox: p.sandbox, identityMap: p.identityMap, audiences: p.audiences, consent: p.consent, ingestedAt: p.ingestedAt, persona: p.persona };
 }
 
 app.get("/api/datasource", (req, res) => {
+  // THIS session's view (req.profileSource = its bound source, else the global default).
   res.json({
-    source: getDataSource(),
-    persona: currentPersona(),
+    source: req.profileSource,
+    persona: personaForUid(req.uid) || currentPersona(),
     cdp: cdp.cdpConfig(),
-    provenance: getDataSource() === "adobe" ? (_cdpProvenance || null) : null,
+    provenance: req.profileSource === "adobe" ? (_cdpProvenance[req.uid] || null) : null,
     sources: [
       { id: "sqlite", label: "SQLite (local)", desc: "Profiles & traits read from the bundled SQLite customer record." },
       { id: "adobe", label: "Adobe Real-Time CDP", desc: "Unified profile, identity graph, real-time audiences & consent from Adobe Experience Platform." },
@@ -2115,11 +2128,25 @@ app.get("/api/datasource", (req, res) => {
 app.post("/api/datasource", async (req, res) => {
   const s = (req.body && req.body.source) === "adobe" ? "adobe" : "sqlite";
   try {
-    setDataSource(s);
-    const provenance = await hydrateActiveSource(currentPersona());
-    log("datasource_switched", { source: s });
-    const u = db.prepare("SELECT first_name, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=1").get();
-    res.json({ ok: true, source: s, persona: currentPersona(), user: u, provenance, cdp: cdp.cdpConfig() });
+    const sid = sidOf(req);
+    const bound = session.getSession(sid);
+    let uid, persona, provenance;
+    if (bound && bound.uid) {
+      // Bound session → set THIS session's source (per-user) and hydrate its user.
+      uid = bound.uid;
+      session.bindSession(sid, uid, s);            // re-bind with the new source
+      persona = personaForUid(uid);
+      provenance = await hydrateActiveSource(uid, persona, s);
+    } else {
+      // Unbound → flip the GLOBAL default (legacy demo-console toggle) and hydrate uid 1.
+      setDataSource(s);
+      uid = 1; persona = personaForUid(1);
+      provenance = await hydrateActiveSource(1, persona, s);
+    }
+    log("datasource_switched", { source: s, uid, scope: (bound && bound.uid) ? "session" : "global" });
+    const u = db.prepare("SELECT first_name, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=?").get(uid);
+    // Risk F: report the NEWLY-SET source `s`, not req.profileSource (pre-change value).
+    res.json({ ok: true, source: s, persona, user: u, provenance, cdp: cdp.cdpConfig() });
   } catch (e) {
     res.status(500).json({ ok: false, source: getDataSource(), error: String((e && e.message) || e) });
   }
@@ -2128,7 +2155,7 @@ app.post("/api/datasource", async (req, res) => {
 app.post("/api/admin/reset", (req, res) => {
   // The ONLY destructive op: restore baseline (5 seeded users + 10 open slots), log everyone out.
   resetAllUsers();
-  hydrateActiveSource().catch(() => {});   // re-apply the active source to uid 1 (adobe consistency)
+  hydrateActiveSource(1, personaForUid(1), getDataSource()).catch(() => {});   // re-apply active source to uid 1
   res.json({ ok: true, source: getDataSource() });
 });
 
@@ -2327,5 +2354,7 @@ app.listen(PORT, HOST, () => {
   console.log(`   AI:      ${hasKey() ? "live (API key found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}`);
   const src = getDataSource();
   console.log(`   Profiles: ${src === "adobe" ? "Adobe Real-Time CDP" + (cdp.cdpConfig().configured ? " (live tenant)" : " (simulated — no IMS credentials set)") : "SQLite (local)"}\n`);
-  if (src === "adobe") hydrateActiveSource().catch((e) => console.log("   [cdp] hydrate on boot failed:", String(e && e.message || e)));
+  // Boot hydrate: uid 1 ONLY (baseline-minimal). Users 2–5 lazy-hydrate on their first
+  // adobe POST — avoids shared-sandbox flakiness from looping all 5 on boot.
+  if (src === "adobe") hydrateActiveSource(1, personaForUid(1), "adobe").catch((e) => console.log("   [cdp] hydrate on boot failed:", String(e && e.message || e)));
 });
