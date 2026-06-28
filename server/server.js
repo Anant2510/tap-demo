@@ -213,7 +213,7 @@ app.get("/api/search", (req, res) => {
   saveJourney({ origin, dest, date, device: "Web app", stage: "results" }, req.uid);
   // Search-abandonment journey: queue a follow-up. If no booking on this route
   // follows shortly, an offer email goes out too. (Demo timings are compressed.)
-  scheduleSearchFollowup(origin, dest, date, stored);
+  scheduleSearchFollowup(origin, dest, date, stored, req.uid);
   log("flight_search", { origin, dest, date, results: stored.length });
   cdpEvents.emit("results", liveIdentity(req.uid), { origin, destination: dest, travelDate: date, cabin: "Economy", channel: "Web app", abandoned: false });
   cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "search", dest });   // online touch → unified profile
@@ -229,15 +229,15 @@ app.get("/api/search", (req, res) => {
    /api/search collapses into one sequence (date-strip previews use bg=1 and never reach
    here). Both are delayed and cancelled the instant a booking completes, so a normal
    search → book flow produces NO abandonment emails — only a genuinely abandoned search does. */
-const followupTimers = {};   // `${origin}-${dest}` -> { followup, offer }
+const followupTimers = {};   // `${uid}:${origin}-${dest}` -> { followup, offer }  (per-user, see step 6)
 const FOLLOWUP_MS = Number(process.env.SEARCH_FOLLOWUP_MS) || 15000, OFFER_MS = Number(process.env.SEARCH_OFFER_MS) || 60000;
 const bookedToDest = (dest, uid = 1) => db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
   WHERE b.user_id=? AND b.status!='cancelled' AND f.dest=?`).get(uid, dest).c > 0;
 
-function scheduleSearchFollowup(origin, dest, date, flights) {
+function scheduleSearchFollowup(origin, dest, date, flights, uid = 1) {
   const low = flights.length ? Math.min(...flights.map(f => f.price)) : 0;
   const originCity = cityName(origin), destCity = cityName(dest);
-  const key = `${origin}-${dest}`;
+  const key = `${uid}:${origin}-${dest}`;   // per-user key — set/cancel/lookup must all use this format
   const app = currentApp();   // remember which frontend searched, so deferred emails tag correctly
   if (followupTimers[key]) { clearTimeout(followupTimers[key].followup); clearTimeout(followupTimers[key].offer); }
   const tagEvent = (type, payload) => {
@@ -247,12 +247,12 @@ function scheduleSearchFollowup(origin, dest, date, flights) {
   const runIn = (ms, fn) => setTimeout(() => appCtx.run({ app }, fn), ms);   // run callback in the right app-context
   followupTimers[key] = {
     followup: runIn(FOLLOWUP_MS, () => {
-      if (bookedToDest(dest)) return;
+      if (bookedToDest(dest, uid)) return;
       sendEmail("search_followup", { origin, dest, originCity, destCity, date, low }).catch(() => {});
       tagEvent("search_followup_sent", { origin, dest, date, low });
     }),
     offer: runIn(OFFER_MS, () => {
-      if (bookedToDest(dest)) return;
+      if (bookedToDest(dest, uid)) return;
       const discount = 15;
       sendEmail("search_offer", { origin, dest, originCity, destCity, date, low, discount }).catch(() => {});
       tagEvent("search_offer_sent", { origin, dest, date, discount });
@@ -260,10 +260,13 @@ function scheduleSearchFollowup(origin, dest, date, flights) {
   };
 }
 
-// A completed booking = converting, not abandoning — cancel every pending follow-up/offer
-// so no abandonment email fires after a purchase.
-function cancelAllSearchFollowups() {
+// A completed booking = converting, not abandoning — cancel THIS user's pending
+// follow-ups/offers so no abandonment email fires after their purchase. Scoped by the
+// `${uid}:` key prefix so one user converting never clears another's timers.
+function cancelAllSearchFollowups(uid = 1) {
+  const prefix = `${uid}:`;
   for (const k of Object.keys(followupTimers)) {
+    if (!k.startsWith(prefix)) continue;
     clearTimeout(followupTimers[k].followup); clearTimeout(followupTimers[k].offer);
     delete followupTimers[k];
   }
@@ -617,7 +620,7 @@ app.post("/api/pay", async (req, res) => {
   db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
     VALUES (?,?,?,?,?,'Business')`).run(req.uid, flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
   log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
-  cancelAllSearchFollowups();   // converted — don't chase with abandonment emails
+  cancelAllSearchFollowups(req.uid);   // converted — don't chase with abandonment emails
   const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
   cdpEvents.emit("booked", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
   cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "booked", spend: Number(total) || 0,
@@ -957,7 +960,7 @@ function agentRunTool(name, input, session) {
       .run(uid, origin, dest, date, 1, stored.length, "Chat agent", now());
     // Live "continue your last search" banner — record journey at the RESULTS stage
     saveJourney({ origin, dest, date, device: "Chat agent", stage: "results" }, uid);
-    scheduleSearchFollowup(origin, dest, date, stored);
+    scheduleSearchFollowup(origin, dest, date, stored, uid);
     log("agent_search", { origin, dest, date, results: stored.length });
     session.lastSearch = { origin, dest, date, flights: stored };
     return { ok: true, origin, dest, date, city: cityName(dest),
@@ -1116,7 +1119,7 @@ function agentRunTool(name, input, session) {
     db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (?,?,?,?,?,'Business')`)
       .run(uid, f.flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
     log("agent_checkout", { pnr, gross, date: bookDate, split: { voucher_amt, miles_used, card_amt } });
-    cancelAllSearchFollowups();   // converted — don't chase with abandonment emails
+    cancelAllSearchFollowups(uid);   // converted — don't chase with abandonment emails
     sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
     session.selected = null;
     return { ok: true, pnr, total: gross, date: bookDate, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
