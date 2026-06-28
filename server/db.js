@@ -169,9 +169,9 @@ const personaShift = (P) => {
 // The customer's CURRENT trip = soonest confirmed booking on/after today,
 // otherwise the most recent past confirmed booking. This mirrors the home
 // screen's logic so every channel (web, AI chat, WhatsApp) shows the SAME trip.
-const currentBooking = () =>
-  db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' AND flight_date >= ? ORDER BY flight_date ASC, id ASC LIMIT 1").get(TODAY)
-  || db.prepare("SELECT * FROM bookings WHERE user_id=1 AND status='confirmed' ORDER BY flight_date DESC, id DESC LIMIT 1").get();
+const currentBooking = (uid = 1) =>
+  db.prepare("SELECT * FROM bookings WHERE user_id=? AND status='confirmed' AND flight_date >= ? ORDER BY flight_date ASC, id ASC LIMIT 1").get(uid, TODAY)
+  || db.prepare("SELECT * FROM bookings WHERE user_id=? AND status='confirmed' ORDER BY flight_date DESC, id DESC LIMIT 1").get(uid);
 
 // Seeded recent searches — reused by initial seed AND by reset, so the demo
 // always starts with realistic behavioural signals.
@@ -523,13 +523,13 @@ function setDataSource(s) {
 // { user, prefs, voucher } object — used to hydrate traits from either the local
 // persona (SQLite) or Adobe RT-CDP. Leaves all operational tables untouched, so
 // switching source never wipes bookings/searches/history.
-function applyProfile(profile) {
+function applyProfile(profile, uid = 1) {
   if (!profile || !profile.user) return;
   const u = profile.user;
-  db.prepare(`UPDATE users SET member_no=?, first_name=?, full_name=?, email=?, phone=?, tier=?, miles=?, nationality=?, doc_id=?, home_airport=?, card_brand=?, card_last4=?, card_exp=?, card_product=?, card_categories=?, affinity=?, affinity_label=?, dob=?, gender=?, passport_exp=? WHERE id=1`)
-    .run(u.member_no, u.first_name, u.full_name, u.email /* Adobe identity = persona's real unique email; DEMO_EMAIL_TO only overrides the SMTP recipient in email.js, so a shared inbox no longer collapses all personas into one CDP profile */, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
-  if (profile.prefs) { db.exec("DELETE FROM preferences"); const p = profile.prefs; db.prepare(`INSERT INTO preferences VALUES (1,?,?,?,?,?)`).run(p.seat, p.seat_note, p.bag, p.meal, p.auto_checkin); }
-  if (profile.voucher) { db.exec("DELETE FROM vouchers"); const v = profile.voucher; db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry) VALUES (1,?,?,?,?)`).run(v.code, v.amount, v.reason, v.expiry); }
+  db.prepare(`UPDATE users SET member_no=?, first_name=?, full_name=?, email=?, phone=?, tier=?, miles=?, nationality=?, doc_id=?, home_airport=?, card_brand=?, card_last4=?, card_exp=?, card_product=?, card_categories=?, affinity=?, affinity_label=?, dob=?, gender=?, passport_exp=? WHERE id=?`)
+    .run(u.member_no, u.first_name, u.full_name, u.email /* Adobe identity = persona's real unique email; DEMO_EMAIL_TO only overrides the SMTP recipient in email.js, so a shared inbox no longer collapses all personas into one CDP profile */, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp, uid);
+  if (profile.prefs) { db.prepare("DELETE FROM preferences WHERE user_id=?").run(uid); const p = profile.prefs; db.prepare(`INSERT INTO preferences VALUES (?,?,?,?,?,?)`).run(uid, p.seat, p.seat_note, p.bag, p.meal, p.auto_checkin); }
+  if (profile.voucher) { db.prepare("DELETE FROM vouchers WHERE user_id=?").run(uid); const v = profile.voucher; db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry) VALUES (?,?,?,?,?)`).run(uid, v.code, v.amount, v.reason, v.expiry); }
 }
 // The normalized profile for a persona straight from the local SQLite seed.
 function localProfile(personaId) {
