@@ -156,12 +156,12 @@ app.get("/api/routes/suggested", (req, res) => {
   const allRoutes = db.prepare("SELECT * FROM routes").all();
 
   // Signals
-  const flown = db.prepare("SELECT route, COUNT(*) c, MAX(trip_date) last FROM travel_history WHERE user_id=1 AND route LIKE '%→%' GROUP BY route").all();
+  const flown = db.prepare("SELECT route, COUNT(*) c, MAX(trip_date) last FROM travel_history WHERE user_id=? AND route LIKE '%→%' GROUP BY route").all(req.uid);
   const flownMap = {}; flown.forEach(f => { flownMap[f.route] = { c: f.c, last: f.last }; });
-  const bookedDest = {}; db.prepare("SELECT flight_no FROM bookings WHERE user_id=1 AND status != 'cancelled'").all()
+  const bookedDest = {}; db.prepare("SELECT flight_no FROM bookings WHERE user_id=? AND status != 'cancelled'").all(req.uid)
     .forEach(b => { const f = db.prepare("SELECT dest FROM flights WHERE flight_no=?").get(b.flight_no); if (f) bookedDest[f.dest] = (bookedDest[f.dest] || 0) + 1; });
   const searchedPair = {}; const searchedDest = {};
-  db.prepare("SELECT origin, dest, COUNT(*) c FROM searches WHERE user_id=1 GROUP BY origin, dest").all()
+  db.prepare("SELECT origin, dest, COUNT(*) c FROM searches WHERE user_id=? GROUP BY origin, dest").all(req.uid)
     .forEach(s => { searchedPair[`${s.origin}→${s.dest}`] = s.c; searchedDest[s.dest] = (searchedDest[s.dest] || 0) + s.c; });
 
   const scored = allRoutes.map(r => {
@@ -626,7 +626,7 @@ app.post("/api/pay", async (req, res) => {
 });
 
 app.get("/api/bookings", (req, res) => {
-  const rows = db.prepare("SELECT * FROM bookings WHERE user_id=1 ORDER BY id DESC").all();
+  const rows = db.prepare("SELECT * FROM bookings WHERE user_id=? ORDER BY id DESC").all(req.uid);
   res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items_json || "[]"), flight: flightByNo(r.flight_no), days_to_go: daysToGo(r.flight_date) })));
 });
 
