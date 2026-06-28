@@ -6,7 +6,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile } = require("./db");
+const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedUser, KNOWN_USERS, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile } = require("./db");
 const cdp = require("./cdp");
 const cdpIngest = require("./cdp-ingest");
 const cdpEvents = require("./cdp-events");
@@ -1949,26 +1949,39 @@ app.get("/api/admin/selftest", (req, res) => {
   });
 });
 
-/* Reset for repeated demos */
-// Wipe ALL per-user data (keep shared airports/routes) and re-seed one persona.
-function reseedPersona(personaId) {
-  for (const t of ["baskets","fare_locks","holds","emails","searches","wa_messages","travel_history","vouchers","preferences","destinations","ancillaries","synced_searches","flights"]) {
+/* Global reset for repeated demos (§7) — the ONLY destructive op. Restores baseline:
+   the 5 seeded users (with history) + 10 open registration slots, and logs everyone out. */
+function resetAllUsers() {
+  // Wipe per-user OPERATIONAL tables for ALL users. Shared catalogs (airports, routes,
+  // ancillaries, destinations) are PRESERVED — not in this list.
+  for (const t of ["baskets","fare_locks","holds","emails","searches","wa_messages","travel_history","vouchers","preferences","synced_searches","flights"]) {
     try { db.exec(`DELETE FROM ${t}`); } catch {}
   }
-  // PSS-origin (offline / third-party) transactions are STICKY across persona switches,
-  // so the unified profile keeps reflecting offline data after a member logs in on the web.
-  // (The members directory is never cleared.)
+  // PSS-origin (offline / third-party) transactions are STICKY, so the unified profile
+  // keeps reflecting offline data after a member logs in on the web. (members never cleared.)
   try { db.exec("DELETE FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE source IS NOT 'pss')"); } catch {}
   try { db.exec("DELETE FROM bookings WHERE source IS NOT 'pss'"); } catch {}
-  try { db.exec("DELETE FROM users"); } catch {}
+  // Drop registered users 6–15 and clear their stitched CDP profiles (keyed by member_no).
+  try {
+    const extra = db.prepare("SELECT member_no FROM users WHERE id>5").all().map(r => r.member_no).filter(Boolean);
+    if (extra.length) { const ph = extra.map(() => "?").join(","); db.prepare(`DELETE FROM cdp_profiles WHERE loyalty_id IN (${ph})`).run(...extra); }
+  } catch {}
+  try { db.exec("DELETE FROM users"); } catch {}   // all users cleared; 1–5 re-seeded below, 6–15 gone
   db.exec("DELETE FROM events WHERE type != 'db_seeded' AND COALESCE(source,'') != 'pss' AND type NOT LIKE 'pss_%'");
-  seedPersonaData(personaId);
+  // Re-seed the 5 known users (shared catalogs already present and preserved).
+  for (const [uid, p] of KNOWN_USERS) seedUser(uid, p);
+  db.prepare("INSERT INTO app_state (k,v) VALUES ('persona',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(DEFAULT_PERSONA);
+  // Everyone logged out → clean slate (all session→user bindings dropped).
+  try { session._sessions.clear(); } catch {}
 }
 
 function currentPersona() {
   const row = db.prepare("SELECT v FROM app_state WHERE k='persona'").get();
   return (row && row.v) || DEFAULT_PERSONA;
 }
+// Fixed persona→uid map (§3.3), derived from the canonical KNOWN_USERS list in db.js.
+const PERSONA_UID = Object.fromEntries(KNOWN_USERS.map(([u, p]) => [p, u]));
+const uidForPersona = (p) => PERSONA_UID[p] || 1;
 
 app.get("/api/personas", (req, res) => {
   res.json({
@@ -1977,16 +1990,17 @@ app.get("/api/personas", (req, res) => {
   });
 });
 
-// Switch the live customer record to a different persona (re-seeds the DB).
+// Pick a persona = bind THIS session to that user's uid. NO DB wipe/reseed (the 5 known
+// users persist). Mints a sessionId if the client didn't send one and returns it.
 app.post("/api/persona", (req, res) => {
   const id = (req.body && req.body.persona) || DEFAULT_PERSONA;
   if (!PERSONAS[id]) return res.status(400).json({ ok: false, error: "unknown persona" });
-  reseedPersona(id);
-  // If profiles are sourced from Adobe RT-CDP, re-hydrate this persona's profile
-  // from CDP so the active source stays consistent across persona changes.
-  hydrateActiveSource(id).catch(() => {});
-  const u = db.prepare("SELECT first_name, full_name, tier, miles FROM users WHERE id=1").get();
-  res.json({ ok: true, persona: id, source: getDataSource(), user: u });
+  const uid = uidForPersona(id);
+  let sid = (req.headers["x-session-id"] || (req.body && req.body.sessionId)) || null;
+  if (!sid) sid = session.newSessionId();
+  session.bindSession(sid, uid, getDataSource());
+  const u = db.prepare("SELECT first_name, full_name, tier, miles FROM users WHERE id=?").get(uid);
+  res.json({ ok: true, sessionId: sid, uid, persona: id, source: getDataSource(), user: u });
 });
 
 /* ── Profile data source: SQLite ⇄ Adobe Real-Time CDP ─────────────────
@@ -2040,11 +2054,10 @@ app.post("/api/datasource", async (req, res) => {
 });
 
 app.post("/api/admin/reset", (req, res) => {
-  // Reset restores the CURRENT persona's pristine data (or one named in the body).
-  const id = (req.body && req.body.persona) || currentPersona();
-  reseedPersona(id);
-  hydrateActiveSource(id).catch(() => {});
-  res.json({ ok: true, persona: id, source: getDataSource() });
+  // The ONLY destructive op: restore baseline (5 seeded users + 10 open slots), log everyone out.
+  resetAllUsers();
+  hydrateActiveSource().catch(() => {});   // re-apply the active source to uid 1 (adobe consistency)
+  res.json({ ok: true, source: getDataSource() });
 });
 
 // Validate the live Adobe RT-CDP connection (IMS token + a profile lookup) without

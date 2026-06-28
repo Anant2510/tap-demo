@@ -175,12 +175,12 @@ const currentBooking = (uid = 1) =>
 
 // Seeded recent searches — reused by initial seed AND by reset, so the demo
 // always starts with realistic behavioural signals.
-function seedSearches(persona) {
+function seedSearches(uid, persona) {
   const P = (persona && PERSONAS[persona]) || PERSONAS[DEFAULT_PERSONA];
-  const isr = db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at) VALUES (1,?,?,?,?,?,?,?)`);
+  const isr = db.prepare(`INSERT INTO searches (user_id,origin,dest,travel_date,pax,results,device,created_at) VALUES (?,?,?,?,?,?,?,?)`);
   const dayAgo = (n) => new Date(Date.now() - n * 86400e3).toISOString().replace("T", " ").slice(0, 19);
   // each search row: [origin, dest, date, pax, results, device, daysAgo]
-  P.searches.forEach(([o, d, date, pax, results, device, ago]) => isr.run(o, d, date, pax, results, device, dayAgo(ago)));
+  P.searches.forEach(([o, d, date, pax, results, device, ago]) => isr.run(uid, o, d, date, pax, results, device, dayAgo(ago)));
 }
 
 // Seeded bookings — 10 total: 8 past (completed) + 2 active/upcoming. Reused by
@@ -439,7 +439,7 @@ const PERSONAS = {
 };
 const DEFAULT_PERSONA = "daniel";
 
-function seedBookings(persona) {
+function seedBookings(uid, persona) {
   const P = (persona && PERSONAS[persona]) || PERSONAS[DEFAULT_PERSONA];
   const B = P.bookings;
   // Seed ONE flights row per unique flight_no (personalization joins bookings→flights;
@@ -448,7 +448,7 @@ function seedBookings(persona) {
   const insF = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,status)
     VALUES (?,?,?,?,?,?,?,?,?,?,?, 'scheduled')`);
   const insB = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,created_at)
-    VALUES (?,1,?,?,?,?,?,?,?)`);
+    VALUES (?,?,?,?,?,?,?,?,?)`);
   const insP = db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`);
   const shift = personaShift(P);
@@ -461,16 +461,23 @@ function seedBookings(persona) {
       seenFlights.add(fno);
     }
     const createdAt = date + " 08:30:00";
-    const r = insB.run(pnr, fno, bdate, seat, status, ci, JSON.stringify(items), createdAt);
+    const r = insB.run(pnr, uid, fno, bdate, seat, status, ci, JSON.stringify(items), createdAt);
     insP.run(Number(r.lastInsertRowid), price, 0, 0, 0, +price.toFixed(2), createdAt);
   });
 }
 
-function seed(personaId) {
-  seedMembersDirectory();
+// The 5 known/pre-seeded users — fixed uid↔persona mapping (§3.3). uids 6–15 are the
+// anonymous registration slots, created on demand in step 8 (NOT seeded here).
+const KNOWN_USERS = [[1, "daniel"], [2, "sofia"], [3, "lars"], [4, "maria"], [5, "james"]];
+
+function seed() {
+  seedMembersDirectory();                       // all 5 personas → members directory (idempotent)
   const c = db.prepare("SELECT COUNT(*) n FROM users").get().n;
-  if (c > 0) return;
-  seedPersonaData(personaId || process.env.PERSONA || DEFAULT_PERSONA);
+  if (c > 0) return;                            // already seeded — idempotent gate
+  seedSharedCatalogs();                         // airports/routes/ancillaries/destinations — once, shared
+  for (const [uid, p] of KNOWN_USERS) seedUser(uid, p);
+  // Global default persona for unbound / legacy callers (bound sessions resolve per-session).
+  db.prepare("INSERT INTO app_state (k,v) VALUES ('persona',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(DEFAULT_PERSONA);
 }
 
 // The members directory holds ALL personas (not just the live id=1 record), so PSS
@@ -484,21 +491,15 @@ function seedMembersDirectory() {
   }
 }
 
-// Inserts everything for ONE persona into the live customer record (user_id=1).
-// Used by initial seed AND by the persona-switch / reset paths.
-function seedPersonaData(personaId) {
+// Shared catalogs — airports, route network, ancillary catalog, destination cards.
+// Seeded ONCE (count-gated), independent of any single user, so seeding 5 users never
+// collides on these global tables. The ancillary/destination CONTENT is taken from the
+// default persona; per-user personalization is computed at read time from each user's own
+// bookings/history (see /api/ancillaries, /api/destinations), not from these rows.
+function seedSharedCatalogs(personaId = DEFAULT_PERSONA) {
   const P = PERSONAS[personaId] || PERSONAS[DEFAULT_PERSONA];
-  const u = P.user;
-  db.prepare(`INSERT INTO users (id,member_no,first_name,full_name,email,phone,tier,miles,nationality,doc_id,home_airport,card_brand,card_last4,card_exp,card_product,card_categories,affinity,affinity_label,dob,gender,passport_exp)
-    VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(u.member_no, u.first_name, u.full_name, u.email /* Adobe identity = persona's real unique email; DEMO_EMAIL_TO only overrides the SMTP recipient in email.js, so a shared inbox no longer collapses all personas into one CDP profile */, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
 
-  const p = P.prefs;
-  db.prepare(`INSERT INTO preferences VALUES (1,?,?,?,?,?)`).run(p.seat, p.seat_note, p.bag, p.meal, p.auto_checkin);
-  const v = P.voucher;
-  db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry) VALUES (1,?,?,?,?)`).run(v.code, v.amount, v.reason, v.expiry);
-
-  // Airports & route network (shared across personas)
+  // Airports & route network
   if (db.prepare("SELECT COUNT(*) c FROM airports").get().c === 0) {
     const ia = db.prepare("INSERT OR IGNORE INTO airports (code,city,country,region) VALUES (?,?,?,?)");
     for (const [code, a] of Object.entries(AIRPORTS)) ia.run(code, a.city, a.country, a.region);
@@ -520,20 +521,48 @@ function seedPersonaData(personaId) {
     }
   }
 
+  // Ancillary catalog (shared; count-gated so it isn't re-seeded per user)
+  if (db.prepare("SELECT COUNT(*) c FROM ancillaries").get().c === 0) {
+    const an = db.prepare("INSERT INTO ancillaries (code,name,descr,price,was,auto,icon) VALUES (?,?,?,?,?,?,?)");
+    P.ancillaries.forEach(a => an.run(...a));
+  }
+  // Destination cards (shared; count-gated)
+  if (db.prepare("SELECT COUNT(*) c FROM destinations").get().c === 0) {
+    const de = db.prepare("INSERT INTO destinations (city,code,tag,price,miles_price,emoji) VALUES (?,?,?,?,?,?)");
+    P.destinations.forEach(d => de.run(...d));
+  }
+}
+
+// Inserts everything for ONE persona into a SPECIFIC user row (id=uid). Used by initial
+// seed (uids 1–5) and by the reset path. Does NOT touch shared catalogs (see above).
+function seedUser(uid, personaId) {
+  const P = PERSONAS[personaId] || PERSONAS[DEFAULT_PERSONA];
+  const u = P.user;
+  db.prepare(`INSERT INTO users (id,member_no,first_name,full_name,email,phone,tier,miles,nationality,doc_id,home_airport,card_brand,card_last4,card_exp,card_product,card_categories,affinity,affinity_label,dob,gender,passport_exp)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(uid, u.member_no, u.first_name, u.full_name, u.email /* Adobe identity = persona's real unique email; DEMO_EMAIL_TO only overrides the SMTP recipient in email.js, so a shared inbox no longer collapses all personas into one CDP profile */, u.phone, u.tier, u.miles, u.nationality, u.doc_id, u.home_airport, u.card_brand, u.card_last4, u.card_exp, u.card_product, u.card_categories, u.affinity, u.affinity_label, u.dob, u.gender, u.passport_exp);
+
+  const p = P.prefs;
+  db.prepare(`INSERT INTO preferences VALUES (?,?,?,?,?,?)`).run(uid, p.seat, p.seat_note, p.bag, p.meal, p.auto_checkin);
+  if (P.voucher) {   // entry-tier personas (e.g. Maria) have no voucher
+    const v = P.voucher;
+    db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry) VALUES (?,?,?,?,?)`).run(uid, v.code, v.amount, v.reason, v.expiry);
+  }
+
   // Travel history (drives "Picked for you" reasons)
-  const ih = db.prepare("INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (1,?,?,?,?,?)");
-  P.history.forEach(h => ih.run(...h));
+  const ih = db.prepare("INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (?,?,?,?,?,?)");
+  P.history.forEach(h => ih.run(uid, ...h));
 
   // Bookings (+ matching flights + payments) and behavioural searches
-  seedBookings(personaId);
-  seedSearches(personaId);
+  seedBookings(uid, personaId);
+  seedSearches(uid, personaId);
 
   // The live "continue your last search" banner — now carries a journey STAGE + selections
   const s = P.synced;
   const sDate = isoAdd(s.date, personaShift(P));   // keep the resume journey aligned with the upcoming trip
   db.prepare(`INSERT INTO synced_searches (user_id,origin,dest,travel_date,pax,device,created_at,stage,flight_no,seat,items_json,cabin,updated_at)
-    VALUES (1,?,?,?,1,?,?,?,?,?,?,?,?)`).run(
-      s.origin, s.dest, sDate, s.device, now(),
+    VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?)`).run(
+      uid, s.origin, s.dest, sDate, s.device, now(),
       s.stage || "results",            // where the customer left off
       s.flight_no || null,             // selected flight (if past results)
       s.seat || null,                  // chosen seat (if past seat step)
@@ -558,17 +587,8 @@ function seedPersonaData(personaId) {
       .run(s.flight_no, s.origin, s.dest, hhmm(depMin), hhmm(arrMin), durLbl, "A320neo", (r && r.base_fare) || 100, 22, sDate);
   }
 
-  // Ancillary catalog (personalized per persona)
-  const an = db.prepare("INSERT INTO ancillaries (code,name,descr,price,was,auto,icon) VALUES (?,?,?,?,?,?,?)");
-  P.ancillaries.forEach(a => an.run(...a));
-
-  // Personalized destination cards
-  const de = db.prepare("INSERT INTO destinations (city,code,tag,price,miles_price,emoji) VALUES (?,?,?,?,?,?)");
-  P.destinations.forEach(d => de.run(...d));
-
-  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('db_seeded',?,?)").run(JSON.stringify({ persona: personaId }), now());
-  db.prepare("INSERT INTO app_state (k,v) VALUES ('persona',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(personaId);
-  console.log(`✓ Database seeded for persona '${personaId}' → ` + DB_PATH);
+  db.prepare("INSERT INTO events (type,payload_json,created_at) VALUES ('db_seeded',?,?)").run(JSON.stringify({ persona: personaId, uid }), now());
+  console.log(`✓ Seeded user ${uid} ← persona '${personaId}' (${u.member_no}) → ` + DB_PATH);
 }
 seed();
 
@@ -632,4 +652,4 @@ function localProfile(personaId) {
   return { user: { ...P.user }, prefs: { ...P.prefs }, voucher: { ...P.voucher } };
 }
 
-module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedPersonaData, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile };
+module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedUser, seedSharedCatalogs, KNOWN_USERS, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile };
