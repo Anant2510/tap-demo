@@ -633,9 +633,9 @@ app.get("/api/bookings", (req, res) => {
 /* ── Disruption: live ops event → AI recovery → email ────────── */
 app.post("/api/disrupt", async (req, res) => {
   // Default to the active persona's usual outbound flight, not a hardcoded one.
-  const u = db.prepare("SELECT first_name, tier, home_airport FROM users WHERE id=1").get() || {};
-  const usual = db.prepare("SELECT flight_no, route FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC LIMIT 1").get((u.home_airport || "OPO") + "→%");
-  const flight_no = req.body.flight_no || usual?.flight_no || currentBooking()?.flight_no || "TP1927";
+  const u = db.prepare("SELECT first_name, tier, home_airport FROM users WHERE id=?").get(req.uid) || {};
+  const usual = db.prepare("SELECT flight_no, route FROM travel_history WHERE user_id=? AND route LIKE ? ORDER BY trip_date DESC LIMIT 1").get(req.uid, (u.home_airport || "OPO") + "→%");
+  const flight_no = req.body.flight_no || usual?.flight_no || currentBooking(req.uid)?.flight_no || "TP1927";
   let f = flightByNo(flight_no);
   // If that flight isn't in the flights table yet, synthesize a row from history/route.
   if (!f) { const r = (usual?.route || `${u.home_airport||"OPO"}→LIS`).split("→"); f = { flight_no, origin: r[0], dest: r[1], dep: "07:05", arr: "08:00" }; }
@@ -738,14 +738,14 @@ app.post("/api/bookings/ancillary/remove", async (req, res) => {
 });
 
 app.post("/api/bookings/cancel", async (req, res) => {
-  const b = currentBooking();
+  const b = currentBooking(req.uid);
   if (!b) return res.json({ ok: false });
   db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
   // Instant refund: restore miles + voucher from the payment record
   const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(b.id);
   if (pay) {
-    if (pay.miles_used > 0) db.prepare("UPDATE users SET miles = miles + ? WHERE id=1").run(pay.miles_used);
-    if (pay.voucher_amt > 0) db.prepare("UPDATE vouchers SET status='active' WHERE user_id=1").run();
+    if (pay.miles_used > 0) db.prepare("UPDATE users SET miles = miles + ? WHERE id=?").run(pay.miles_used, req.uid);
+    if (pay.voucher_amt > 0) db.prepare("UPDATE vouchers SET status='active' WHERE user_id=?").run(req.uid);
   }
   log("booking_cancelled", { pnr: b.pnr, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : null });
   const email = await sendEmail("cancelled", { b, pay });
@@ -775,7 +775,7 @@ app.post("/api/whatsapp/webhook", async (req, res) => {
 
 app.post("/api/rebook", async (req, res) => {
   const { option } = req.body;
-  const bk = currentBooking() || db.prepare("SELECT * FROM bookings WHERE user_id=1 ORDER BY id DESC LIMIT 1").get();
+  const bk = currentBooking(req.uid) || db.prepare("SELECT * FROM bookings WHERE user_id=? ORDER BY id DESC LIMIT 1").get(req.uid);
   const pnr = bk ? bk.pnr : "TPX9D4";
   if (bk && option.id !== bk.flight_no) db.prepare("UPDATE bookings SET flight_no=?, status='rebooked' WHERE id=?").run(option.id, bk.id);
   log("rebooked", { pnr, option });
@@ -785,22 +785,22 @@ app.post("/api/rebook", async (req, res) => {
 
 app.post("/api/checkin", (req, res) => {
   const { auto } = req.body;
-  db.prepare("UPDATE preferences SET auto_checkin=? WHERE user_id=1").run(auto ? 1 : 0);
+  db.prepare("UPDATE preferences SET auto_checkin=? WHERE user_id=?").run(auto ? 1 : 0, req.uid);
   log("auto_checkin_toggled", { auto });
   res.json({ ok: true });
 });
 
 /* Check in the current active booking (issues boarding pass). Verifies real state. */
 app.post("/api/bookings/checkin", (req, res) => {
-  const b = currentBooking();
+  const b = currentBooking(req.uid);
   if (!b) return res.json({ ok: false, state: "no_booking", message: "No upcoming flight to check in for." });
   const f = flightByNo(b.flight_no) || {};
-  if (b.checked_in) return res.json({ ok: true, state: "already_checked_in", pnr: b.pnr, seat: b.seat, group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
+  if (b.checked_in) return res.json({ ok: true, state: "already_checked_in", pnr: b.pnr, seat: b.seat, group: boardingGroup(userTier(req.uid)), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
   db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
   db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('checkin',?,?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web", doc: req.body?.doc_id || null }), now(), currentApp());
   log("booking_checkin", { pnr: b.pnr });
-  cdpEvents.emit("checkin", liveIdentity(), { origin: f.origin, destination: f.dest, travelDate: b.flight_date, flightNumber: b.flight_no, seat: b.seat || "4C", cabin: "Economy", channel: "web" });
-  res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: boardingGroup(userTier()), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
+  cdpEvents.emit("checkin", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: b.flight_date, flightNumber: b.flight_no, seat: b.seat || "4C", cabin: "Economy", channel: "web" });
+  res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: boardingGroup(userTier(req.uid)), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
 });
 
 /* ── AI endpoints ────────────────────────────────────────────── */
