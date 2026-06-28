@@ -2,10 +2,22 @@
 // the backend API lives at /api/* (unchanged). No build/server changes required.
 const API = "/api";
 const j = (r) => r.json();
-const HDRS = { "X-App": "v2" };   // tags every v2 request so v2 events/reads stay isolated from v1
+
+// Per-session identity: the sessionId returned by /api/auth/login|register. Sent as
+// X-Session-Id on EVERY request so the server resolves the right user (multi-user seam).
+// Hydrated from localStorage so it survives a page reload (re-minted on boot via re-login,
+// since server sessions are in-memory — see main.jsx). This is the single choke point.
+let SID = (() => { try { return localStorage.getItem("flytap_sid") || null; } catch { return null; } })();
+export function setSessionId(id) {
+  SID = id || null;
+  try { id ? localStorage.setItem("flytap_sid", id) : localStorage.removeItem("flytap_sid"); } catch {}
+}
+export const getSessionId = () => SID;
+// Base headers + the session header when bound. Built per-call so a fresh login is picked up.
+const hdrs = (extra) => ({ "X-App": "v2", ...(SID ? { "X-Session-Id": SID } : {}), ...(extra || {}) });
 export const api = {
-  get: (p) => fetch(API + p, { headers: HDRS }).then(j),
-  post: (p, body) => fetch(API + p, { method: "POST", headers: { "Content-Type": "application/json", ...HDRS }, body: JSON.stringify(body || {}) }).then(j),
+  get: (p) => fetch(API + p, { headers: hdrs() }).then(j),
+  post: (p, body) => fetch(API + p, { method: "POST", headers: hdrs({ "Content-Type": "application/json" }), body: JSON.stringify(body || {}) }).then(j),
 };
 
 export const EUR = (n) => n == null ? "—" : `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;
