@@ -2224,7 +2224,7 @@ app.post("/api/pss/ingest", async (req, res) => {
 // Synthetic ingest for the demo — fires a realistic PSS booking for the ACTIVE persona
 // (so it stitches onto the live profile). No signature required. Body fields optional.
 app.post("/api/pss/test", async (req, res) => {
-  const u = db.prepare("SELECT member_no, email, full_name, home_airport FROM users WHERE id=1").get() || {};
+  const u = db.prepare("SELECT member_no, email, full_name, home_airport FROM users WHERE id=?").get(req.uid) || {};   // fire the synthetic PSS booking for THIS session's user, not silently Daniel
   const b = req.body || {};
   const out = await pss.ingest({
     event_type: b.event_type || "booked",
@@ -2258,7 +2258,7 @@ app.post("/api/pss/book", async (req, res) => {
       if (known && known.phone) ident.phone = known.phone;
     }
   } else {
-    const u = db.prepare("SELECT member_no, email, full_name, phone, home_airport FROM users WHERE id=1").get() || {};
+    const u = db.prepare("SELECT member_no, email, full_name, phone, home_airport FROM users WHERE id=?").get(req.uid) || {};   // demo-panel path (no explicit member) → THIS session's user
     ident = { member_no: u.member_no, email: u.email, full_name: u.full_name, phone: u.phone, home_airport: u.home_airport };
   }
   const rec = {
@@ -2322,7 +2322,7 @@ app.get("/api/pss/segments", async (req, res) => {
   let ident;
   const pid = req.query.member;
   if (pid && PERSONAS[pid]) ident = { loyalty_id: PERSONAS[pid].user.member_no, email: PERSONAS[pid].user.email };
-  else { const u = db.prepare("SELECT member_no, email FROM users WHERE id=1").get() || {}; ident = { loyalty_id: u.member_no, email: u.email }; }
+  else { const u = liveIdentity(req.uid); ident = { loyalty_id: u.loyaltyId, email: u.email }; }   // default = THIS session's user, not silently Daniel
   const segments = await pss.resolveSegments({ loyaltyId: ident.loyalty_id, email: ident.email });
   const offer = pss.matchSegmentOffer(segments);
   res.json({ identity: ident, segments, offer: offer ? { label: offer.label, via: offer.via } : null });
@@ -2335,7 +2335,7 @@ app.post("/api/pss/flush", async (_req, res) => { res.json(await pss.flushOutbox
 // Defaults to the active persona's identity; pass ?loyaltyId= / ?email= for any profile.
 app.get("/api/cdp/profile", async (req, res) => {
   const id = { loyaltyId: req.query.loyaltyId || null, email: req.query.email || null };
-  if (!id.loyaltyId && !id.email) { const u = liveIdentity(); id.loyaltyId = u.loyaltyId; id.email = u.email; }
+  if (!id.loyaltyId && !id.email) { const u = liveIdentity(req.uid); id.loyaltyId = u.loyaltyId; id.email = u.email; }
   res.json((await cdpProfile.getProfileLive(id)) || { found: false, identity: id });
 });
 app.get("/api/cdp/profiles", (_req, res) => res.json(cdpProfile.listProfiles()));
