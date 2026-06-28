@@ -51,8 +51,12 @@ async function call(method, path, { body, headers, sessionId } = {}) {
   }
   return { ok: res.ok, status: res.status, json, text };
 }
-const get = (p, opts) => call("GET", p, opts);
-const post = (p, body, opts) => call("POST", p, { ...(opts || {}), body });
+// After cutover, identity comes from the session — the baseline logs in as Daniel and
+// carries that session id on every call (explicit per-call sessionId still wins, so the
+// concurrency section's own per-session ids are unaffected).
+let BASELINE_SID = null;
+const get = (p, opts) => call("GET", p, { ...(opts || {}), sessionId: (opts && opts.sessionId) || BASELINE_SID });
+const post = (p, body, opts) => call("POST", p, { ...(opts || {}), body, sessionId: (opts && opts.sessionId) || BASELINE_SID });
 
 // ── result accounting ──────────────────────────────────────────────────────
 const results = [];
@@ -75,6 +79,18 @@ function record(key, value) { snapshot[key] = value; }
 // ───────────────────────────────────────────────────────────────────────────
 async function baseline() {
   console.log(`\n▶ BASELINE (single-user) against ${BASE}\n`);
+
+  // Cutover: log in as Daniel and carry the session on every baseline check, so this tests
+  // "logged-in Daniel" rather than "unbound default". Recorded identity stays PT-990001, so
+  // --compare against the existing baseline.json stays green. (No record() here → snapshot
+  // is unchanged; this only adds a PASS line.)
+  {
+    BASELINE_SID = null;   // ensure the login call itself is unbound
+    const r = await post("/api/auth/login", { persona: "daniel" });
+    BASELINE_SID = r.json && r.json.sessionId;
+    check("login as daniel", "auth", !!BASELINE_SID && r.json && r.json.user && r.json.user.member_no === "PT-990001",
+      r.json && r.json.user ? `sid=${String(BASELINE_SID).slice(0, 10)}… · ${r.json.user.member_no}` : "login failed");
+  }
 
   // health
   {

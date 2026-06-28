@@ -1,6 +1,14 @@
 const crypto = require("node:crypto");
 const { db } = require("./db");
 
+// The single, explicit default identity for requests that bind NO session and resolve no
+// phone — the "demo default" user (uid 1 = Daniel). Env-overridable. This replaces the old
+// silent `return 1`: every entry point (web/agent/WhatsApp) now references THIS constant, so
+// flipping unbound→guest in the post-step-12 strict cutover is a one-line change here.
+const SERVER_DEFAULT_UID = Number(process.env.SERVER_DEFAULT_UID) || 1;
+// Admin / demo-console context runs as the demo user explicitly (not via the request default).
+const SYSTEM_UID = SERVER_DEFAULT_UID;
+
 // In-memory session→user map. 15-user demo: no external store needed.
 // { sessionId: { uid, source } }   source = 'sqlite' | 'adobe' (option b, per-session)
 const sessions = new Map();
@@ -30,7 +38,7 @@ function resolveUid(req, opts = {}) {
   const s = getSession(sid);
   if (s && s.uid) return s.uid;
   if (opts.phone) { const u = userByPhone(opts.phone); if (u) return u.id; }
-  return 1; // default — REMOVE/replace once every caller passes identity (see §5 cutover)
+  return SERVER_DEFAULT_UID; // explicit demo default (model b); flip to a guest sentinel in the strict cutover
 }
 
 function userByPhone(raw) {
@@ -46,4 +54,4 @@ function sessionSource(req, opts = {}) {
   return (s && s.source) || require("./db").getDataSource(); // global default if unbound
 }
 
-module.exports = { newSessionId, bindSession, getSession, unbindSession, resolveUid, sessionSource, userByPhone, _sessions: sessions };
+module.exports = { newSessionId, bindSession, getSession, unbindSession, resolveUid, sessionSource, userByPhone, SERVER_DEFAULT_UID, SYSTEM_UID, _sessions: sessions };

@@ -21,8 +21,8 @@ const session = require("./session");   // step-1 seam: phone→uid + wa:<tail> 
 
 // CDP forwarder for WhatsApp-channel events (written here, outside server.js's log()).
 let _cdpEvents = null; try { _cdpEvents = require("./cdp-events"); } catch { _cdpEvents = null; }
-function _cdpIdent(uid = 1) { try { const u = db.prepare("SELECT member_no, email FROM users WHERE id=?").get(uid) || {}; return { loyaltyId: u.member_no, email: u.email }; } catch { return {}; } }
-function cdpForward(type, attrs, rowId, uid = 1) {
+function _cdpIdent(uid = session.SERVER_DEFAULT_UID) { try { const u = db.prepare("SELECT member_no, email FROM users WHERE id=?").get(uid) || {}; return { loyaltyId: u.member_no, email: u.email }; } catch { return {}; } }
+function cdpForward(type, attrs, rowId, uid = session.SERVER_DEFAULT_UID) {
   (async () => {
     let ok = false;
     try {
@@ -162,7 +162,7 @@ const apiCall = (method, p, body, to) =>
 
 // Resolve the per-message uid from the sender's bound session (set at handleIncoming entry).
 // NEVER cache uid in a module-level var — derive per message from the phone (Risk D).
-const waUid = (to) => (session.getSession("wa:" + phoneTail(to)) || {}).uid || 1;
+const waUid = (to) => (session.getSession("wa:" + phoneTail(to)) || {}).uid || session.SERVER_DEFAULT_UID;
 const latestBooking = (to) => currentBooking(waUid(to));   // this user's "soonest upcoming" trip
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 // Live loyalty tier + boarding group for the acting user (never hardcode "Gold").
@@ -743,7 +743,7 @@ async function handleIncoming({ from, text }) {
   // apiCall (via X-Session-Id) and every direct DB read acts as THIS user. Per-sender state
   // (draft/convo/menu/ctx) is already keyed by phone, so senders never collide. Unknown
   // sender → uid 1 (regression-safe default; cutover step 11 swaps default-to-1 for guest).
-  const uid = (session.userByPhone(from) || {}).id || 1;
+  const uid = (session.userByPhone(from) || {}).id || session.SERVER_DEFAULT_UID;
   session.bindSession("wa:" + phoneTail(from), uid, getDataSource());
 
   logWA("in", from, "text", text, { from, text }, "received");
@@ -1058,7 +1058,7 @@ ${lines.join("\n")}
 }
 
 /* ── Proactive push: portal disruption → WhatsApp text ───────── */
-async function pushDisruption(f, recovery, uid = 1) {
+async function pushDisruption(f, recovery, uid = session.SERVER_DEFAULT_UID) {
   const to = process.env.WHATSAPP_DEFAULT_TO || db.prepare("SELECT wa_id FROM users WHERE id=?").get(uid)?.wa_id;
   if (!to) { logWA("out", "", "skipped", "Disruption push skipped — no WhatsApp recipient known yet", {}, "no recipient"); return "no recipient"; }
   // Bind this user's wa:<tail> session so a follow-up REBOOK apiCall acts as THEM (not uid 1).

@@ -12,7 +12,7 @@ const cdpIngest = require("./cdp-ingest");
 const cdpEvents = require("./cdp-events");
 const aem = require("./aem");
 // Identity for streamed events — loyaltyId (primary) from the live customer record.
-function liveIdentity(uid = 1) { const u = db.prepare("SELECT member_no, email FROM users WHERE id=?").get(uid) || {}; return { loyaltyId: u.member_no, email: u.email }; }
+function liveIdentity(uid = SERVER_DEFAULT_UID) { const u = db.prepare("SELECT member_no, email FROM users WHERE id=?").get(uid) || {}; return { loyaltyId: u.member_no, email: u.email }; }
 const { sendEmail, SMTP_READY } = require("./email");
 const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
@@ -54,6 +54,11 @@ app.use((req, _res, next) => { const h = String(req.headers["x-app"] || "").toLo
 // Resolve the request's user identity once per request (Goal-B §1.2). resolveUid
 // defaults to user 1 until callers are migrated, so this is a no-op behaviourally.
 const session = require("./session");
+// Top-level aliases so code where `session` is shadowed by a parameter (agentRunTool /
+// deterministicAgent take a `session` arg) can still reach the single default-identity
+// constant — never a literal 1 (Risk B: keeps agent and request on the same default).
+const SERVER_DEFAULT_UID = session.SERVER_DEFAULT_UID;
+const SYSTEM_UID = session.SYSTEM_UID;
 app.use((req, _res, next) => { req.uid = session.resolveUid(req); req.profileSource = session.sessionSource(req); next(); });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
@@ -90,7 +95,7 @@ const log = (type, payload) => {
 };
 const flightByNo = (no) => db.prepare("SELECT * FROM flights WHERE flight_no=?").get(no);
 // Live loyalty tier + boarding group for the active persona (never hardcode "Gold").
-const userTier = (uid = 1) => (db.prepare("SELECT tier FROM users WHERE id=?").get(uid) || {}).tier || "Gold";
+const userTier = (uid = SERVER_DEFAULT_UID) => (db.prepare("SELECT tier FROM users WHERE id=?").get(uid) || {}).tier || "Gold";
 const boardingGroup = (tier) => `${(tier || "Gold") === "Silver" ? "B" : "A"} (${tier || "Gold"})`;
 // Card identity is never exposed anywhere — UI, DB inspector, API payloads, AI prompts, emails.
 // (No card network brand, no last-4, no expiry.) Spend categories remain for personalization.
@@ -231,10 +236,10 @@ app.get("/api/search", (req, res) => {
    search → book flow produces NO abandonment emails — only a genuinely abandoned search does. */
 const followupTimers = {};   // `${uid}:${origin}-${dest}` -> { followup, offer }  (per-user, see step 6)
 const FOLLOWUP_MS = Number(process.env.SEARCH_FOLLOWUP_MS) || 15000, OFFER_MS = Number(process.env.SEARCH_OFFER_MS) || 60000;
-const bookedToDest = (dest, uid = 1) => db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
+const bookedToDest = (dest, uid = SERVER_DEFAULT_UID) => db.prepare(`SELECT COUNT(*) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no
   WHERE b.user_id=? AND b.status!='cancelled' AND f.dest=?`).get(uid, dest).c > 0;
 
-function scheduleSearchFollowup(origin, dest, date, flights, uid = 1) {
+function scheduleSearchFollowup(origin, dest, date, flights, uid = SERVER_DEFAULT_UID) {
   const low = flights.length ? Math.min(...flights.map(f => f.price)) : 0;
   const originCity = cityName(origin), destCity = cityName(dest);
   const key = `${uid}:${origin}-${dest}`;   // per-user key — set/cancel/lookup must all use this format
@@ -263,7 +268,7 @@ function scheduleSearchFollowup(origin, dest, date, flights, uid = 1) {
 // A completed booking = converting, not abandoning — cancel THIS user's pending
 // follow-ups/offers so no abandonment email fires after their purchase. Scoped by the
 // `${uid}:` key prefix so one user converting never clears another's timers.
-function cancelAllSearchFollowups(uid = 1) {
+function cancelAllSearchFollowups(uid = SERVER_DEFAULT_UID) {
   const prefix = `${uid}:`;
   for (const k of Object.keys(followupTimers)) {
     if (!k.startsWith(prefix)) continue;
@@ -367,7 +372,7 @@ app.get("/api/profile", (req, res) => {
    Stages: search → results → seat → extras → review.  Cleared on payment or
    explicit start-over.                                                        */
 const STAGE_ORDER = ["search", "results", "seat", "extras", "review"];
-function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin }, uid = 1) {
+function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin }, uid = SERVER_DEFAULT_UID) {
   const prev = db.prepare("SELECT * FROM synced_searches WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
   // If this update is for the same route, keep the furthest stage reached (don't regress
   // the badge when a later channel just re-opens an earlier screen) unless selections advance.
@@ -393,7 +398,7 @@ function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items
       JSON.stringify(merged.items || []), merged.cabin, now());
   return merged;
 }
-function getJourney(uid = 1) {
+function getJourney(uid = SERVER_DEFAULT_UID) {
   const j = db.prepare("SELECT * FROM synced_searches WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
   if (!j) return null;
   return {
@@ -423,11 +428,11 @@ app.post("/api/journey/clear", (req, res) => {
 // Customer RESUMED an abandoned search — a distinct re-engagement signal. Streams a
 // 'searchResumed' event (separate from the original 'searchResults') to the CDP.
 app.post("/api/journey/resume", (req, res) => {
-  const j = getJourney();
+  const j = getJourney(req.uid);
   if (!j || !j.dest) return res.json({ ok: false, state: "nothing_to_resume" });
   const device = (req.body && req.body.device) || j.device || "Web app";
   log("journey_resumed", { stage: j.stage, route: `${j.origin}→${j.dest}` });
-  cdpEvents.emit("resumed", liveIdentity(), { origin: j.origin, destination: j.dest, travelDate: j.date, flightNumber: j.flight_no, seat: j.seat, cabin: j.cabin || "Economy", channel: device, abandoned: false });
+  cdpEvents.emit("resumed", liveIdentity(req.uid), { origin: j.origin, destination: j.dest, travelDate: j.date, flightNumber: j.flight_no, seat: j.seat, cabin: j.cabin || "Economy", channel: device, abandoned: false });
   res.json({ ok: true, journey: j });
 });
 
@@ -912,7 +917,7 @@ function seatPrice(seat, tier) {
   return c.basePrice || 0;
 }
 function seatCabinLabel(seat) { const c = cabinForRow(parseInt(seat)); return c ? c.label : "Economy"; }
-function prefSeat(uid = 1) { return (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(uid) || {}).seat || "4C"; }
+function prefSeat(uid = SERVER_DEFAULT_UID) { return (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(uid) || {}).seat || "4C"; }
 // Compute a basket's live total: flight fare + sum of paid ancillaries currently in the basket.
 function basketTotal(sel) {
   const f = flightByNo(sel.flight_no) || {};
@@ -941,7 +946,7 @@ function firstFreeSeat(pref, tier) {
 
 function agentRunTool(name, input, session) {
   session = session || getSession("default");
-  const uid = (session && session.uid) || 1;   // per-session identity (defaults to 1 pre-cutover)
+  const uid = (session && session.uid) || SERVER_DEFAULT_UID;   // per-session identity; same default as resolveUid
   if (name === "search_flights") {
     const origin = (input.origin || "OPO").toUpperCase();
     const dest = (input.dest || "").toUpperCase();
@@ -1333,7 +1338,7 @@ function parseRoute(text, home) {
 }
 function deterministicAgent(text, session) {
   const q = (text || "").toLowerCase();
-  const uid = (session && session.uid) || 1;   // per-session identity for direct reads (tools get it via session)
+  const uid = (session && session.uid) || SERVER_DEFAULT_UID;   // per-session identity for direct reads (tools get it via session)
   const calls = [];
   const run = (name, input = {}) => {
     let result; try { result = agentRunTool(name, input, session); } catch (e) { result = { ok: false, error: e.message }; }
@@ -1653,7 +1658,7 @@ app.get("/api/offers/today", (req, res) => {
    audience membership. Each tile carries a reason + an explicit list of signals naming the
    exact source (DB table or RT-CDP audience) so the "Why this?" control and the admin
    personalization ledger can show precisely what drove it. Degrades to DB-only when CDP is off. */
-async function buildOfferTiles(identity, uid = 1) {
+async function buildOfferTiles(identity, uid = SERVER_DEFAULT_UID) {
   const u = db.prepare("SELECT first_name, tier, miles, home_airport, member_no, affinity_label FROM users WHERE id=?").get(uid) || {};
   const home = u.home_airport || "OPO";
   const tier = u.tier || "Gold";
@@ -1853,9 +1858,10 @@ app.get("/api/admin/cdp", (req, res) => {
   ];
 
   res.json({
-    source: req.profileSource,
+    // Demo-console / system view: explicitly the demo user + global source, not the caller's session.
+    source: getDataSource(),
     adobe: cdp.cdpConfig(),
-    provenance: req.profileSource === "adobe" ? (_cdpProvenance[req.uid] || null) : null,
+    provenance: getDataSource() === "adobe" ? (_cdpProvenance[SYSTEM_UID] || null) : null,
     db: { path: DB_PATH, engine: "SQLite (node:sqlite)", writeMode: "live — every action commits a row" },
     counts,
     totalRows: Object.values(counts).reduce((a, b) => a + b, 0),
@@ -1877,7 +1883,7 @@ const CDP_EVENT_NAMES = {
   search_offer_sent: "Offer Sent", hold_created: "Booking Held",
   wa_inbound: "Message Received", routes_suggested: "Recommendations Served",
 };
-function toCdpTrack(type, payload, at, uid = 1) {
+function toCdpTrack(type, payload, at, uid = SERVER_DEFAULT_UID) {
   const u = db.prepare("SELECT member_no, email, tier FROM users WHERE id=?").get(uid);
   return {
     type: "track",
@@ -1982,7 +1988,7 @@ function currentPersona() {
 // Fixed persona↔uid maps (§3.3), derived from the canonical KNOWN_USERS list in db.js.
 const PERSONA_UID = Object.fromEntries(KNOWN_USERS.map(([u, p]) => [p, u]));
 const UID_PERSONA = Object.fromEntries(KNOWN_USERS.map(([u, p]) => [u, p]));
-const uidForPersona = (p) => PERSONA_UID[p] || 1;
+const uidForPersona = (p) => PERSONA_UID[p] || null;   // null for an unknown persona — callers must reject, not silently bind Daniel
 const personaForUid = (uid) => UID_PERSONA[uid] || null;   // null for registered users 6–15 (no CDP persona)
 
 /* ── Auth / registration (§4) — built on the step-1 session seam ──────────────
@@ -2070,6 +2076,7 @@ app.post("/api/persona", (req, res) => {
   const id = (req.body && req.body.persona) || DEFAULT_PERSONA;
   if (!PERSONAS[id]) return res.status(400).json({ ok: false, error: "unknown persona" });
   const uid = uidForPersona(id);
+  if (!uid) return res.status(400).json({ ok: false, error: "persona has no seeded user" });
   let sid = (req.headers["x-session-id"] || (req.body && req.body.sessionId)) || null;
   if (!sid) sid = session.newSessionId();
   session.bindSession(sid, uid, getDataSource());
@@ -2088,7 +2095,7 @@ const _cdpProvenance = {};
 //   uid       — which user's users/preferences/vouchers rows to overwrite
 //   personaId — the persona to pull from (CDP/local); falls back to that uid's persona
 //   source    — 'adobe' | 'sqlite' (the SESSION's source, not the global default)
-async function hydrateActiveSource(uid = 1, personaId = null, source = getDataSource()) {
+async function hydrateActiveSource(uid = SERVER_DEFAULT_UID, personaId = null, source = getDataSource()) {
   const persona = personaId || personaForUid(uid);
   // Risk C guard: registered users (6–15) have NO CDP persona. Never call
   // getProfileFromCdp(undefined) (it would default to Daniel and clobber them) —
@@ -2105,7 +2112,7 @@ async function hydrateActiveSource(uid = 1, personaId = null, source = getDataSo
   }
   return _cdpProvenance[uid] || null;
 }
-function cdpSummary(uid = 1, source = getDataSource()) {
+function cdpSummary(uid = SERVER_DEFAULT_UID, source = getDataSource()) {
   const p = source === "adobe" ? _cdpProvenance[uid] : null;
   if (!p) return null;
   return { mode: p.mode, sandbox: p.sandbox, identityMap: p.identityMap, audiences: p.audiences, consent: p.consent, ingestedAt: p.ingestedAt, persona: p.persona };
@@ -2138,10 +2145,10 @@ app.post("/api/datasource", async (req, res) => {
       persona = personaForUid(uid);
       provenance = await hydrateActiveSource(uid, persona, s);
     } else {
-      // Unbound → flip the GLOBAL default (legacy demo-console toggle) and hydrate uid 1.
+      // Unbound → flip the GLOBAL default (legacy demo-console toggle) and hydrate the demo user.
       setDataSource(s);
-      uid = 1; persona = personaForUid(1);
-      provenance = await hydrateActiveSource(1, persona, s);
+      uid = SYSTEM_UID; persona = personaForUid(SYSTEM_UID);
+      provenance = await hydrateActiveSource(SYSTEM_UID, persona, s);
     }
     log("datasource_switched", { source: s, uid, scope: (bound && bound.uid) ? "session" : "global" });
     const u = db.prepare("SELECT first_name, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=?").get(uid);
