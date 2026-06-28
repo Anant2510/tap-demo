@@ -466,7 +466,7 @@ app.get("/api/flights", (req, res) => {
 app.get("/api/ancillaries", (req, res) => {
   const anc = db.prepare("SELECT * FROM ancillaries").all();
   // Personalization: how often did the customer buy each ancillary on PAST (completed) trips?
-  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=1 AND status='completed'").all();
+  const past = db.prepare("SELECT items_json FROM bookings WHERE user_id=? AND status='completed'").all(req.uid);
   const totalTrips = past.length || 1;
   const counts = {};
   past.forEach(b => { (JSON.parse(b.items_json || "[]")).forEach(code => { counts[code] = (counts[code] || 0) + 1; }); });
@@ -484,27 +484,27 @@ app.get("/api/ancillaries", (req, res) => {
 
 /* Recommended seat from history: the customer's most-used seat on past bookings. */
 app.get("/api/seat-recommendation", (req, res) => {
-  const past = db.prepare("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=1 AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC").all();
+  const past = db.prepare("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC").all(req.uid);
   const top = past[0];
   res.json({
     seat: top ? top.seat : "4C",
     count: top ? top.c : 0,
-    total: db.prepare("SELECT COUNT(*) c FROM bookings WHERE user_id=1").get().c,
+    total: db.prepare("SELECT COUNT(*) c FROM bookings WHERE user_id=?").get(req.uid).c,
     reason: top ? `Your usual — seat ${top.seat} on ${top.c} of your trips` : "Front aisle, quick exit",
   });
 });
 app.get("/api/destinations", async (req, res) => {
-  const home = (db.prepare("SELECT home_airport FROM users WHERE id=1").get() || {}).home_airport || "OPO";
+  const home = (db.prepare("SELECT home_airport FROM users WHERE id=?").get(req.uid) || {}).home_airport || "OPO";
   // CONTENT from AEM (headless) when configured; otherwise local SQLite. Personalization is overlaid below.
   let base = null;
   try { base = await aem.getDestinations(); } catch (e) { /* AEM unavailable → fall back to local content */ }
   const fromAem = !!(base && base.length);
   const dests = fromAem ? base : db.prepare("SELECT * FROM destinations").all();
   res.json(dests.map(d => {
-    const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=1 AND route LIKE ? ORDER BY trip_date DESC").all(`%→${d.code}`);
+    const flownRows = db.prepare("SELECT trip_date, purpose FROM travel_history WHERE user_id=? AND route LIKE ? ORDER BY trip_date DESC").all(req.uid, `%→${d.code}`);
     const flown = flownRows.length;
-    const booked = db.prepare(`SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=1 AND b.status!='cancelled' AND f.dest=?`).get(d.code).c;
-    const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=1 AND dest=?").get(d.code).c;
+    const booked = db.prepare(`SELECT COUNT(DISTINCT b.id) c FROM bookings b JOIN flights f ON b.flight_no=f.flight_no WHERE b.user_id=? AND b.status!='cancelled' AND f.dest=?`).get(req.uid, d.code).c;
+    const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=? AND dest=?").get(req.uid, d.code).c;
     const purposes = [...new Set(flownRows.map(r => r.purpose))];
     const leisure = purposes.includes("Leisure");
     let reason;
@@ -685,7 +685,7 @@ Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${fl
 /* ── Booking management (used by portal + WhatsApp) ──────────── */
 app.post("/api/bookings/ancillary", async (req, res) => {
   const { code, pnr } = req.body;
-  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=1").get(pnr) : null) || currentBooking();
+  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=?").get(pnr, req.uid) : null) || currentBooking(req.uid);
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
   if (!b || !a) return res.json({ ok: false });
   const items = JSON.parse(b.items_json || "[]");
@@ -702,7 +702,7 @@ app.post("/api/bookings/ancillary", async (req, res) => {
 // selected upcoming trip; falls back to the current booking.
 app.post("/api/bookings/extras/checkout", async (req, res) => {
   const { pnr, codes = [], total = 0 } = req.body || {};
-  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=1").get(pnr) : null) || currentBooking();
+  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=?").get(pnr, req.uid) : null) || currentBooking(req.uid);
   if (!b) return res.json({ ok: false, error: "no_booking" });
   const items = JSON.parse(b.items_json || "[]");
   const names = [];
@@ -720,7 +720,7 @@ app.post("/api/bookings/extras/checkout", async (req, res) => {
   log("extras_purchased", { pnr: b.pnr, codes: names.length ? codes : [], total: charged, channel: "manage-booking" });
   let email = null;
   try {
-    const u = db.prepare("SELECT email FROM users WHERE id=1").get();
+    const u = db.prepare("SELECT email FROM users WHERE id=?").get(req.uid);
     if (u && u.email) { await sendEmail("extras_confirmation", { f: flightByNo(b.flight_no), pnr: b.pnr, names, total: charged }); email = u.email; }
   } catch { /* email best-effort */ }
   res.json({ ok: true, pnr: b.pnr, total: charged, email, items, added: names });
@@ -728,7 +728,7 @@ app.post("/api/bookings/extras/checkout", async (req, res) => {
 
 app.post("/api/bookings/ancillary/remove", async (req, res) => {
   const { code, pnr } = req.body;
-  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=1").get(pnr) : null) || currentBooking();
+  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=?").get(pnr, req.uid) : null) || currentBooking(req.uid);
   if (!b) return res.json({ ok: false });
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
   const items = JSON.parse(b.items_json || "[]").filter(c => c !== code);
