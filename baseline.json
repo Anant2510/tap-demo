@@ -1,0 +1,54 @@
+{
+  "health": {
+    "ok": true,
+    "db": "C:\\Users\\xPerionExp\\Documents\\AI tools\\tap-demo\\data\\tap.db",
+    "smtp": "configured",
+    "ai": "live",
+    "whatsapp": "configured — messages really send"
+  },
+  "profile.user": {
+    "member_no": "PT-990002",
+    "email": "anant.direct2links+sofia@gmail.com",
+    "tier": "Silver",
+    "home_airport": "LIS",
+    "miles": 21450
+  },
+  "profile.pattern": {
+    "topRoute": "LIS→FNC",
+    "topFlight": "TP1696"
+  },
+  "personas.active": "sofia",
+  "personas.count": 3,
+  "bookings.count": 10,
+  "bookings.pnrs": [
+    "TPJJTL",
+    "TPXFV6",
+    "TPS8H9",
+    "TPS7G8",
+    "TPS6F7"
+  ],
+  "search.opo_lis.count": 5,
+  "journey.afterSearch": {
+    "stage": "results",
+    "origin": "OPO",
+    "dest": "LIS"
+  },
+  "agent.wallet.tools": [
+    "get_wallet"
+  ],
+  "offers.tier": "Silver",
+  "offers.tileCount": 3,
+  "cdp.track.userId": "user_1",
+  "cdp.counts.users": 1,
+  "selftest": {
+    "ok": true,
+    "passed": 17,
+    "total": 17
+  },
+  "datasource.source": "adobe",
+  "_activeIdentity": {
+    "member": "PT-990002",
+    "email": "anant.direct2links+sofia@gmail.com",
+    "tier": "Silver"
+  }
+}
