@@ -341,6 +341,101 @@ const PERSONAS = {
       ["FRA","GRU","2026-07-25",1,1,"ThinkPad",5],
     ],
   },
+
+  // ── New Goal-B sample users (§6) — uids 4 & 5, wired into seed() in step 7b ──
+  // Maria: low-tier, low-miles, foodie (affinity 'food' → no package, degrades to null
+  // gracefully). NO voucher (exercises the no-voucher checkout path). LIS-based leisure.
+  // marketing-CONSENTED per §6 — note: consent is a CDP-layer concept (cdp.js), there is
+  // no users-table/persona field for it, so it is not encoded here.
+  maria: {
+    id: "maria", label: "Maria Costa", blurb: "Bronze · Lisbon foodie & weekend traveller", archetype: "Culinary Explorer",
+    user: { member_no: "PT-990004", first_name: "Maria", full_name: "Maria Costa", email: "anant.direct2links+maria@gmail.com", phone: "+351 92 558 3360", tier: "Bronze", miles: 3200, nationality: "Portuguese", dob: "09 May 1995", gender: "Female", passport_exp: "18 Apr 2030", doc_id: "PT •••• 5512", home_airport: "LIS", card_brand: "Mastercard", card_last4: "6634", card_exp: "02/28", card_product: "TAP | Miles&Go Mastercard", card_categories: JSON.stringify([{ name: "Dining & Restaurants", share: 38 }, { name: "Food Markets & Delis", share: 22 }, { name: "Cafés & Bakeries", share: 15 }, { name: "Grocery", share: 11 }]), affinity: "food", affinity_label: "Foodie" },
+    prefs: { seat: "16C — aisle", seat_note: "Aisle on 5 of your last 6 trips", bag: "1 checked bag", meal: "Vegetarian", auto_checkin: 1 },
+    // no voucher — entry-tier; exercises the no-voucher checkout path (§6)
+    synced: { origin: "LIS", dest: "FCO", date: "2026-07-12", device: "iPhone", stage: "results", flight_no: "TP838", seat: null, items: ["bag"], cabin: "Economy" },
+    ancillaries: [
+      ["seat","Seat 16C — aisle","Your usual aisle seat.",6,12,1,"seat"],
+      ["bag","1 checked bag 23kg","You usually check one bag.",0,null,1,"bag"],
+      ["meal","Vegetarian meal","Pre-ordered to seat. Your usual.",0,null,1,"meal"],
+      ["wifi","Wi-Fi messaging pass","Stay reachable in the air.",3,null,0,"wifi"],
+      ["transfer","Rome airport transfer","Driver to the city centre.",26,null,0,"car"],
+      ["lounge","TAP Lounge LIS","Relax before your flight.",28,null,0,"lounge"],
+    ],
+    destinations: [
+      ["Rome","FCO","Foodie city · searched 3×",149,null,"🍝"],
+      ["Madrid","MAD","Tapas weekend",74,null,"🥘"],
+      ["Barcelona","BCN","On your wishlist",84,null,"🥘"],
+      ["Faro","FAO","Seafood by the coast",59,8000,"🦐"],
+    ],
+    history: [
+      ["TP838","LIS→FCO","2026-03-06","11:30","Leisure"],["TP839","FCO→LIS","2026-03-09","15:10","Leisure"],
+      ["TP1018","LIS→MAD","2026-04-11","08:45","Leisure"],["TP1019","MAD→LIS","2026-04-13","20:05","Leisure"],
+      ["TP1244","LIS→FAO","2026-05-02","09:30","Leisure"],["TP1245","FAO→LIS","2026-05-04","19:40","Leisure"],
+      ["TP838","LIS→FCO","2026-05-29","11:30","Leisure"],["TP839","FCO→LIS","2026-06-01","15:10","Leisure"],
+      ["TP1032","LIS→BCN","2026-06-13","12:15","Leisure"],["TP1033","BCN→LIS","2026-06-15","21:00","Leisure"],
+    ],
+    bookings: [
+      ["TPMA12","TP838","LIS","FCO","11:30","14:25",149,"2026-03-06","16C","completed",1,["seat","bag","meal"]],
+      ["TPMB34","TP1018","LIS","MAD","08:45","10:05",74,"2026-04-11","16C","completed",1,["seat","bag","meal"]],
+      ["TPMC56","TP1244","LIS","FAO","09:30","10:20",59,"2026-05-02","16C","completed",1,["seat","bag"]],
+      ["TPMD78","TP838","LIS","FCO","11:30","14:25",152,"2026-05-29","16C","completed",1,["seat","bag","meal","wifi"]],
+      ["TPME90","TP838","LIS","FCO","11:30","14:25",149,"2026-07-12","16C","confirmed",0,["seat","bag"]],
+    ],
+    searches: [
+      ["LIS","FCO","2026-07-12",1,3,"iPhone",2],
+      ["LIS","MAD","2026-08-08",2,2,"iPhone",3],
+      ["LIS","BCN","2026-09-02",2,1,"iPhone",5],
+    ],
+  },
+
+  // James: non-Portugal home (LHR) + high miles → Miles-Rich INCLUDES him, Frequent-OPO/LIS
+  // audiences EXCLUDE him; UK-corridor (LHR↔LIS/OPO) journey. affinity 'business' → no package
+  // (degrades to null gracefully). marketing-NOT-consented per §6 — again a CDP-layer concept,
+  // no persona/users field exists for it, so not encoded here.
+  james: {
+    id: "james", label: "James Bennett", blurb: "Gold · London UK-corridor business traveller", archetype: "Corporate Connector",
+    user: { member_no: "GB-990005", first_name: "James", full_name: "James Bennett", email: "anant.direct2links+james@gmail.com", phone: "+44 7700 900812", tier: "Gold", miles: 61000, nationality: "British", dob: "22 Oct 1981", gender: "Male", passport_exp: "07 Mar 2031", doc_id: "GB •••• 4480", home_airport: "LHR", card_brand: "Amex", card_last4: "2207", card_exp: "09/28", card_product: "TAP | Miles&Go Amex Gold", card_categories: JSON.stringify([{ name: "Hotels & Lodging", share: 33 }, { name: "Car Rental", share: 24 }, { name: "Business Services", share: 16 }, { name: "Airport Dining", share: 12 }]), affinity: "business", affinity_label: "Business traveller" },
+    prefs: { seat: "3C — front aisle", seat_note: "Front aisle on 10 of your last 12 trips", bag: "2 bags + priority", meal: "Standard — no shellfish", auto_checkin: 1 },
+    voucher: { code: "5530", amount: 60, reason: "Gold loyalty bonus", expiry: "31 Mar 2027" },
+    synced: { origin: "LHR", dest: "LIS", date: "2026-07-06", device: "iPad", stage: "seat", flight_no: "TP1358", seat: null, items: ["bag"], cabin: "Economy" },
+    ancillaries: [
+      ["seat","Seat 3C — front aisle","Your usual front aisle. Free for Gold.",0,12,1,"seat"],
+      ["bag","2 bags + priority","Included with Gold.",0,null,1,"bag"],
+      ["meal","Standard — no shellfish","Pre-set dietary preference.",4.5,null,1,"meal"],
+      ["wifi","Full-flight Wi-Fi","You buy this most trips.",6,null,1,"wifi"],
+      ["transfer","Lisbon city transfer","Black car to the hotel.",30,null,0,"car"],
+      ["lounge","TAP Premium Lounge LHR","Complimentary — Gold benefit.",0,null,0,"lounge"],
+    ],
+    destinations: [
+      ["Lisbon","LIS","Your weekly corridor",134,null,"🌉"],
+      ["Porto","OPO","Client visits",139,null,"🍷"],
+      ["New York","JFK","Quarterly long-haul",499,null,"🗽"],
+      ["Dublin","DUB","Searched 2× this month",74,null,"☘️"],
+    ],
+    history: [
+      ["TP1358","LHR→LIS","2026-02-17","07:50","Business"],["TP1359","LIS→LHR","2026-02-20","19:25","Business"],
+      ["TP1358","LHR→LIS","2026-03-10","07:50","Business"],["TP1359","LIS→LHR","2026-03-13","19:25","Business"],
+      ["TP1366","LHR→OPO","2026-03-31","08:15","Business"],["TP1367","OPO→LHR","2026-04-02","20:10","Business"],
+      ["TP1358","LHR→LIS","2026-04-21","07:50","Business"],["TP1359","LIS→LHR","2026-04-24","19:25","Business"],
+      ["TP1374","LHR→JFK","2026-05-05","10:25","Business"],["TP1375","JFK→LHR","2026-05-12","18:40","Business"],
+      ["TP1358","LHR→LIS","2026-05-26","07:50","Business"],["TP1359","LIS→LHR","2026-05-29","19:25","Business"],
+      ["TP1358","LHR→LIS","2026-06-16","07:50","Business"],["TP1359","LIS→LHR","2026-06-19","19:25","Business"],
+    ],
+    bookings: [
+      ["TPJA12","TP1358","LHR","LIS","07:50","10:35",139,"2026-02-17","3C","completed",1,["seat","bag","meal","wifi"]],
+      ["TPJB34","TP1366","LHR","OPO","08:15","10:55",142,"2026-03-31","3C","completed",1,["seat","bag","meal","wifi"]],
+      ["TPJC56","TP1358","LHR","LIS","07:50","10:35",134,"2026-04-21","3C","completed",1,["seat","bag","meal","wifi","lounge"]],
+      ["TPJD78","TP1374","LHR","JFK","10:25","13:55",499,"2026-05-05","3C","completed",1,["seat","bag","meal","wifi","lounge","transfer"]],
+      ["TPJE90","TP1358","LHR","LIS","07:50","10:35",136,"2026-05-26","3C","completed",1,["seat","bag","meal","wifi"]],
+      ["TPJF12","TP1358","LHR","LIS","07:50","10:35",134,"2026-07-06","3C","confirmed",0,["seat","bag","meal"]],
+      ["TPJG34","TP1366","LHR","OPO","08:15","10:55",139,"2026-07-20","3C","confirmed",0,["seat","bag","meal"]],
+    ],
+    searches: [
+      ["LHR","DUB","2026-07-15",1,2,"iPad",1],
+      ["LHR","LIS","2026-07-06",1,3,"iPad",2],
+      ["LHR","OPO","2026-07-20",1,2,"iPad",4],
+    ],
+  },
 };
 const DEFAULT_PERSONA = "daniel";
 
