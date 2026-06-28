@@ -605,22 +605,22 @@ app.post("/api/pay", async (req, res) => {
   if (!f) { log("pay_unknown_flight", { flight_no }); return res.status(400).json({ ok: false, error: "unknown flight — search the route first" }); }
   const bookDate = date || f.flight_date;   // honor the date the customer is booking (e.g. express recommended date)
   const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at)
-    VALUES (?,1,?,?,?,?,?)`).run(pnr, flight_no, bookDate, seat || "4C", JSON.stringify(items || []), now());
+    VALUES (?,?,?,?,?,?,?)`).run(pnr, req.uid, flight_no, bookDate, seat || "4C", JSON.stringify(items || []), now());
   db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), total, voucher_amt, miles_used, miles_amt, card_amt, now());
-  if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=1").run(miles_used);
-  if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=1 AND status='active'").run();
-  db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=1 AND status='open'").run();
+  if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=?").run(miles_used, req.uid);
+  if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=? AND status='active'").run(req.uid);
+  db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=? AND status='open'").run(req.uid);
   // Booking completed → clear the "resume your search" banner for this destination
-  db.prepare("DELETE FROM synced_searches WHERE user_id=1").run();
+  db.prepare("DELETE FROM synced_searches WHERE user_id=?").run(req.uid);
   // Feed the booking back into travel history → future recommendations learn from it
   db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
-    VALUES (1,?,?,?,?,'Business')`).run(flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
+    VALUES (?,?,?,?,?,'Business')`).run(req.uid, flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
   log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
   cancelAllSearchFollowups();   // converted — don't chase with abandonment emails
   const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
-  cdpEvents.emit("booked", liveIdentity(), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
-  cdpProfile.record({ identity: liveIdentity(), channel: "web", type: "booked", spend: Number(total) || 0,
+  cdpEvents.emit("booked", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
+  cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "booked", spend: Number(total) || 0,
     lounge: (items || []).some(i => /lounge/i.test(i.name || i.label || i)) });   // online booking → unified profile
   res.json({ ok: true, pnr, email });
 });
