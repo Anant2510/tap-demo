@@ -673,6 +673,42 @@ export function Basket({ shared, go }) {
                 </div>
               );
             })}
+
+            {/* Enhance your trip — curated cross-sell, horizontal image-left cards (#4, per reference design) */}
+            <div>
+              <div className="flex items-center gap-2 mb-1"><h2 className="text-[15px] font-bold">Enhance your trip</h2><span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5">Cross-sell</span></div>
+              <p className="text-[12px] text-ink-muted mb-3">Hand-picked extras that pair well with your trip. Each adds to your cart instantly.</p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {[
+                  ["xsell-sintra", "Sintra full-day from Lisbon", "Pena Palace, Quinta da Regaleira & Cabo da Roca.", 89, "per person", "Day trip", "Experiences", "sintra,portugal", null],
+                  ["xsell-douro", "Douro Valley wine tour", "Vineyards, tastings & a river cruise. Full day.", 120, "per person", "Wine", "Experiences", "douro,vineyard", null],
+                  ["xsell-xfer-return", "Return transfer hotel → LIS", "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "Cars & transfers", "car,sedan", "Bundle −10%"],
+                  ["xsell-late-checkout", "Guaranteed late checkout", "Stay until 16:00 on departure day.", 40, "one-time", "Hotel add-on", "Extras", "hotel,room", null],
+                ].map(([code, name, sub, base, unit, badge, cat, imgkey, accent]) => {
+                  const on = hasExtra(code);
+                  const px = trip.pax || 1;
+                  const addX = () => { toggleExtra({ code, name, price: unit === "per person" ? base * px : base, cat }); persist(); r(); };
+                  return (
+                    <div key={code} className={cx("rounded-xl border p-3 flex gap-3 transition-colors", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-tap-green/50")}>
+                      <div className="w-24 shrink-0 self-stretch rounded-lg overflow-hidden min-h-[96px]"><Img seed={code} src={imageFor(imgkey)} alt={name} className="w-full h-full object-cover" /></div>
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint bg-surface-mute rounded px-2 py-0.5">{badge}</span>
+                          {accent && <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded px-2 py-0.5">{accent}</span>}
+                        </div>
+                        <div className="text-[14px] font-bold mt-1 leading-tight">{name}</div>
+                        <div className="text-[11px] text-ink-faint mt-0.5 flex-1">{sub}</div>
+                        <div className="flex items-end justify-between gap-2 mt-2">
+                          <div className="leading-tight"><span className="text-[15px] font-bold v2-num">{eurC(base)}</span> <span className="text-[10px] text-ink-faint">{unit}</span></div>
+                          <Btn size="sm" variant="outline" className="shrink-0" onClick={addX}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 rounded-xl bg-lime-tint/60 text-tap-greenDark text-[12px] font-semibold px-4 py-2.5 inline-flex items-center gap-2"><Icon name="clock" size={13} /> Price locked for 15 min</div>
+            </div>
           </div>
 
           {/* RIGHT — sticky basket summary (#6) */}

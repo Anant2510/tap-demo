@@ -1065,7 +1065,7 @@ export function AddExtras({ shared, go, params }) {
                       <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
                       {already
                         ? <span className="text-[12px] font-semibold text-ink-faint inline-flex items-center gap-1"><Icon name="check" size={13} className="text-tap-green" /> Added</span>
-                        : <Btn size="sm" variant={isStaged ? "outline" : "primary"} onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
+                        : <Btn size="sm" variant="outline" onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
                     </div>
                   </Card>
                 );
