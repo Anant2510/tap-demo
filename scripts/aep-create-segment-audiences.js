@@ -39,10 +39,10 @@ const ONLY = onlyIdx >= 0 ? process.argv[onlyIdx + 1] : null;
 // rest / can be pinned via AEP_PQL_FORM=<n> to skip probing).
 const Q = (s) => String(s).replace(/"/g, '\\"');
 const PQL_FORMS = [
-  (n) => `${TENANT}.${FIELD}[*N1]{N1 = "${Q(n)}"}`,                 // element-binding, infix
+  (n) => `"${Q(n)}" in ${TENANT}.${FIELD}`,                        // membership — CONFIRMED accepted by AEP
+  (n) => `${TENANT}.${FIELD}[*N1]{N1 = "${Q(n)}"}`,                // element-binding, infix
   (n) => `${TENANT}.${FIELD}[*N1]{N1.equals("${Q(n)}", false)}`,   // element-binding, equals()
   (n) => `${TENANT}.${FIELD}[*]{. = "${Q(n)}"}`,                    // dot-element ref
-  (n) => `"${Q(n)}" in ${TENANT}.${FIELD}`,                        // membership operator
   (n) => `${TENANT}.${FIELD} contains "${Q(n)}"`,                   // contains operator
 ];
 let FORM_IDX = process.env.AEP_PQL_FORM != null && process.env.AEP_PQL_FORM !== "" ? parseInt(process.env.AEP_PQL_FORM, 10) : null;

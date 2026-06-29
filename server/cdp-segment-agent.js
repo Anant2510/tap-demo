@@ -51,7 +51,10 @@ let nameToId = {};      // prefixed AEP name → audience id  (idempotency cache
 const learned = {};     // audience id → CLEAN segment name (for the read-back map)
 let running = false;    // single-flight guard
 
-const pql = (name, c) => `${TENANT}.${c.field}[*] = "${String(name).replace(/"/g, '\\"')}"`;
+// AEP's PQL parser accepts the membership form for String[] array containment (the `[*]`
+// projection and element-binding forms are rejected at parse time). Verified via the audience
+// script's form probe — keep these two in sync.
+const pql = (name, c) => `"${String(name).replace(/"/g, '\\"')}" in ${TENANT}.${c.field}`;
 
 // Distinct segment names from the SAME engine the app uses — the desired audience set.
 function desiredNames() {
