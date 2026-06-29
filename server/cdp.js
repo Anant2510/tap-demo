@@ -48,6 +48,10 @@ function rawConfig() {
     eventSyncValidation: /^(1|true|yes)$/i.test(process.env.ADOBE_EVENT_SYNC_VALIDATION || "1"),
     // Ingestion-direction config (writing profiles INTO CDP):
     loyaltyNs: process.env.ADOBE_LOYALTY_NS || "",
+    // Tenant field (under _aeppsemea) that carries the runtime-computed segment membership so
+    // RT-CDP mirrors the local engine. Empty = don't write it (safe before the schema field
+    // exists). Set ADOBE_LOCAL_SEGMENTS_FIELD=localSegments once the field is added to the schema.
+    localSegmentsField: (process.env.ADOBE_LOCAL_SEGMENTS_FIELD || "").trim(),
     ingestApi: process.env.ADOBE_INGEST_API || "https://platform.adobe.io/data/foundation/import",
     schemaRegistryApi: process.env.ADOBE_SCHEMA_API || "https://platform.adobe.io/data/foundation/schemaregistry",
     idNamespaceApi: process.env.ADOBE_IDNS_API || "https://platform.adobe.io/data/core/idnamespace",

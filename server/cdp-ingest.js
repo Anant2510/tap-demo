@@ -28,6 +28,12 @@ function personaToXDM(P, c) {
   const vc = P.voucher || {};
   let cats = []; try { cats = JSON.parse(u.card_categories || "[]"); } catch {}
   const top = cats[0] || {};
+  // Runtime segment membership from the SAME local engine the app uses (cdp.audiences). Written
+  // onto the profile so RT-CDP can mirror local intelligence via passthrough audiences. Gated by
+  // ADOBE_LOCAL_SEGMENTS_FIELD so nothing unknown is sent before the schema field is added.
+  const segField = c.localSegmentsField || "";
+  let localSegments = null;
+  if (segField) { try { localSegments = (cdp.audiences(u) || []).map(a => a.name).filter(Boolean); } catch { localSegments = null; } }
   // Identity graph: when a loyalty namespace is configured, use loyaltyId as the SOLE
   // identity so personas stay distinct. (The demo shares one email via DEMO_EMAIL_TO, so
   // adding it as an identity would stitch all personas into one merged profile.) The email
@@ -64,6 +70,7 @@ function personaToXDM(P, c) {
         voucherReason: vc.reason, voucherExpiry: toISODate(vc.expiry),
       } : undefined,
       consents: { marketing: { collect: { val: "y" } }, personalize: { content: { val: "y" } } },
+      ...(segField && localSegments ? { [segField]: localSegments } : {}),
     },
   };
 }
