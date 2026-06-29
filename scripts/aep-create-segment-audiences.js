@@ -37,6 +37,13 @@ const ONLY = onlyIdx >= 0 ? process.argv[onlyIdx + 1] : null;
 // becomes STRING = STRING per element → matches profiles whose array CONTAINS <name>.
 const pql = (name) => `${TENANT}.${FIELD}[*] = "${String(name).replace(/"/g, '\\"')}"`;
 
+const LIST = process.argv.includes("--list");                 // just print what's in the sandbox
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+// Normalize audience names for matching: drop the "TAP – " prefix, unify dash variants and
+// whitespace, lowercase. Robust to en-dash vs hyphen drift between .env and what AEP stored
+// (which silently broke the exact-string match and caused "already exists" on recreate).
+const normName = (s) => String(s).replace(/^\s*TAP\s*[–—-]\s*/i, "").replace(/[–—]/g, "-").replace(/\s+/g, " ").trim().toLowerCase();
+
 // Distinct segment names straight from the SAME engine the app uses (cdp.audiences),
 // so the audience set always tracks whatever the local logic produces.
 function distinctNames() {
@@ -78,47 +85,60 @@ async function main() {
     "Content-Type": "application/json", Accept: "application/json",
   };
 
-  // Idempotency: map existing definition names → id so re-runs don't duplicate.
+  // List ALL existing definitions, paginating, keyed by NORMALIZED name → {id, name}.
+  // (The previous exact-string match silently missed everything, so recreate never deleted
+  // and the create then collided with "already exists".)
   const existing = {};
+  let listed = 0, diag = "";
   try {
-    const r = await fetch(`${ENDPOINT}?limit=500`, { headers: H });
-    const j = await r.json().catch(() => ({}));
-    const list = j.segments || j.definitions || j.children || [];
-    for (const d of list) if (d && d.name) existing[d.name] = d.id || d.segmentId;
-  } catch (e) { console.warn("! could not list existing definitions:", e.message); }
+    let url = `${ENDPOINT}?limit=100`;
+    for (let page = 0; page < 15 && url; page++) {
+      const r = await fetch(url, { headers: H });
+      const txt = await r.text();
+      if (!r.ok) { diag = `list HTTP ${r.status}: ${txt.slice(0, 160)}`; break; }
+      let j = {}; try { j = JSON.parse(txt); } catch {}
+      const arr = j.segments || j.definitions || j.children || j.audiences || (Array.isArray(j) ? j : []);
+      if (page === 0 && !arr.length) diag = `0 items; top-level keys = ${Object.keys(j).join(",") || "(none)"}`;
+      for (const d of arr) { const nm = d && d.name, id = d && (d.id || d.segmentId); if (nm && id) { existing[normName(nm)] = { id, name: nm }; listed++; } }
+      const next = (j._links && j._links.next && (j._links.next.href || j._links.next)) || (j.page && j.page.next) || null;
+      url = next ? (String(next).startsWith("http") ? next : `https://platform.adobe.io${next}`) : null;
+    }
+  } catch (e) { diag = e.message; }
+  console.log(`Existing audiences in sandbox: ${listed}${diag ? `  (${diag})` : ""}`);
+
+  if (LIST) {
+    Object.values(existing).sort((a, b) => a.name.localeCompare(b.name)).forEach((e) => console.log(`  ${e.id}  ${e.name}`));
+    console.log("\n--list: no changes made.");
+    return;
+  }
 
   const map = {};      // audienceId → clean segment name (for ADOBE_AUDIENCE_NAMES)
-  let firstError = null;
   const targets = ONLY ? names.filter((n) => n === ONLY) : names;
   if (ONLY && !targets.length) { console.error(`! --only "${ONLY}" matched no segment name. Valid names listed above.`); return; }
+
   for (const name of targets) {
-    const aepName = PREFIX + name;
-    if (existing[aepName]) {
-      if (RECREATE) {
-        const dr = await fetch(`${ENDPOINT}/${existing[aepName]}`, { method: "DELETE", headers: H });
-        if (!dr.ok && dr.status !== 404) { console.error(`✗ delete FAIL ${name} -> HTTP ${dr.status} ${(await dr.text()).slice(0, 200)}`); continue; }
-        console.log(`- deleted old  ${name}  (${existing[aepName]})`);
-        delete existing[aepName];
-      } else { console.log(`= exists  ${name}  ->  ${existing[aepName]}`); map[existing[aepName]] = name; continue; }
+    const ex = existing[normName(name)];
+    if (ex && !RECREATE) { console.log(`= exists  ${name}  ->  ${ex.id}`); map[ex.id] = name; continue; }
+    if (ex && RECREATE) {
+      const dr = await fetch(`${ENDPOINT}/${ex.id}`, { method: "DELETE", headers: H });
+      if (!dr.ok && dr.status !== 404) { console.error(`✗ delete FAIL ${name} -> HTTP ${dr.status} ${(await dr.text()).slice(0, 200)}`); continue; }
+      // Deletion is async — wait until the definition actually 404s before reusing the name.
+      let gone = false;
+      for (let i = 0; i < 12; i++) { const g = await fetch(`${ENDPOINT}/${ex.id}`, { headers: H }); if (g.status === 404) { gone = true; break; } await sleep(1500); }
+      console.log(`- deleted old  ${name}  (${ex.id})${gone ? "" : "  [still settling]"}`);
+      delete existing[normName(name)];
     }
-    const r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name)) });
-    const txt = await r.text();
-    if (!r.ok) {
+    // Create — retry a few times if the name is briefly still reserved after delete.
+    let done = false;
+    for (let attempt = 0; attempt < 4 && !done; attempt++) {
+      const r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name)) });
+      const txt = await r.text();
+      if (r.ok) { let j = {}; try { j = JSON.parse(txt); } catch {} const id = j.id || j.segmentId; console.log(`+ created ${name}  ->  ${id}`); if (id) map[id] = name; done = true; break; }
+      if (r.status === 400 && /already exists/i.test(txt) && attempt < 3) { console.log(`  …name still reserved, retrying in 4s`); await sleep(4000); continue; }
       console.error(`✗ FAIL   ${name}  ->  HTTP ${r.status}  ${txt.slice(0, 280)}`);
-      // If the very first creation fails on validation/PQL, stop so we fix the template once
-      // instead of emitting the same error N times.
-      if (!firstError && (r.status === 400 || r.status === 403)) {
-        firstError = r.status;
-        console.error(`\nStopping after first ${r.status}. If 400: the PQL form likely needs adjusting for your schema`);
-        console.error(`(tried:  ${pql(name)} ). If 403: the IMS client lacks the segmentation scope.`);
-        break;
-      }
-      continue;
+      if (r.status === 400 || r.status === 403) console.error(`(tried PQL:  ${pql(name)} ). 400 = PQL/schema · 403 = missing segmentation scope · "already exists" = delete still settling.`);
+      break;
     }
-    let j = {}; try { j = JSON.parse(txt); } catch {}
-    const id = j.id || j.segmentId;
-    console.log(`+ created ${name}  ->  ${id}`);
-    if (id) map[id] = name;
   }
 
   console.log("\n=== add this single line to .env, then restart node ===");
