@@ -32,10 +32,21 @@ const RECREATE = process.argv.includes("--recreate");
 const onlyIdx = process.argv.indexOf("--only");
 const ONLY = onlyIdx >= 0 ? process.argv[onlyIdx + 1] : null;
 
-// PQL: computedSegments is a String[]. A scalar `=` is rejected by the segmentation engine
-// (equals expects STRING, not STRING[]). The `[*]` projects each element, so the comparison
-// becomes STRING = STRING per element → matches profiles whose array CONTAINS <name>.
-const pql = (name) => `${TENANT}.${FIELD}[*] = "${String(name).replace(/"/g, '\\"')}"`;
+// computedSegments is a String[]. AEP's PQL parser is picky about array matching and rejected
+// both the scalar `.equals(array,…)` (type error) and `[*] = "x"` (parse error). So we PROBE a
+// list of candidate "array contains <name>" forms — the create endpoint validates PQL on POST,
+// so a 2xx means the form is valid. The winning form index is remembered (and reused for the
+// rest / can be pinned via AEP_PQL_FORM=<n> to skip probing).
+const Q = (s) => String(s).replace(/"/g, '\\"');
+const PQL_FORMS = [
+  (n) => `${TENANT}.${FIELD}[*N1]{N1 = "${Q(n)}"}`,                 // element-binding, infix
+  (n) => `${TENANT}.${FIELD}[*N1]{N1.equals("${Q(n)}", false)}`,   // element-binding, equals()
+  (n) => `${TENANT}.${FIELD}[*]{. = "${Q(n)}"}`,                    // dot-element ref
+  (n) => `"${Q(n)}" in ${TENANT}.${FIELD}`,                        // membership operator
+  (n) => `${TENANT}.${FIELD} contains "${Q(n)}"`,                   // contains operator
+];
+let FORM_IDX = process.env.AEP_PQL_FORM != null && process.env.AEP_PQL_FORM !== "" ? parseInt(process.env.AEP_PQL_FORM, 10) : null;
+const pql = (name) => PQL_FORMS[FORM_IDX != null ? FORM_IDX : 0](name);
 
 const LIST = process.argv.includes("--list");                 // just print what's in the sandbox
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -54,14 +65,37 @@ function distinctNames() {
   return [...set].sort();
 }
 
-function definitionBody(name) {
+function definitionBody(name, value) {
   return {
     name: PREFIX + name,
     description: `TAP local-engine segment mirrored from ${TENANT}.${FIELD}`,
-    expression: { type: "PQL", format: "pql/text", value: pql(name) },
+    expression: { type: "PQL", format: "pql/text", value: value || pql(name) },
     schema: { name: "_xdm.context.profile" },
     evaluationInfo: { batch: { enabled: false }, continuous: { enabled: true }, synchronous: { enabled: false } },
   };
+}
+
+// Create one audience, probing PQL forms until AEP accepts one. Remembers the winning form in
+// FORM_IDX so the remaining audiences skip straight to it. Retries transient "already exists".
+async function createAudience(name, H, map) {
+  const order = FORM_IDX != null ? [FORM_IDX] : PQL_FORMS.map((_, i) => i);
+  for (const fi of order) {
+    const value = PQL_FORMS[fi](name);
+    let retry = true, attempt = 0;
+    while (retry && attempt < 4) {
+      retry = false; attempt++;
+      const r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name, value)) });
+      const txt = await r.text();
+      if (r.ok) { let j = {}; try { j = JSON.parse(txt); } catch {} const id = j.id || j.segmentId; FORM_IDX = fi; console.log(`+ created ${name}  ->  ${id}   [form #${fi}: ${value}]`); if (id) map[id] = name; return true; }
+      if (r.status === 403) { console.error(`✗ 403 (IMS client lacks segmentation scope)  ${name}`); return false; }
+      if (r.status === 400 && /already exists/i.test(txt)) { if (attempt < 4) { console.log(`  …name still reserved, retrying in 4s`); await sleep(4000); retry = true; continue; } console.error(`✗ ${name}: name still reserved after retries (delete still settling).`); return false; }
+      // PQL parse/validation error → try the next candidate form
+      const why = (String(txt).match(/parsing PQL expression[\s\S]{0,80}|signature \[[^\]]*\]/) || [txt.slice(0, 100)])[0];
+      console.log(`  form #${fi} rejected (${r.status}): ${value}   ·   ${why.replace(/\s+/g, " ").trim()}`);
+    }
+  }
+  console.error(`✗ FAIL  ${name}: no candidate PQL form was accepted (see rejections above).`);
+  return false;
 }
 
 async function main() {
@@ -70,8 +104,10 @@ async function main() {
   names.forEach((n) => console.log(`  • ${n}`));
 
   if (DRY) {
-    console.log("\n--dry: example payload for the first name —");
-    console.log(JSON.stringify(definitionBody(names[0]), null, 2));
+    console.log("\n--dry: candidate PQL forms that will be probed (first accepted wins) —");
+    PQL_FORMS.forEach((f, i) => console.log(`  #${i}: ${f(names[0])}`));
+    console.log("\nExample create payload (form #0):");
+    console.log(JSON.stringify(definitionBody(names[0], PQL_FORMS[0](names[0])), null, 2));
     console.log("\nNo network calls made.");
     return;
   }
@@ -128,22 +164,13 @@ async function main() {
       console.log(`- deleted old  ${name}  (${ex.id})${gone ? "" : "  [still settling]"}`);
       delete existing[normName(name)];
     }
-    // Create — retry a few times if the name is briefly still reserved after delete.
-    let done = false;
-    for (let attempt = 0; attempt < 4 && !done; attempt++) {
-      const r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name)) });
-      const txt = await r.text();
-      if (r.ok) { let j = {}; try { j = JSON.parse(txt); } catch {} const id = j.id || j.segmentId; console.log(`+ created ${name}  ->  ${id}`); if (id) map[id] = name; done = true; break; }
-      if (r.status === 400 && /already exists/i.test(txt) && attempt < 3) { console.log(`  …name still reserved, retrying in 4s`); await sleep(4000); continue; }
-      console.error(`✗ FAIL   ${name}  ->  HTTP ${r.status}  ${txt.slice(0, 280)}`);
-      if (r.status === 400 || r.status === 403) console.error(`(tried PQL:  ${pql(name)} ). 400 = PQL/schema · 403 = missing segmentation scope · "already exists" = delete still settling.`);
-      break;
-    }
+    // Create — probes PQL forms (first target) and reuses the winner for the rest.
+    await createAudience(name, H, map);
   }
 
   console.log("\n=== add this single line to .env, then restart node ===");
   console.log("ADOBE_AUDIENCE_NAMES=" + JSON.stringify(map));
-  console.log(`\n(${Object.keys(map).length} audiences mapped. Streaming evaluation — profiles qualify within minutes.)`);
+  console.log(`\n(${Object.keys(map).length} audiences mapped${FORM_IDX != null ? ` · winning PQL form #${FORM_IDX} — pin with AEP_PQL_FORM=${FORM_IDX} to skip probing` : ""}.)`);
 }
 
 main().catch((e) => { console.error("FATAL:", e.message); process.exit(1); });
