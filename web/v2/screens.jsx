@@ -209,7 +209,11 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
 }
 
 export function Home({ shared, go }) {
-  const { profile, journey, airports = [] } = shared;
+  const { profile, airports = [] } = shared;
+  // The resume card must reflect the LIVE journey, re-read on every mount — not the
+  // boot-time shared snapshot. Otherwise a search made after boot (or on another channel)
+  // updates the server but never appears here. Seed from the snapshot for instant paint.
+  const [journey, setJourney] = useState(shared.journey);
   const [rec, setRec] = useState(null);
   const [anc, setAnc] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -224,6 +228,7 @@ export function Home({ shared, go }) {
     api.get("/ancillaries").then(a => setAnc((a || []).sort((x, y) => (y.recommended ? 1 : 0) - (x.recommended ? 1 : 0)))).catch(() => {});
     api.get("/bookings").then(setBookings).catch(() => {});
     api.get("/offers/tiles").then(d => setOfferTiles(d?.tiles || null)).catch(() => {});
+    api.get("/journey").then(j => setJourney(j && j.stage ? j : null)).catch(() => {});
   }, []);
   if (!profile) return <Page><div className="py-20 text-center text-ink-faint">Loading your journey…</div></Page>;
 
