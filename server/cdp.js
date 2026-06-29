@@ -165,16 +165,25 @@ async function fetchLiveXDM(persona, c) {
   return (ent && ent.entity) ? ent.entity : ent;
 }
 
+// Audience id→name resolution for the read-back. The env map is the static source; the
+// segment agent registers ids it created/learned at runtime so labels resolve with no manual
+// upkeep. Runtime entries are merged over the env map.
+let _runtimeAudienceNames = {};
+function registerAudienceNames(m) { if (m && typeof m === "object") Object.assign(_runtimeAudienceNames, m); }
+function audienceNames() {
+  let env = {}; try { env = JSON.parse(process.env.ADOBE_AUDIENCE_NAMES || "{}"); } catch {}
+  return { ...env, ..._runtimeAudienceNames };
+}
+
 // Extract the profile's REAL Adobe audience membership from a fetched Profile API entity.
 // Adobe returns segmentMembership.ups = { <audienceId>: { status, lastQualificationTime } }.
-// We surface only ACTIVE memberships (realized/existing) and resolve audienceId → name from
-// ADOBE_AUDIENCE_NAMES (a JSON map you populate with the audiences you author in AEP). Nothing
-// is invented here: every entry came from Adobe. Unknown ids are shown by id (membership is
-// never hidden), never relabelled as something they aren't. [] when the entity has no membership.
+// We surface only ACTIVE memberships (realized/existing) and resolve audienceId → name via
+// audienceNames() (env map + agent-learned). Nothing is invented here: every entry came from
+// Adobe. Unknown ids are shown by id (membership is never hidden). [] when no membership.
 function adobeAudiencesFromEntity(entity) {
   const ups = entity && entity.segmentMembership && entity.segmentMembership.ups;
   if (!ups || typeof ups !== "object") return [];
-  let names = {}; try { names = JSON.parse(process.env.ADOBE_AUDIENCE_NAMES || "{}"); } catch {}
+  const names = audienceNames();
   return Object.entries(ups)
     .filter(([, m]) => m && /^(realized|existing)$/i.test(String(m.status || "")))
     .map(([id, m]) => ({ id, name: names[id] || id, status: String(m.status || "").toLowerCase(),
@@ -219,4 +228,4 @@ async function getProfileFromCdp(personaId) {
   };
 }
 
-module.exports = { cdpConfig, getProfileFromCdp, toXDM, audiences, identityMap, consent, imsToken, rawConfig };
+module.exports = { cdpConfig, getProfileFromCdp, toXDM, audiences, identityMap, consent, imsToken, rawConfig, registerAudienceNames };

@@ -26,6 +26,7 @@ const pss = require("./pss");   // PSS (3rd-party) ingestion → SQLite + RT-CDP
 const cdpProfile = require("./cdp-profile");   // unified profile + identity stitching + segments
 const segments = require("./segments");   // per-member local segment engine
 const cdpAudiences = require("./cdp-audiences");   // Adobe RT-CDP audience reads + publish
+const segmentAgent = require("./cdp-segment-agent");   // self-extending RT-CDP segment sync (opt-in)
 
 const app = express();
 
@@ -2227,6 +2228,15 @@ app.post("/api/admin/cdp/ingest", async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
 });
 
+// Segment agent — reconcile local-engine segments → RT-CDP audiences + ingest profiles.
+// ?dryRun=1 previews the desired audience set with no network calls. Real run is gated by
+// CDP_AGENT_ENABLED=1 (the handler reports "agent disabled" otherwise).
+app.post("/api/admin/cdp/agent/reconcile", async (req, res) => {
+  const dryRun = req.query.dryRun === "1" || !!(req.body && req.body.dryRun);
+  try { res.json(await segmentAgent.reconcile({ dryRun })); }
+  catch (e) { res.status(500).json({ ok: false, error: String((e && e.message) || e) }); }
+});
+
 /* ── PSS (Passenger Service System) — 3rd-party bookings → SQLite + Adobe RT-CDP ──
    The external PSS (Supabase) fires a signed webhook here on every booking. This is
    the single governed ingest path: persist the transaction to SQLite, stream the
@@ -2385,4 +2395,5 @@ app.listen(PORT, HOST, () => {
   // Boot hydrate: uid 1 ONLY (baseline-minimal). Users 2–5 lazy-hydrate on their first
   // adobe POST — avoids shared-sandbox flakiness from looping all 5 on boot.
   if (src === "adobe") hydrateActiveSource(1, personaForUid(1), "adobe").catch((e) => console.log("   [cdp] hydrate on boot failed:", String(e && e.message || e)));
+  try { segmentAgent.start(); } catch (e) { console.log("   [agent] start failed:", String(e && e.message || e)); }
 });
