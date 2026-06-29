@@ -111,7 +111,13 @@ export function ManageBooking({ shared, go }) {
   if (err) return <Empty go={go} title="Couldn't reach your bookings" msg={err} />;
   if (!booking) return <Empty go={go} />;
   // Every upcoming trip (not cancelled, not departed) — the basket lists them all.
-  const trips = (all || []).filter(b => (b.status || "confirmed") !== "cancelled" && (b.days_to_go ?? 0) >= 0);
+  // Sort soonest-first (by date, then departure time) so the list order matches the
+  // "next flight" the upsell and primary pick key to — otherwise raw DB order can put a
+  // later flight above today's, making the wrong trip look like the next one.
+  const trips = (all || [])
+    .filter(b => (b.status || "confirmed") !== "cancelled" && (b.days_to_go ?? 0) >= 0)
+    .sort((a, b) => String(a.flight_date).localeCompare(String(b.flight_date))
+      || String(a.flight?.dep || "").localeCompare(String(b.flight?.dep || "")));
   const list = trips.length ? trips : [booking];
   const ACTIONS = [
     ["Upgrade cabin", "upgrade", "star"],
