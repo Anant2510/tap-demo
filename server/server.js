@@ -1749,9 +1749,17 @@ app.get("/api/offers/tiles", async (req, res) => {
 app.get("/api/admin/personalization", async (req, res) => {
   const u = db.prepare("SELECT member_no, email, full_name, tier, miles, home_airport, affinity_label FROM users WHERE id=?").get(req.uid) || {};
   const home = u.home_airport || "OPO";
-  let localSegs = [], audiences = [], cdpOn = false;
+  let localSegs = [], audiences = [], localAud = [], cdpOn = false;
   try { localSegs = (segments.evaluate(u.member_no).segments) || []; } catch { }
-  try { audiences = await cdpAudiences.audiencesFor({ loyaltyId: u.member_no, email: u.email }); cdpOn = cdpAudiences.cdpWired(); } catch { }
+  try {
+    audiences = await cdpAudiences.audiencesFor({ loyaltyId: u.member_no, email: u.email });        // REAL Adobe membership (or [])
+    localAud = await cdpAudiences.localAudiencesFor({ loyaltyId: u.member_no, email: u.email });     // local-engine audiences
+    cdpOn = audiences.length > 0;   // "RT-CDP live" only when Adobe actually returned membership
+  } catch { }
+  // Local-engine segments for the ledger = affinity engine + local audiences, all clearly local
+  // (so the panel stays informative without claiming Adobe provenance it doesn't have).
+  const localSegMerged = [...localSegs,
+    ...localAud.filter(a => !localSegs.some(s => s.name === a.name)).map(a => ({ id: a.id, name: a.name, why: a.source || "local engine" }))];
   const travel = db.prepare("SELECT route, trip_date, dep_time, purpose FROM travel_history WHERE user_id=? ORDER BY trip_date DESC LIMIT 30").all(req.uid);
   const searchRows = db.prepare("SELECT origin, dest, travel_date, device, created_at FROM searches WHERE user_id=? ORDER BY id DESC LIMIT 30").all(req.uid);
   const bookingRows = db.prepare("SELECT id, pnr, flight_no, flight_date, seat, items_json, status, source FROM bookings WHERE user_id=? ORDER BY id DESC LIMIT 30").all(req.uid)
@@ -1779,7 +1787,7 @@ app.get("/api/admin/personalization", async (req, res) => {
   surfaces.push({ surface: "Ancillary recommendations", items: ancItems });
   surfaces.push({ surface: "Segments & RT-CDP audiences", items: [
     ...audiences.map(a => ({ title: a, via: "Adobe RT-CDP", reason: "Live audience membership", signals: [`RT-CDP audience: ${a}`] })),
-    ...localSegs.map(s => ({ title: s.name, via: "Segment engine", reason: s.why, signals: [`segment ${s.id}: ${s.why}`] })),
+    ...localSegMerged.map(s => ({ title: s.name, via: "Segment engine", reason: s.why, signals: [`segment ${s.id}: ${s.why}`] })),
   ] });
   const activeHolds = holdRows.filter(h => h.status === "active");
   if (activeHolds.length) surfaces.push({ surface: "Fare holds → complete-your-hold offer", items: activeHolds.map(h => ({
@@ -1788,7 +1796,7 @@ app.get("/api/admin/personalization", async (req, res) => {
   })) });
   res.json({
     identity: { member_no: u.member_no, email: u.email, name: u.full_name, tier: u.tier, miles: u.miles, home_airport: home, affinity: u.affinity_label },
-    cdpOn, audiences, segments: localSegs, surfaces,
+    cdpOn, audiences, segments: localSegMerged, surfaces,
     records: { travel_history: travel, searches: searchRows, bookings: bookingRows, holds: holdRows },
   });
 });
@@ -2294,16 +2302,21 @@ app.post("/api/pss/book", async (req, res) => {
 app.get("/api/segments/:memberNo", async (req, res) => {
   const memberNo = req.params.memberNo;
   const out = segments.evaluate(memberNo);
-  // Real Adobe audiences take precedence when the cdp module is wired; else local engine.
+  // Real Adobe audiences take precedence when the profile genuinely has membership; otherwise
+  // we show the LOCAL engine output, labelled as local — never as an Adobe RT-CDP audience.
   const audiences = await cdpAudiences.audiencesFor({ loyaltyId: memberNo });
-  const local = (out.segments || []).map((s) => ({ ...s, source: "local" }));
+  const engine = (out.segments || []).map((s) => ({ ...s, source: "local" }));
   if (audiences.length) {
     const adobe = audiences.map((name) => ({ id: "adobe:" + name, name, why: "Adobe RT-CDP audience", source: "adobe" }));
-    out.segments = [...adobe, ...local.filter((s) => !audiences.includes(s.name))];
+    out.segments = [...adobe, ...engine.filter((s) => !audiences.includes(s.name))];
     out.source = "adobe";
     out.adobeAudiences = audiences;
   } else {
-    out.segments = local;
+    // No real RT-CDP membership → local-engine audiences + affinity segments, all honestly local.
+    const localAud = await cdpAudiences.localAudiencesFor({ loyaltyId: memberNo });
+    const localList = localAud.map((a) => ({ id: a.id, name: a.name, why: a.source || "local engine", source: "local" }));
+    const seen = new Set(localList.map((s) => s.name));
+    out.segments = [...localList, ...engine.filter((s) => !seen.has(s.name))];
     out.source = "local";
   }
   res.json(out);

@@ -46,6 +46,21 @@ async function audiencesFor(identity) {
   return [];
 }
 
+// Local-engine audiences (NOT Adobe) — for honest fallback display when Adobe returns no
+// membership, so a surface can still show what the profile qualifies for without claiming it
+// came from RT-CDP. Returns [{ id, name, source }]; [] if unavailable.
+async function localAudiencesFor(identity) {
+  try {
+    const pid = personaIdFor(identity);
+    if (pid && cdpWired()) {
+      const r = await cdp.getProfileFromCdp(pid);
+      const a = r && r.provenance && r.provenance.localAudiences;
+      if (Array.isArray(a)) return a;
+    }
+  } catch { /* unavailable */ }
+  return [];
+}
+
 // Publish computed segment membership back to Adobe as a streamed event.
 async function publish(identity, segments) {
   try {
@@ -57,4 +72,4 @@ async function publish(identity, segments) {
   return false;
 }
 
-module.exports = { audiencesFor, publish, cdpWired, personaIdFor };
+module.exports = { audiencesFor, localAudiencesFor, publish, cdpWired, personaIdFor };

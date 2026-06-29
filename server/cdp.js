@@ -161,6 +161,22 @@ async function fetchLiveXDM(persona, c) {
   return (ent && ent.entity) ? ent.entity : ent;
 }
 
+// Extract the profile's REAL Adobe audience membership from a fetched Profile API entity.
+// Adobe returns segmentMembership.ups = { <audienceId>: { status, lastQualificationTime } }.
+// We surface only ACTIVE memberships (realized/existing) and resolve audienceId → name from
+// ADOBE_AUDIENCE_NAMES (a JSON map you populate with the audiences you author in AEP). Nothing
+// is invented here: every entry came from Adobe. Unknown ids are shown by id (membership is
+// never hidden), never relabelled as something they aren't. [] when the entity has no membership.
+function adobeAudiencesFromEntity(entity) {
+  const ups = entity && entity.segmentMembership && entity.segmentMembership.ups;
+  if (!ups || typeof ups !== "object") return [];
+  let names = {}; try { names = JSON.parse(process.env.ADOBE_AUDIENCE_NAMES || "{}"); } catch {}
+  return Object.entries(ups)
+    .filter(([, m]) => m && /^(realized|existing)$/i.test(String(m.status || "")))
+    .map(([id, m]) => ({ id, name: names[id] || id, status: String(m.status || "").toLowerCase(),
+      lastQualified: m.lastQualificationTime || null, source: "adobe" }));
+}
+
 /* ── main entry: unified profile for a persona, sourced from CDP ── */
 async function getProfileFromCdp(personaId) {
   const P = PERSONAS[personaId] || PERSONAS[DEFAULT_PERSONA];
@@ -176,6 +192,10 @@ async function getProfileFromCdp(personaId) {
   // consistency, but surface the real XDM returned by the Profile API as proof.
   const user = { ...P.user }, prefs = { ...P.prefs }, voucher = { ...P.voucher };
   const xdm = liveXdm || toXDM(user, prefs);
+  // REAL Adobe audience membership, read from the live profile entity — [] when simulated or
+  // when Adobe returns no membership. The local segment engine is kept separately (localAudiences)
+  // so callers can fall back to it WITHOUT mislabelling local output as an Adobe RT-CDP audience.
+  const realAudiences = (mode === "live" && liveXdm) ? adobeAudiencesFromEntity(liveXdm) : [];
   return {
     profile: { user, prefs, voucher },
     provenance: {
@@ -186,7 +206,9 @@ async function getProfileFromCdp(personaId) {
       ingestedAt: new Date().toISOString(),
       identityMap: identityMap(user),
       unifiedFrom: ["CRM — loyalty & identity", "Web SDK (Edge) — on-site behaviour", "Card-spend feed — affinity traits", "WhatsApp Business — messaging events"],
-      audiences: audiences(user),
+      audiences: realAudiences,                         // genuine Adobe membership only
+      localAudiences: audiences(user),                  // local-engine derived (clearly not Adobe)
+      audienceSource: realAudiences.length ? "adobe" : (mode === "live" ? "adobe-empty" : "simulated"),
       consent: consent(),
       xdm,
     },
