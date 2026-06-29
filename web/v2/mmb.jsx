@@ -4,7 +4,7 @@
 // Each screen reads the same "current booking" the server acts on (mirror of the
 // server's currentBooking()), so the card you see is the booking the action mutates.
 import React, { useState, useEffect } from "react";
-import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
+import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 
@@ -124,7 +124,6 @@ export function ManageBooking({ shared, go }) {
     ["Change seat", "seatchange", "seat"],
     ["Check in", "checkin", "doc"],
     ["Add extras", "addextras", "bag"],
-    ["Rebook / disruption", "rebook", "refresh"],
     ["Cancel & refund", "refund", "info"],
   ];
   const priceOf = b => Math.round(b.flight?.price || 180);
@@ -716,6 +715,7 @@ export function CheckInIndirect({ shared, go }) {
   };
   if (res && res.ok) {
     const already = res.state === "already_checked_in";
+    const bpText = `TAP AIR PORTUGAL — BOARDING PASS\nPNR: ${res.pnr}\nPassenger: ${u.first_name || ""}\nRoute: ${res.route}\nSeat: ${res.seat} · Group ${res.group}\nDate: ${fmtDate(res.date)}\n\nGate closes 20 minutes before departure.`;
     return (
       <div className="mx-auto max-w-content px-6 py-8">
         <SuccessHead title={already ? "Already checked in" : "Checked in"} sub={`PNR ${res.pnr} · boarding pass ready`} />
@@ -731,7 +731,7 @@ export function CheckInIndirect({ shared, go }) {
           </div>
           <div className="px-5 pb-5"><div className="rounded-lg bg-lime-tint text-tap-greenDark px-3 py-2.5 text-[12px] flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> Gate closes 20 minutes before departure. Have your ID ready.</div></div>
         </Card>
-        <div className="flex flex-wrap gap-5 mt-5 text-[13px] font-semibold text-tap-greenDeep"><button>Add to Wallet</button><button>Download boarding pass</button></div>
+        <div className="flex flex-wrap gap-5 mt-5 text-[13px] font-semibold text-tap-greenDeep"><button onClick={() => downloadFile(`boarding-pass-${res.pnr}.txt`, bpText)}>Add to Wallet</button><button onClick={() => downloadFile(`boarding-pass-${res.pnr}.txt`, bpText)}>Download boarding pass</button></div>
         <div className="mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn></div>
       </div>
     );
@@ -993,7 +993,7 @@ export function AddExtras({ shared, go, params }) {
         { label: `${sel.pnr}${sel.flight_no || f.flight_no ? " · " + (f.flight_no || sel.flight_no) : ""}`, page: "manage" },
         { label: `Add extras · ${routeLabel}` },
       ]} />
-      <button onClick={() => { setStaged([]); setStep("pick"); }} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Choose a different trip</button>
+      {upcoming.length > 1 && !deepPnr && <button onClick={() => { setStaged([]); setStep("pick"); }} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Choose a different trip</button>}
       <h1 className="text-[26px] font-black">{intent === "update" ? "Update your trip" : "Upgrade your trip"}</h1>
       <p className="text-[13px] text-ink-muted mt-1">Add bags, seats, meals &amp; lounge — paid direct to TAP. Agency does not need to be involved.</p>
       <div className="mt-4"><BookingBand booking={sel} airports={airports} /></div>

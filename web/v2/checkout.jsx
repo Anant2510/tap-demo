@@ -3,12 +3,12 @@
 // → Payment (card + secure banner + billing + grouped basket) → Confirmation.
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
 import React, { useState, useEffect } from "react";
-import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
-import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER } from "./trip.js";
+import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS } from "./lib.js";
+import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
-const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { maximumFractionDigits: 0 });
+const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const CAT_ORDER = ["Hotels", "Cars & transfers", "Insurance", "Lounge & services", "Onboard", "Experiences", "Seats & baggage", "Carbon offset", "Extras"];
 const CAT_ICON = { Hotels: "home", "Cars & transfers": "arrow", Insurance: "shield", "Lounge & services": "star", Onboard: "bag", Experiences: "star", "Seats & baggage": "seat", "Carbon offset": "leaf", Extras: "cart" };
 const CAT_SUB = (pax = 1, nights = 8) => ({ Hotels: `${nights} night${nights !== 1 ? "s" : ""} · ${pax} adult${pax > 1 ? "s" : ""}`, "Cars & transfers": "Private sedan · 1-way", Insurance: `${pax} traveler${pax > 1 ? "s" : ""}`, "Lounge & services": `Pre-flight · ${pax} adult${pax > 1 ? "s" : ""}`, Onboard: "Both flights", Experiences: `${pax} traveler${pax > 1 ? "s" : ""}`, "Seats & baggage": "Both flights", "Carbon offset": "This trip" });
@@ -27,16 +27,24 @@ function SessionTimer({ minutes = 15, prefix = "price locked", suffix = "", clas
    default (insurance). Anything the member adds themselves comes in as source "user". */
 function seedExtras() {
   if (trip.extras.length) return;
+  const px = trip.pax || 1;
+  // [code, name, per-unit price, category, source]. Per-traveller categories (Insurance,
+  // Lounge, Experiences) are multiplied by pax so the stored total matches the cart's
+  // "× pax" hint — at 1 pax these are unchanged; at 3 pax lounge €90 → €270 (#2).
   [["hotel-memmo", "Hotel — Memmo Príncipe Real", 640, "Hotels", "recommended"], ["car-lis", "Airport transfer · LIS → hotel", 25, "Cars & transfers", "recommended"],
-   ["ins-plus", "Travel Insurance · Plus × 2", 76, "Insurance", "auto"], ["lounge-opo", "TAP Lounge · OPO", 90, "Lounge & services", "recommended"],
-   ["exp-belem", "Belém food walking tour", 130, "Experiences", "recommended"]].forEach(([code, name, price, cat, source]) => trip.extras.push({ code, name, price, qty: 1, cat, source }));
+   ["ins-plus", "Travel Insurance · Plus", 76, "Insurance", "auto"], ["lounge-opo", "TAP Lounge · OPO", 90, "Lounge & services", "recommended"],
+   ["exp-belem", "Belém food walking tour", 130, "Experiences", "recommended"]].forEach(([code, name, price, cat, source]) =>
+     trip.extras.push({ code, name, price: PER_PAX_CATS.has(cat) ? price * px : price, qty: 1, cat, source }));
   pingBasket();
 }
 
 /* ── stepper ── */
-const STEPS = ["Select flights", "Trip extras", "My Trip Basket", "Passenger details", "Payment"];
+const STEPS = ["Select flights", "View & customize cart", "My Trip Basket", "Passenger details", "Payment"];
 const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
 const eurC = (n) => `€${Number(n || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// #9 — when no seat was explicitly chosen, the default follows the fare/cabin entitlement:
+// Executive → front business zone (1A–3F), Plus → extra-legroom row, else economy standard.
+const seatForFare = (fare) => /exec/i.test(fare || "") ? "1C" : /plus/i.test(fare || "") ? "7D" : "14F";
 function Stepper({ active }) {
   return (
     <div className="bg-surface border-b border-line">
@@ -211,7 +219,7 @@ const SEAT_NSF = new Set(["3A-0"]);
 const SEAT_EXIT_ROWS = new Set([1, 8]); // extra-leg rows · €18
 const SEAT_PAX_NAMES = ["Daniel", "Mariana", "Sofia", "Lars", "Guest"];
 
-function SeatMapModal({ pax = 2, onClose, onConfirm }) {
+function SeatMapModal({ pax = 1, onClose, onConfirm }) {
   const [type, setType] = useState("std");
   const [picks, setPicks] = useState(() => ["8A-0", "8B-0"].slice(0, Math.max(1, pax)));
   useEffect(() => {
@@ -724,13 +732,28 @@ function FlagSelect({ value, onChange, options, err }) {
 const VInput = ({ value, onChange, placeholder, err }) => (
   <div className="relative">
     <input value={value || ""} onChange={onChange} placeholder={placeholder} className={cx("w-full bg-surface border rounded-xl px-3 py-2.5 pr-8 text-[14px] text-ink placeholder:text-ink-faint outline-none focus:border-tap-green", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")} />
-    {value ? <Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /> : err ? <Icon name="x" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-red" /> : null}
+    {err ? <Icon name="x" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-red" /> : null}
   </div>
 );
 // Native date picker with the same valid/error treatment (#8)
 const DateInput = ({ value, onChange, err, max, min }) => (
   <input type="date" value={value || ""} max={max} min={min} onChange={onChange} className={cx("w-full bg-surface border rounded-xl px-3 py-2.5 text-[14px] text-ink outline-none focus:border-tap-green cursor-pointer", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")} />
 );
+// Generic dropdown with a visible ▾ affordance so selectable fields don't read as static
+// inputs (#7, #8). Mirrors FlagSelect styling minus the flag glyph.
+const Select = ({ value, onChange, options, placeholder = "Select…", err }) => (
+  <div className={cx("relative w-full bg-surface border rounded-xl", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")}>
+    <select value={value || ""} onChange={onChange} className="w-full bg-transparent pl-3 pr-8 py-2.5 text-[14px] text-ink outline-none appearance-none cursor-pointer">
+      <option value="" disabled>{placeholder}</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[11px]">▾</span>
+  </div>
+);
+const TITLES = ["Mr", "Ms", "Mrs", "Mx", "Dr"];
+const GENDERS = ["Female", "Male", "Non-binary", "Prefer not to say"];
+const DOCTYPES = ["Passport", "National ID card", "Residence permit", "Driving licence"];
+const LANGS = ["Português (PT)", "Português (BR)", "English", "Español", "Français", "Deutsch", "Italiano"];
 
 // Passenger-page section heading — bold dark title + muted descriptor + lime accent (#4),
 // giving the IDENTITY / TRAVEL DOCUMENT / LOYALTY sections real typographic hierarchy.
@@ -780,16 +803,16 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
       </div>
       <PaxSectionTitle title="Identity" sub="as shown on passport" />
       <div className="grid sm:grid-cols-3 gap-3">
-        <Field label={<>Title <Req /></>}><VInput {...f("title")} placeholder="Ms" err={err("title")} /></Field>
+        <Field label={<>Title <Req /></>}><Select {...f("title")} options={TITLES} placeholder="Title" err={err("title")} /></Field>
         <Field label={<>First / middle names <Req /></>}><VInput {...f("first")} err={err("first")} /></Field>
         <Field label={<>Last name <Req /></>}><VInput {...f("last")} err={err("last")} /></Field>
         <Field label={<>Date of birth <Req /></>}><DateInput value={p.dob} onChange={e => set("dob", e.target.value)} err={err("dob")} max="2024-12-31" /></Field>
-        <Field label={<>Gender <Req /></>}><VInput {...f("gender")} placeholder="Female" err={err("gender")} /></Field>
+        <Field label={<>Gender <Req /></>}><Select {...f("gender")} options={GENDERS} placeholder="Gender" err={err("gender")} /></Field>
         <Field label={<>Nationality <Req /></>}><FlagSelect value={p.nat} onChange={v => set("nat", v)} options={FLAG_NAT} err={err("nat")} /></Field>
       </div>
       <PaxSectionTitle title="Travel document" sub="Required to issue your boarding pass" info className="mt-4" />
       <div className="grid sm:grid-cols-3 gap-3">
-        <Field label={<>Document type <Req /></>}><VInput {...f("doctype")} placeholder="Passport" err={err("doctype")} /></Field>
+        <Field label={<>Document type <Req /></>}><Select {...f("doctype")} options={DOCTYPES} placeholder="Document type" err={err("doctype")} /></Field>
         <Field label={<>Document number <Req /></>}><VInput {...f("doc")} err={err("doc")} /></Field>
         <Field label={<>Country of issue <Req /></>}><FlagSelect value={p.docctry} onChange={v => set("docctry", v)} options={FLAG_CTRY} err={err("docctry")} /></Field>
       </div>
@@ -845,7 +868,7 @@ export function Passenger({ shared, go }) {
       <div className="mx-auto max-w-page px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Passenger details</h1><Pill tone="slate">{paxCount} traveler{paxCount > 1 ? "s" : ""}</Pill></div>
         <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Enter passenger information exactly as it appears on travel documents. We'll use this to issue tickets and send trip updates.</p>
-        <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{paxCount} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{paxCount > 1 ? " + " + (paxCount - 1) : ""}</Chip></div>
+        <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{paxCount} adult{paxCount > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{paxCount > 1 ? " + " + (paxCount - 1) : ""}</Chip></div>
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-5 items-start">
           <div className="space-y-5">
@@ -870,13 +893,13 @@ export function Passenger({ shared, go }) {
                 <Field label={<>Email address <Req /></>}><VInput value={contact.email} onChange={e => setContact({ ...contact, email: e.target.value })} err={showErr && !contact.email} /></Field>
                 <Field label={<>Mobile phone <Req /></>}>
                   <div className="flex gap-2">
-                    <div className="relative w-[96px] shrink-0"><span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none">{(PHONE_CODES.find(c => c[0] === contact.phoneCode) || PHONE_CODES[0])[1]}</span><select value={contact.phoneCode} onChange={e => setContact({ ...contact, phoneCode: e.target.value })} className="w-full bg-surface border border-line-strong rounded-xl pl-8 pr-2 py-2.5 text-[13px] outline-none appearance-none cursor-pointer">{PHONE_CODES.map(([c]) => <option key={c} value={c}>{c}</option>)}</select></div>
+                    <div className="relative w-[96px] shrink-0"><span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none">{(PHONE_CODES.find(c => c[0] === contact.phoneCode) || PHONE_CODES[0])[1]}</span><select value={contact.phoneCode} onChange={e => setContact({ ...contact, phoneCode: e.target.value })} className="w-full bg-surface border border-line-strong rounded-xl pl-8 pr-6 py-2.5 text-[13px] outline-none appearance-none cursor-pointer">{PHONE_CODES.map(([c]) => <option key={c} value={c}>{c}</option>)}</select><span className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[10px]">▾</span></div>
                     <input value={contact.phone} onChange={e => setContact({ ...contact, phone: e.target.value })} className={cx("flex-1 bg-surface border rounded-xl px-3 py-2.5 text-[14px] outline-none focus:border-tap-green", showErr && !contact.phone ? "border-tap-red" : "border-line-strong")} />
                   </div>
                 </Field>
                 <Field label={<>Country <Req /></>}><FlagSelect value={contact.country} onChange={v => setContact({ ...contact, country: v })} options={FLAG_CTRY} err={showErr && !contact.country} /></Field>
                 <Field label={<>City <Req /></>}><VInput value={contact.city} onChange={e => setContact({ ...contact, city: e.target.value })} err={showErr && !contact.city} /></Field>
-                <Field label="Preferred language"><Input value={contact.lang} onChange={e => setContact({ ...contact, lang: e.target.value })} /></Field>
+                <Field label="Preferred language"><Select value={contact.lang} onChange={e => setContact({ ...contact, lang: e.target.value })} options={LANGS} placeholder="Select language" /></Field>
               </div>
               <div className="h-px bg-line my-4" />
               <label className="flex items-start gap-2.5 text-[13px] text-ink-700"><input type="checkbox" checked={contact.fare} onChange={e => setContact({ ...contact, fare: e.target.checked })} className="accent-[#46a41a] mt-0.5" /><span>Email me fare alerts and travel inspiration <span className="text-ink-faint">(optional)</span><span className="block text-[11px] text-ink-faint">You can unsubscribe any time. We'll always send essential trip emails.</span></span></label>
@@ -926,7 +949,7 @@ export function Payment({ shared, go }) {
     cashback_amt = Math.min(cashbackBal, mix.cashback || 0);
   }
   const card_amt = Math.max(0, t.total - voucher_amt - miles_amt - cashback_amt);
-  const seatNo = seat?.seat || "12A";
+  const seatNo = seat?.seat || seatForFare(trip.outbound?.fare);
   const mixBreakdown = method === "Mix Method" ? [
     { label: "Card payment", text: EUR(card_amt) },
     { label: `Miles (${miles(miles_used)})`, text: miles_amt > 0 ? "−" + EUR(miles_amt) : EUR(0), green: miles_amt > 0 },
@@ -1062,6 +1085,14 @@ export function Confirmation({ shared, go }) {
   if (!trip.pnr) return noTrip(go);
   const pay = trip.payment || {}, o = trip.outbound, i = trip.inbound, u = shared.profile?.user || {}, t = tripTotals();
   const pax = trip.passengers.filter(p => p && p.first).length ? trip.passengers.filter(p => p && p.first) : [{ first: u.first_name, last: "" }];
+  // #13 — quick actions now produce real downloads (e-ticket / boarding pass text, .ics calendar).
+  const ticketText = () => {
+    const seg = (c, d, seat) => c ? `${c.flight.origin} -> ${c.flight.dest}  ${c.flight.flight_no}\n  ${fmtDate(d)} · dep ${c.flight.dep} · arr ${c.flight.arr} · seat ${seat}` : "";
+    return [`TAP AIR PORTUGAL — E-TICKET`, `PNR: ${trip.pnr}`, `Passenger(s): ${pax.map(p => `${p.first} ${p.last || ""}`.trim()).join(", ")}`, ``, seg(o, trip.date, trip.seat || "14A"), i ? seg(i, trip.ret, "14B") : "", ``, `Total paid: ${EUR(t.total)}`].filter(Boolean).join("\n");
+  };
+  const addCalendar = () => { const ics = [o, i].filter(Boolean).map(c => buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? (trip.seat || "14A") : "14B"}` })).join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
+  const downloadTicket = () => downloadFile(`eticket-${trip.pnr}.txt`, ticketText(), "text/plain");
+  const addWallet = () => downloadFile(`boarding-pass-${trip.pnr}.txt`, ticketText(), "text/plain");
   return (
     <div className="bg-surface-soft min-h-screen">
       <div className="mx-auto max-w-page px-6 py-8">
@@ -1078,7 +1109,7 @@ export function Confirmation({ shared, go }) {
                 </div>
               ))}
               <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {n === 0 ? (trip.seat || "14A") : (["14B", "14C", "14D"][n - 1] || "14A")}</span>)}<span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="seat" size={11} className="text-ink-muted" /> Standard seat</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="leaf" size={11} className="text-ink-muted" /> Snack</span></div>
-              <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button className="hover:underline">Add to Wallet</button><button className="hover:underline">Add to Calendar</button><button className="hover:underline">Download e-ticket</button></div>
+              <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} className="hover:underline">Add to Wallet</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
             <section>
@@ -1156,7 +1187,7 @@ export function ExpressCheckout({ shared, go }) {
 
   const o = trip.outbound, i = trip.inbound;
   const base = o?.price || 0;
-  const seatNo = seat?.seat || "12A";
+  const seatNo = seat?.seat || seatForFare(o?.fare);
   const seatCost = seatUp ? 18 : 0, bagCost = bag ? 25 : 0, carbonCost = carbon ? 2 : 0;
   const taxes = Math.round((base + seatCost + bagCost + carbonCost) * 0.12);
   const total = base + seatCost + bagCost + carbonCost + taxes;

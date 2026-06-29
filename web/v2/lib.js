@@ -42,6 +42,29 @@ export const EUR = (n) => n == null ? "—" : `€${Number(n).toFixed(Number(n) 
 export const miles = (n) => Number(n || 0).toLocaleString("en-GB");
 export const MILES_RATE = 0.003; // ~1,000 mi ≈ €3 (matches server)
 
+// Trigger a real client-side file download from in-memory content (used by the booking-
+// confirmed quick actions: e-ticket, boarding pass, calendar — #13).
+export function downloadFile(filename, content, mime = "text/plain") {
+  try {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    return true;
+  } catch { return false; }
+}
+// Minimal RFC-5545 VEVENT so "Add to Calendar" produces a file any calendar app imports.
+export function buildICS({ title, start, end, location, description }) {
+  const fmt = (d) => { const x = new Date(d); return isNaN(x.getTime()) ? "" : x.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); };
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//TAP Air Portugal//FlyTAP//EN", "BEGIN:VEVENT",
+    `UID:${Date.now()}@flytap`, `DTSTAMP:${fmt(new Date())}`, start ? `DTSTART:${fmt(start)}` : "",
+    end ? `DTEND:${fmt(end)}` : "", `SUMMARY:${title || "TAP flight"}`,
+    location ? `LOCATION:${location}` : "", description ? `DESCRIPTION:${description}` : "",
+    "END:VEVENT", "END:VCALENDAR"].filter(Boolean).join("\r\n");
+}
+
 // Tier ladder (demo thresholds; progress is computed from LIVE miles so it's truthful)
 export const TIERS = [
   { name: "Silver", at: 0 },

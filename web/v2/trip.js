@@ -33,6 +33,9 @@ export function resetTrip() {
   notify();
 }
 export function hasExtra(code) { return trip.extras.some(x => x.code === code); }
+// Per-traveller categories. The cart shows a "× pax" hint for these (CAT_QTY) and item
+// cards pre-multiply price by pax before storing, so qty stays 1 — see seedExtras / Row.
+export const PER_PAX_CATS = new Set(["Insurance", "Lounge & services", "Experiences"]);
 export function toggleExtra(item) {
   const i = trip.extras.findIndex(x => x.code === item.code);
   if (i >= 0) trip.extras.splice(i, 1); else trip.extras.push({ ...item, qty: item.qty || 1, cat: item.cat || "Extras", source: item.source || "user" });
