@@ -76,26 +76,49 @@ function definitionBody(name, value) {
 }
 
 // Create one audience, probing PQL forms until AEP accepts one. Remembers the winning form in
-// FORM_IDX so the remaining audiences skip straight to it. Retries transient "already exists".
+// FORM_IDX so the remaining audiences skip straight to it. Retries transient "already exists"
+// and 5xx/network errors on the SAME form (a 500 is an AEP hiccup, not a bad rule).
 async function createAudience(name, H, map) {
   const order = FORM_IDX != null ? [FORM_IDX] : PQL_FORMS.map((_, i) => i);
   for (const fi of order) {
     const value = PQL_FORMS[fi](name);
     let retry = true, attempt = 0;
-    while (retry && attempt < 4) {
+    while (retry && attempt < 5) {
       retry = false; attempt++;
-      const r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name, value)) });
-      const txt = await r.text();
+      let r, txt;
+      try { r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name, value)) }); txt = await r.text(); }
+      catch (e) { if (attempt < 5) { console.log(`  network error (${e.message}); retry in 3s`); await sleep(3000); retry = true; continue; } console.error(`✗ ${name}: network error after retries — ${e.message}`); return false; }
       if (r.ok) { let j = {}; try { j = JSON.parse(txt); } catch {} const id = j.id || j.segmentId; FORM_IDX = fi; console.log(`+ created ${name}  ->  ${id}   [form #${fi}: ${value}]`); if (id) map[id] = name; return true; }
       if (r.status === 403) { console.error(`✗ 403 (IMS client lacks segmentation scope)  ${name}`); return false; }
-      if (r.status === 400 && /already exists/i.test(txt)) { if (attempt < 4) { console.log(`  …name still reserved, retrying in 4s`); await sleep(4000); retry = true; continue; } console.error(`✗ ${name}: name still reserved after retries (delete still settling).`); return false; }
-      // PQL parse/validation error → try the next candidate form
+      if (r.status >= 500) { if (attempt < 5) { console.log(`  transient ${r.status} from AEP; retrying same form in 3s`); await sleep(3000); retry = true; continue; } console.error(`✗ ${name}: AEP kept returning ${r.status} on the accepted form — re-run --recreate --only "${name}".`); return false; }
+      if (r.status === 400 && /already exists/i.test(txt)) { if (attempt < 5) { console.log(`  …name still reserved, retrying in 4s`); await sleep(4000); retry = true; continue; } console.error(`✗ ${name}: name still reserved after retries (delete still settling).`); return false; }
+      // Genuine PQL parse/validation 4xx → try the next candidate form
       const why = (String(txt).match(/parsing PQL expression[\s\S]{0,80}|signature \[[^\]]*\]/) || [txt.slice(0, 100)])[0];
       console.log(`  form #${fi} rejected (${r.status}): ${value}   ·   ${why.replace(/\s+/g, " ").trim()}`);
     }
   }
   console.error(`✗ FAIL  ${name}: no candidate PQL form was accepted (see rejections above).`);
   return false;
+}
+
+// List ALL existing definitions (paginated), keyed by NORMALIZED name → {id, name}.
+async function listDefs(H) {
+  const byName = {}; let listed = 0, diag = "";
+  try {
+    let url = `${ENDPOINT}?limit=100`;
+    for (let page = 0; page < 15 && url; page++) {
+      const r = await fetch(url, { headers: H });
+      const txt = await r.text();
+      if (!r.ok) { diag = `list HTTP ${r.status}: ${txt.slice(0, 160)}`; break; }
+      let j = {}; try { j = JSON.parse(txt); } catch {}
+      const arr = j.segments || j.definitions || j.children || j.audiences || (Array.isArray(j) ? j : []);
+      if (page === 0 && !arr.length) diag = `0 items; top-level keys = ${Object.keys(j).join(",") || "(none)"}`;
+      for (const d of arr) { const nm = d && d.name, id = d && (d.id || d.segmentId); if (nm && id) { byName[normName(nm)] = { id, name: nm }; listed++; } }
+      const next = (j._links && j._links.next && (j._links.next.href || j._links.next)) || (j.page && j.page.next) || null;
+      url = next ? (String(next).startsWith("http") ? next : `https://platform.adobe.io${next}`) : null;
+    }
+  } catch (e) { diag = e.message; }
+  return { byName, listed, diag };
 }
 
 async function main() {
@@ -121,25 +144,8 @@ async function main() {
     "Content-Type": "application/json", Accept: "application/json",
   };
 
-  // List ALL existing definitions, paginating, keyed by NORMALIZED name → {id, name}.
-  // (The previous exact-string match silently missed everything, so recreate never deleted
-  // and the create then collided with "already exists".)
-  const existing = {};
-  let listed = 0, diag = "";
-  try {
-    let url = `${ENDPOINT}?limit=100`;
-    for (let page = 0; page < 15 && url; page++) {
-      const r = await fetch(url, { headers: H });
-      const txt = await r.text();
-      if (!r.ok) { diag = `list HTTP ${r.status}: ${txt.slice(0, 160)}`; break; }
-      let j = {}; try { j = JSON.parse(txt); } catch {}
-      const arr = j.segments || j.definitions || j.children || j.audiences || (Array.isArray(j) ? j : []);
-      if (page === 0 && !arr.length) diag = `0 items; top-level keys = ${Object.keys(j).join(",") || "(none)"}`;
-      for (const d of arr) { const nm = d && d.name, id = d && (d.id || d.segmentId); if (nm && id) { existing[normName(nm)] = { id, name: nm }; listed++; } }
-      const next = (j._links && j._links.next && (j._links.next.href || j._links.next)) || (j.page && j.page.next) || null;
-      url = next ? (String(next).startsWith("http") ? next : `https://platform.adobe.io${next}`) : null;
-    }
-  } catch (e) { diag = e.message; }
+  // List existing definitions, keyed by normalized name (tolerant of dash/whitespace drift).
+  let { byName: existing, listed, diag } = await listDefs(H);
   console.log(`Existing audiences in sandbox: ${listed}${diag ? `  (${diag})` : ""}`);
 
   if (LIST) {
@@ -168,9 +174,17 @@ async function main() {
     await createAudience(name, H, map);
   }
 
-  console.log("\n=== add this single line to .env, then restart node ===");
-  console.log("ADOBE_AUDIENCE_NAMES=" + JSON.stringify(map));
-  console.log(`\n(${Object.keys(map).length} audiences mapped${FORM_IDX != null ? ` · winning PQL form #${FORM_IDX} — pin with AEP_PQL_FORM=${FORM_IDX} to skip probing` : ""}.)`);
+  // Authoritative output: re-list live audiences and map ALL target names to current ids, so a
+  // partial run (e.g. one transient failure) still prints a complete, correct .env line.
+  const finalList = (await listDefs(H)).byName;
+  const fullMap = {};
+  for (const name of names) { const ex = finalList[normName(name)]; if (ex) fullMap[ex.id] = name; }
+  const missing = names.filter((n) => !finalList[normName(n)]);
+
+  console.log("\n=== replace the ADOBE_AUDIENCE_NAMES line in .env with this, then restart node ===");
+  console.log("ADOBE_AUDIENCE_NAMES=" + JSON.stringify(fullMap));
+  console.log(`\n(${Object.keys(fullMap).length}/${names.length} audiences mapped${FORM_IDX != null ? ` · PQL form #${FORM_IDX}` : ""}.)`);
+  if (missing.length) console.error(`! STILL MISSING (${missing.length}): ${missing.join(", ")}\n  → re-run:  node scripts/aep-create-segment-audiences.js --recreate --only "${missing[0]}"`);
 }
 
 main().catch((e) => { console.error("FATAL:", e.message); process.exit(1); });
