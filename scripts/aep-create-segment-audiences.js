@@ -8,10 +8,13 @@
    ADOBE_AUDIENCE_NAMES, which the read-back uses to label the app chips.
 
    Run ON THE VM, from the repo root (reuses .env + the same IMS client as ingest):
-     node scripts/aep-create-segment-audiences.js          # create
-     node scripts/aep-create-segment-audiences.js --dry    # preview only, no network
+     node scripts/aep-create-segment-audiences.js               # create missing only
+     node scripts/aep-create-segment-audiences.js --dry         # preview payload, no network
+     node scripts/aep-create-segment-audiences.js --recreate --only "Miles-Rich (> 30k)"
+                                                                 # delete + recreate ONE (test the PQL)
+     node scripts/aep-create-segment-audiences.js --recreate    # delete + recreate ALL with fixed PQL
 
-   Rule per audience (existential array match): _aeppsemea.computedSegments = "<name>"
+   Rule per audience (existential array match): _aeppsemea.computedSegments[*] = "<name>"
    ───────────────────────────────────────────────────────────────────────────── */
 require("dotenv").config();
 const cdp = require("../server/cdp");
@@ -22,10 +25,17 @@ const FIELD = process.env.ADOBE_LOCAL_SEGMENTS_FIELD || "computedSegments";
 const PREFIX = process.env.AEP_AUDIENCE_PREFIX || "TAP – ";    // namespaced in the shared sandbox
 const ENDPOINT = "https://platform.adobe.io/data/core/ups/segment/definitions";
 const DRY = process.argv.includes("--dry");
+// --recreate: delete any existing definition with the same name, then create it fresh with the
+// corrected PQL (in-place PATCH of segment expressions is unreliable; delete+create is clean).
+// --only "<name>": limit to a single segment so you can validate the rule before touching all 16.
+const RECREATE = process.argv.includes("--recreate");
+const onlyIdx = process.argv.indexOf("--only");
+const ONLY = onlyIdx >= 0 ? process.argv[onlyIdx + 1] : null;
 
-// PQL: a scalar comparison against an array field is existential ("any element equals"),
-// i.e. this matches profiles whose computedSegments array contains <name>.
-const pql = (name) => `${TENANT}.${FIELD} = "${String(name).replace(/"/g, '\\"')}"`;
+// PQL: computedSegments is a String[]. A scalar `=` is rejected by the segmentation engine
+// (equals expects STRING, not STRING[]). The `[*]` projects each element, so the comparison
+// becomes STRING = STRING per element → matches profiles whose array CONTAINS <name>.
+const pql = (name) => `${TENANT}.${FIELD}[*] = "${String(name).replace(/"/g, '\\"')}"`;
 
 // Distinct segment names straight from the SAME engine the app uses (cdp.audiences),
 // so the audience set always tracks whatever the local logic produces.
@@ -79,9 +89,18 @@ async function main() {
 
   const map = {};      // audienceId → clean segment name (for ADOBE_AUDIENCE_NAMES)
   let firstError = null;
-  for (const name of names) {
+  const targets = ONLY ? names.filter((n) => n === ONLY) : names;
+  if (ONLY && !targets.length) { console.error(`! --only "${ONLY}" matched no segment name. Valid names listed above.`); return; }
+  for (const name of targets) {
     const aepName = PREFIX + name;
-    if (existing[aepName]) { console.log(`= exists  ${name}  ->  ${existing[aepName]}`); map[existing[aepName]] = name; continue; }
+    if (existing[aepName]) {
+      if (RECREATE) {
+        const dr = await fetch(`${ENDPOINT}/${existing[aepName]}`, { method: "DELETE", headers: H });
+        if (!dr.ok && dr.status !== 404) { console.error(`✗ delete FAIL ${name} -> HTTP ${dr.status} ${(await dr.text()).slice(0, 200)}`); continue; }
+        console.log(`- deleted old  ${name}  (${existing[aepName]})`);
+        delete existing[aepName];
+      } else { console.log(`= exists  ${name}  ->  ${existing[aepName]}`); map[existing[aepName]] = name; continue; }
+    }
     const r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name)) });
     const txt = await r.text();
     if (!r.ok) {

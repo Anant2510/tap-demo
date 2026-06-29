@@ -51,7 +51,7 @@ let nameToId = {};      // prefixed AEP name → audience id  (idempotency cache
 const learned = {};     // audience id → CLEAN segment name (for the read-back map)
 let running = false;    // single-flight guard
 
-const pql = (name, c) => `${TENANT}.${c.field} = "${String(name).replace(/"/g, '\\"')}"`;
+const pql = (name, c) => `${TENANT}.${c.field}[*] = "${String(name).replace(/"/g, '\\"')}"`;
 
 // Distinct segment names from the SAME engine the app uses — the desired audience set.
 function desiredNames() {
