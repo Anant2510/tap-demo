@@ -3,7 +3,7 @@
 // user logs in via the top-right dialog, then re-renders as the personalized Home.
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import { api, setSessionId } from "./lib.js";
+import { api, setSessionId, authReady } from "./lib.js";
 import { resetTrip, restoreFromSaved, loadTrip, saveTrip } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
@@ -69,10 +69,11 @@ function App() {
         if (saved) { try { body = JSON.parse(saved); } catch { body = null; } }
         if (!body) { const p = localStorage.getItem("flytap_persona"); if (p) body = { persona: p }; }   // back-compat
         if (authed && body) {
-          try { const r = await api.post("/auth/login", body); setSessionId(r && r.ok && r.sessionId ? r.sessionId : null); }
+          try { const r = await api.post("/auth/login", body, { ungated: true }); setSessionId(r && r.ok && r.sessionId ? r.sessionId : null); }
           catch { setSessionId(null); }
         } else { setSessionId(null); }
       } catch {}
+      finally { authReady(); }   // open the boot gate on every path — parked api.* now fire with the resolved session
       await loadShared(hasLocal);
       loadTrip();
     })();

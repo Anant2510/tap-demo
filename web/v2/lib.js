@@ -13,11 +13,29 @@ export function setSessionId(id) {
   try { id ? localStorage.setItem("flytap_sid", id) : localStorage.removeItem("flytap_sid"); } catch {}
 }
 export const getSessionId = () => SID;
+
+// Boot session gate. Server sessions are in-memory and clear on restart, so the sid
+// hydrated from localStorage above is unreliable until the app re-logs-in on boot. Until
+// then a request would carry the STALE sid and the server falls back to its default user —
+// which surfaced the wrong person in once-on-mount panels (e.g. the 360° profile fired on
+// mount before re-login finished). So api.* parks every call on this gate until main.jsx
+// settles the session and calls authReady(). A timeout fallback guarantees the gate always
+// opens, so a missing/hung re-login can never brick the app. The boot re-login itself is
+// the call that settles the session, so it passes { ungated:true } to skip the gate.
+let _openGate, _gateOpen = false;
+const _gate = new Promise((res) => { _openGate = res; });
+export function authReady() { if (!_gateOpen) { _gateOpen = true; _openGate(); } }
+setTimeout(authReady, 5000);   // belt-and-suspenders: never hold boot calls longer than this
+
 // Base headers + the session header when bound. Built per-call so a fresh login is picked up.
 const hdrs = (extra) => ({ "X-App": "v2", ...(SID ? { "X-Session-Id": SID } : {}), ...(extra || {}) });
+const _send = (p, init, opts) => {
+  const go = () => fetch(API + p, init).then(j);
+  return (opts && opts.ungated) ? go() : _gate.then(go);   // gate held until the session is settled
+};
 export const api = {
-  get: (p) => fetch(API + p, { headers: hdrs() }).then(j),
-  post: (p, body) => fetch(API + p, { method: "POST", headers: hdrs({ "Content-Type": "application/json" }), body: JSON.stringify(body || {}) }).then(j),
+  get: (p, opts) => _send(p, { headers: hdrs() }, opts),
+  post: (p, body, opts) => _send(p, { method: "POST", headers: hdrs({ "Content-Type": "application/json" }), body: JSON.stringify(body || {}) }, opts),
 };
 
 export const EUR = (n) => n == null ? "—" : `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;
