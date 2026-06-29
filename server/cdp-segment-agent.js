@@ -47,7 +47,7 @@ function cfg() {
 }
 
 // in-memory state the agent maintains across reconciles
-let nameToId = {};      // prefixed AEP name → audience id  (idempotency cache)
+let nameToId = {};      // normName(clean name) → audience id  (idempotency cache, rebuilt each pass)
 const learned = {};     // audience id → CLEAN segment name (for the read-back map)
 let running = false;    // single-flight guard
 
@@ -55,6 +55,12 @@ let running = false;    // single-flight guard
 // projection and element-binding forms are rejected at parse time). Verified via the audience
 // script's form probe — keep these two in sync.
 const pql = (name, c) => `"${String(name).replace(/"/g, '\\"')}" in ${TENANT}.${c.field}`;
+
+// Normalize audience names for matching: drop the "TAP – " prefix, unify dash variants and
+// whitespace, lowercase. Keep in sync with scripts/aep-create-segment-audiences.js. Robust to
+// en-dash vs hyphen drift between the prefix AEP stored and the clean desired name (the exact
+// match silently missed everything → empty cache → re-create → "already exists" → learnedCount 0).
+const normName = (s) => String(s).replace(/^\s*TAP\s*[–—-]\s*/i, "").replace(/[–—]/g, "-").replace(/\s+/g, " ").trim().toLowerCase();
 
 // Distinct segment names from the SAME engine the app uses — the desired audience set.
 function desiredNames() {
@@ -74,17 +80,24 @@ async function headers(c) {
   };
 }
 
-// Warm the cache from existing definitions so we never double-create, and so we learn
-// the ids of audiences created on a prior run (or by the CLI script).
+// Warm the cache from existing definitions so we never double-create, and so we learn the ids of
+// audiences created on a prior run (or by the CLI script). Paginates (AEP caps page size), checks
+// r.ok, and keys by NORMALIZED name. Rebuilt fresh each pass so ids recreated by the script (new
+// ids for the same names) are picked up instead of stale ones.
 async function warmCache(c, H) {
-  const r = await fetch(`${ENDPOINT}?limit=500`, { headers: H });
-  const j = await r.json().catch(() => ({}));
-  const list = j.segments || j.definitions || j.children || [];
-  for (const d of list) {
-    if (!d || !d.name) continue;
-    const id = d.id || d.segmentId;
-    nameToId[d.name] = id;
-    if (d.name.startsWith(c.prefix) && id) learned[id] = d.name.slice(c.prefix.length);  // strip prefix → clean name
+  nameToId = {};
+  let url = `${ENDPOINT}?limit=100`;
+  for (let page = 0; page < 15 && url; page++) {
+    const r = await fetch(url, { headers: H });
+    if (!r.ok) break;
+    const j = await r.json().catch(() => ({}));
+    const list = j.segments || j.definitions || j.children || j.audiences || (Array.isArray(j) ? j : []);
+    for (const d of list) {
+      const nm = d && d.name, id = d && (d.id || d.segmentId);
+      if (nm && id) nameToId[normName(nm)] = id;            // key by clean, normalized name
+    }
+    const next = (j._links && j._links.next && (j._links.next.href || j._links.next)) || null;
+    url = next ? (String(next).startsWith("http") ? next : `https://platform.adobe.io${next}`) : null;
   }
 }
 
@@ -103,8 +116,8 @@ async function ensureAudiences(names, c, H) {
   const out = { created: [], existing: [], failed: [] };
   let budget = c.maxAudiences;
   for (const name of names) {
-    const aepName = c.prefix + name;
-    if (nameToId[aepName]) { out.existing.push(name); learned[nameToId[aepName]] = name; continue; }
+    const key = normName(name);
+    if (nameToId[key]) { out.existing.push(name); learned[nameToId[key]] = name; continue; }
     if (budget <= 0) { out.failed.push({ name, reason: "max-audiences cap reached" }); continue; }
     try {
       const r = await fetch(ENDPOINT, { method: "POST", headers: H, body: JSON.stringify(definitionBody(name, c)) });
@@ -112,7 +125,7 @@ async function ensureAudiences(names, c, H) {
       if (!r.ok) { out.failed.push({ name, reason: `HTTP ${r.status}`, detail: txt.slice(0, 200) }); continue; }
       let j = {}; try { j = JSON.parse(txt); } catch {}
       const id = j.id || j.segmentId;
-      if (id) { nameToId[aepName] = id; learned[id] = name; out.created.push({ name, id }); budget--; }
+      if (id) { nameToId[key] = id; learned[id] = name; out.created.push({ name, id }); budget--; }
       else out.failed.push({ name, reason: "no id in response" });
     } catch (e) { out.failed.push({ name, reason: String(e && e.message || e) }); }
   }
