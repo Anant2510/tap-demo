@@ -10,18 +10,34 @@ import { trip, setLeg, pingBasket, resetTrip } from "./trip.js";
 const roundTo = (n, s) => Math.round(n / s) * s;
 
 /* fare brands derived from the flight's base (cheapest) fare */
+// Fare brands grouped by cabin — the search results show only the brands for the
+// cabin the member picked on the home search (Economy / Premium / Business).
+const CABIN_BRANDS = {
+  Economy: ["Basic", "Classic", "Plus"],
+  Premium: ["Premium", "Premium Flex"],
+  Business: ["Executive", "Executive Flex"],
+};
+const CABIN_LABEL = { Economy: "Economy", Premium: "Premium", Business: "Business" };
 function deriveFares(price) {
-  const classic = Math.round(price * 1.62), plus = Math.round(price * 2.81), exec = Math.round(price * 7.43);
+  const classic = Math.round(price * 1.62), plus = Math.round(price * 2.81),
+        premium = Math.round(price * 3.6), premFlex = Math.round(price * 4.4),
+        exec = Math.round(price * 7.43), execFlex = Math.round(price * 8.7);
   return [
-    { key: "Basic", tag: "CHEAPEST", tone: "slate", sub: "Hand luggage only · no changes", price,
+    { key: "Basic", cabin: "Economy", tag: "CHEAPEST", tone: "slate", sub: "Hand luggage only · no changes", price,
       feats: [["Cabin bag · 8kg", 1], ["Checked bag", 0], ["Seat selection", 0], ["Changes", 0], ["Refund", 0], ["Earn 50% miles", 1]] },
-    { key: "Classic", tag: "MOST POPULAR", tone: "lime", sub: "1 bag · seat select · 50% refundable", price: classic,
+    { key: "Classic", cabin: "Economy", tag: "MOST POPULAR", tone: "lime", sub: "1 bag · seat select · 50% refundable", price: classic,
       was: Math.round(classic * 1.2), milesOpt: { mi: roundTo(classic * 110, 500), cash: Math.round(classic * 0.18) },
       feats: [["Cabin bag · 8kg", 1], ["Checked bag · 23kg", 1], ["Standard seat select", 1], ["Changes for €40", 1], ["50% refund", 1], ["Earn 100% miles", 1]] },
-    { key: "Plus", tag: "GOLD VALUE", tone: "gold", sub: "2 bags · extra legroom · full flex", price: plus,
+    { key: "Plus", cabin: "Economy", tag: "GOLD VALUE", tone: "gold", sub: "2 bags · extra legroom · full flex", price: plus,
       feats: [["Cabin bag + priority", 1], ["2× checked bags · 23kg", 1], ["Extra legroom seat", 1], ["Free changes", 1], ["Full refund · taxes only fee", 1], ["Earn 125% miles", 1]] },
-    { key: "Executive", tag: "BUSINESS", tone: "dark", sub: "Business cabin · lounge · premium meal", price: exec,
-      feats: [["Lounge access", 1], ["2× checked bags · 32kg", 1], ["Business seat 1A–3F", 1], ["Free changes & refund", 1], ["Priority boarding · fast-track", 1], ["Earn 200% miles", 1]] },
+    { key: "Premium", cabin: "Premium", tag: "MORE SPACE", tone: "lime", sub: "Premium cabin · wider seat · priority", price: premium,
+      feats: [["Premium wider seat · recline", 1], ["2× checked bags · 23kg", 1], ["Priority check-in & boarding", 1], ["Welcome drink · enhanced meal", 1], ["Changes for €25", 1], ["Earn 150% miles", 1]] },
+    { key: "Premium Flex", cabin: "Premium", tag: "FLEXIBLE", tone: "gold", sub: "Premium cabin · fully flexible", price: premFlex,
+      feats: [["Premium wider seat · recline", 1], ["2× checked bags · 23kg", 1], ["Priority everything · fast-track", 1], ["Welcome drink · enhanced meal", 1], ["Free changes & full refund", 1], ["Earn 175% miles", 1]] },
+    { key: "Executive", cabin: "Business", tag: "BUSINESS", tone: "dark", sub: "Business cabin · lounge · premium meal", price: exec,
+      feats: [["Lounge access", 1], ["2× checked bags · 32kg", 1], ["Business seat 1A–3F", 1], ["Changes for €60", 1], ["Priority boarding · fast-track", 1], ["Earn 200% miles", 1]] },
+    { key: "Executive Flex", cabin: "Business", tag: "FULL FLEX", tone: "dark", sub: "Business · fully flexible & refundable", price: execFlex,
+      feats: [["Lounge access", 1], ["2× checked bags · 32kg", 1], ["Business seat 1A–3F", 1], ["Free changes & full refund", 1], ["Priority boarding · fast-track", 1], ["Earn 250% miles", 1]] },
   ];
 }
 const depMins = (hhmm) => { const [h, m] = (hhmm || "0:0").split(":").map(Number); return h * 60 + (m || 0); };
@@ -76,7 +92,7 @@ export function Results({ shared, params, go }) {
   const [showAll, setShowAll] = useState(false);
   const [held, setHeld] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
-  const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false });
+  const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false });
 
   useEffect(() => {
     setFlights(null); setExpanded(null);
@@ -100,13 +116,13 @@ export function Results({ shared, params, go }) {
   }, [origin, dest, date]);
 
   const counts = useMemo(() => {
-    const c = { direct: 0, oneStop: 0, twoStop: 0, airline: {}, brand: { Basic: 0, Classic: 0, Plus: 0, Executive: 0 }, wifi: 0, useMiles: 0, refundable: 0, bag: 0 };
+    const c = { direct: 0, oneStop: 0, twoStop: 0, airline: {}, brand: {}, wifi: 0, useMiles: 0, refundable: 0, bag: 0 };
     (flights || []).forEach(f => {
       if (f._m.stops === 0) c.direct++; else if (f._m.stops === 1) c.oneStop++; else c.twoStop++;
       c.airline[f._m.airline] = (c.airline[f._m.airline] || 0) + 1;
       if (f._m.features.includes("WiFi")) c.wifi++;
       if (f._fares?.find(x => x.key === "Classic")?.feats?.[1]?.[1]) c.bag++;
-      c.useMiles++; c.refundable++; ["Basic", "Classic", "Plus", "Executive"].forEach(b => c.brand[b]++);
+      c.useMiles++; c.refundable++; (f._fares || []).forEach(x => { c.brand[x.key] = (c.brand[x.key] || 0) + 1; });
     });
     return c;
   }, [flights]);
@@ -116,12 +132,13 @@ export function Results({ shared, params, go }) {
       const m = f._m;
       const stopOK = (!F.direct && !F.oneStop && !F.twoStop) || (F.direct && m.stops === 0) || (F.oneStop && m.stops === 1) || (F.twoStop && m.stops >= 2);
       const dep = depMins(f.dep) / 60;
-      const cheapest = Math.min(...[...F.brands].map(b => f._fares.find(x => x.key === b)?.price ?? Infinity));
+      const cabinB = (CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy).filter(b => F.brands.has(b));
+      const cheapest = cabinB.length ? Math.min(...cabinB.map(b => f._fares.find(x => x.key === b)?.price ?? Infinity)) : Infinity;
       return stopOK && F.airlines.has(m.airline) && dep >= F.depLo && dep <= F.depHi
         && cheapest >= F.priceLo && cheapest <= F.priceHi
         && (!F.wifi || m.features.includes("WiFi"))
         && (!F.bag || f._fares.find(x => x.key === "Classic")?.feats?.[1]?.[1])
-        && (!F.refundable || ["Classic", "Plus", "Executive"].some(b => F.brands.has(b)));
+        && (!F.refundable || cabinB.some(b => b !== "Basic"));
     });
     const cls = f => f._fares.find(x => x.key === "Classic").price;
     if (sort === "All") v = [...v].sort((a, b) => depMins(a.dep) - depMins(b.dep));
@@ -149,7 +166,7 @@ export function Results({ shared, params, go }) {
     const choice = { flight: f, fare: fare.key, price: fare.price, leg, origin, dest, date };
     setLeg(leg, choice); setSel(choice);
     Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret || retDate });
-    api.post("/journey", { origin, dest, date, stage: "seat", flight_no: f.flight_no, cabin: fare.key === "Executive" ? "Business" : "Economy", device: "Web app" }).catch(() => {});
+    api.post("/journey", { origin, dest, date, stage: "seat", flight_no: f.flight_no, cabin: fare.cabin || "Economy", device: "Web app" }).catch(() => {});
   }
   function advance() {
     if (type === "round" && leg === "outbound") go("results", { ...params, leg: "inbound" });
@@ -173,7 +190,7 @@ export function Results({ shared, params, go }) {
                 ? `Returning ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")            // #34 — return leg: single date, not a range
                 : `${fmtDate(date)} — ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")   // outbound: full trip span
           } />
-          <Chip label="Pax" value={`${pax} adult${pax > 1 ? "s" : ""} · ${cabin === "Business" ? "Business" : "Eco"}`} />
+          <Chip label="Pax" value={`${pax} adult${pax > 1 ? "s" : ""} · ${CABIN_LABEL[cabin] || "Economy"}`} />
           <Btn variant="outline" size="sm" className="ml-auto text-ink border-line-strong" onClick={() => go("home")}>Edit search</Btn>
         </div>
       </div>
@@ -197,17 +214,16 @@ export function Results({ shared, params, go }) {
         {/* filters */}
         <aside className="space-y-5">
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(["Basic", "Classic", "Plus", "Executive"]), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false })}>Clear all</button></div>
+            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false })}>Clear all</button></div>
             <FGroup title="Stops">
               <Chk label="Direct only" count={counts.direct} on={F.direct} set={v => setF({ ...F, direct: v })} />
               <Chk label="1 stop" count={counts.oneStop} on={F.oneStop} set={v => setF({ ...F, oneStop: v })} />
               <Chk label="2+ stops" count={counts.twoStop} on={F.twoStop} set={v => setF({ ...F, twoStop: v })} />
             </FGroup>
-            <FGroup title="Fare brand">
-              {["Discount", "Classic", "Plus", "Executive"].map(b => {
-                const key = b === "Discount" ? "Basic" : b;
-                return <Chk key={b} label={b} count={counts.brand[key]} on={F.brands.has(key)} set={v => { const s = new Set(F.brands); v ? s.add(key) : s.delete(key); setF({ ...F, brands: s }); }} />;
-              })}
+            <FGroup title={`Fare brand · ${CABIN_LABEL[cabin] || "Economy"}`}>
+              {(CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy).map(b => (
+                <Chk key={b} label={b} count={counts.brand[b] || 0} on={F.brands.has(b)} set={v => { const s = new Set(F.brands); v ? s.add(b) : s.delete(b); setF({ ...F, brands: s }); }} />
+              ))}
             </FGroup>
             <FGroup title="Departure window">
               <DualRange min={0} max={24} lo={F.depLo} hi={F.depHi} onLo={v => setF({ ...F, depLo: v })} onHi={v => setF({ ...F, depHi: v })} fmtLo={`${String(F.depLo).padStart(2, "0")}:00`} fmtHi={`${String(F.depHi).padStart(2, "0")}:00`} />
@@ -312,7 +328,7 @@ export function Results({ shared, params, go }) {
           {flights && view.length === 0 && <Card className="p-8 text-center text-ink-muted">No flights match these filters. Try widening them.</Card>}
 
           {(showAll ? view : view.slice(0, 5)).map((f, i) => (
-            <FlightCard key={f.flight_no} f={f} expanded={expanded === f.flight_no} sel={sel} lowest={lowest}
+            <FlightCard key={f.flight_no} f={f} expanded={expanded === f.flight_no} sel={sel} lowest={lowest} cabin={cabin}
               pairing={leg === "inbound" && i === 0 && !sel} originCity={cityOf(f.origin)} destCity={cityOf(f.dest)}
               onToggle={() => setExpanded(expanded === f.flight_no ? null : f.flight_no)} onPick={pickFare} />
           ))}
@@ -539,16 +555,21 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
   );
 }
 
-function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, onToggle, onPick }) {
+function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, onToggle, onPick, cabin }) {
   const [compare, setCompare] = useState(false);
+  const cab = cabin || "Economy";
   const m = f._m, classic = f._fares.find(x => x.key === "Classic");
+  // Only the fares for the cabin the member picked on the home search show here.
+  const cabinFares = f._fares.filter(x => x.cabin === cab);
+  // Collapsed-card headline: the cabin's "most popular" (Economy → Classic) else its entry fare.
+  const headline = cabinFares.find(x => x.tag === "MOST POPULAR") || cabinFares[0] || classic;
   const isSelected = sel && sel.flight.flight_no === f.flight_no;
   // deterministic urgency + value cues derived from the flight (no hardcoding)
   const h = [...f.flight_no].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const seatsLeft = (h % 7) + 1, bookedToday = (h % 22) + 6;
   const isCheapest = lowest != null && f.price === lowest;
   // When selected, reflect the chosen fare's price/label/miles (fixes price-not-updating).
-  const selFare = isSelected ? (f._fares.find(x => x.key === sel.fare) || classic) : classic;
+  const selFare = isSelected ? (f._fares.find(x => x.key === sel.fare) || headline) : headline;
   const milesEarn = 1000 + (h % 520);   // stable per-flight earn estimate
   return (
     <div className={cx("relative", pairing && "pt-3")}>
@@ -572,7 +593,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
           <div className="flex items-center gap-1.5"><span className="font-black text-[13px] leading-none"><span className="text-tap-red">T</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
           <div className="text-[11px] text-ink-faint mt-0.5">{f.aircraft}{m.features.length ? " · " + m.features.join(" · ") : ""}</div>
           <div className="flex items-center gap-2 mt-1.5">
-            {classic.feats[1][1] ? <Badge tone="green">Bag included</Badge> : <Badge>No bag</Badge>}
+            {headline.feats[1][1] ? <Badge tone="green">Bag included</Badge> : <Badge>No bag</Badge>}
             <span className="text-[11px] font-semibold text-ink-700">Earn {miles(milesEarn)} MI</span>
           </div>
           {pairing && <div className="text-[11px] text-tap-greenDeep font-medium mt-1.5 flex items-start gap-1.5"><span className="text-amber-500 leading-none mt-0.5">●</span> Home in {f.dest} by {f.arr} · same fare brand → bundle €15 off</div>}
@@ -582,11 +603,11 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
           {pairing && <div className="text-[11px] font-bold text-tap-greenDeep">BUNDLE −€15</div>}
           {selFare.milesOpt && <div className="text-[11px] font-semibold text-amber-600">OR {miles(selFare.milesOpt.mi)} MI + {EUR(selFare.milesOpt.cash)}</div>}
           <div className="text-[24px] font-bold v2-num leading-tight">{EUR(selFare.price)}</div>
-          <div className="text-[10px] text-ink-faint">1 adult · {isSelected ? sel.fare : "Eco Classic"}</div>
+          <div className="text-[10px] text-ink-faint">1 adult · {isSelected ? sel.fare : `${CABIN_LABEL[cab] || "Economy"} ${headline.key}`}</div>
           <div className="mt-2">
             {isSelected
               ? <Btn size="sm" variant="primary" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
-              : <Btn size="sm" variant="outline" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : "See 4 fares ↓"}</Btn>}
+              : <Btn size="sm" variant="outline" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : `See ${cabinFares.length} fare${cabinFares.length !== 1 ? "s" : ""} ↓`}</Btn>}
           </div>
         </div>
       </div>
@@ -600,8 +621,8 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
             <button onClick={() => setCompare(true)} className="text-[12px] font-semibold text-tap-greenDeep hover:underline">Compare fares</button>
           </div>
           {compare && <CompareFareModal f={f} selectedKey={isSelected ? sel.fare : "Classic"} originCity={originCity} destCity={destCity} onClose={() => setCompare(false)} onPick={(fare) => { setCompare(false); onPick(f, fare); }} />}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {f._fares.map(fare => {
+          <div className={cx("grid sm:grid-cols-2 gap-3", cabinFares.length >= 4 ? "lg:grid-cols-4" : cabinFares.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
+            {cabinFares.map(fare => {
               const picked = isSelected && sel.fare === fare.key;
               return (
                 <div key={fare.key} className={cx("rounded-xl border bg-surface p-4 flex flex-col", picked ? "border-tap-green ring-1 ring-tap-green" : "border-line")}>
