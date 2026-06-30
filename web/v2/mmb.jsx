@@ -5,13 +5,17 @@
 // server's currentBooking()), so the card you see is the booking the action mutates.
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS } from "./lib.js";
+import { trip } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 
 /* ── shared helpers ───────────────────────────────────────────── */
-// Mirror server currentBooking(): nearest upcoming confirmed booking, else latest confirmed.
-function pickActive(list) {
+// Mirror server currentBooking(): the just-completed PNR this session wins, else nearest upcoming
+// confirmed booking, else latest confirmed. Preferring trip.pnr keeps My Trip on the flight the
+// user actually just booked rather than a nearer seeded booking (#15).
+function pickActive(list, preferPnr) {
   const confirmed = (list || []).filter(b => b.status === "confirmed");
+  if (preferPnr) { const just = confirmed.find(b => b.pnr === preferPnr); if (just) return just; }
   const upcoming = confirmed
     .filter(b => (b.days_to_go ?? 0) >= 0)
     .sort((a, b) => String(a.flight_date).localeCompare(String(b.flight_date)));
@@ -25,7 +29,7 @@ function useActiveBooking() {
   useEffect(() => {
     let alive = true;
     api.get("/bookings")
-      .then(rows => { if (alive) setState({ booking: pickActive(rows), all: rows || [], loading: false, err: null }); })
+      .then(rows => { if (alive) setState({ booking: pickActive(rows, trip.pnr), all: rows || [], loading: false, err: null }); })
       .catch(e => { if (alive) setState({ booking: null, all: [], loading: false, err: e?.message || "Couldn't load your bookings" }); });
     return () => { alive = false; };
   }, []);

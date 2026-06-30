@@ -242,7 +242,7 @@ export function Results({ shared, params, go }) {
                         <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.arr}</div><div className="text-[11px] text-ink-faint mt-1">{of.dest}</div></div>
                       </div>
                       <div className="flex-1 min-w-[160px]">
-                        <div className="flex items-center gap-1.5"><span className="font-black text-[13px] leading-none inline-flex items-center"><span className="text-tap-red">T</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+                        <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-surface-mute px-1.5 py-0.5 text-[12px] font-black leading-none tracking-tight"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
                         <div className="text-[11px] text-ink-faint mt-0.5">{of.aircraft} · Bag included</div>
                       </div>
                       <div className="text-right rounded-xl bg-surface border border-line px-4 py-2.5 min-w-[140px]">

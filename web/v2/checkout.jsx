@@ -32,7 +32,7 @@ function seedExtras() {
   // Lounge, Experiences) are multiplied by pax so the stored total matches the cart's
   // "× pax" hint — at 1 pax these are unchanged; at 3 pax lounge €90 → €270 (#2).
   [["hotel-memmo", "Hotel — Memmo Príncipe Real", 640, "Hotels", "recommended"], ["car-lis", "Airport transfer · LIS → hotel", 25, "Cars & transfers", "recommended"],
-   ["ins-plus", "Travel Insurance · Plus", 76, "Insurance", "auto"], ["lounge-opo", "TAP Lounge · OPO", 90, "Lounge & services", "recommended"],
+   ["ins-plus", "Travel Insurance · Plus", 38, "Insurance", "auto"], ["lounge-opo", "TAP Lounge · OPO", 90, "Lounge & services", "recommended"],
    ["exp-belem", "Belém food walking tour", 130, "Experiences", "recommended"]].forEach(([code, name, price, cat, source]) =>
      trip.extras.push({ code, name, price: PER_PAX_CATS.has(cat) ? price * px : price, qty: 1, cat, source }));
   pingBasket();
@@ -45,6 +45,8 @@ const eurC = (n) => `€${Number(n || 0).toLocaleString("en-GB", { minimumFracti
 // #9 — when no seat was explicitly chosen, the default follows the fare/cabin entitlement:
 // Executive → front business zone (1A–3F), Plus → extra-legroom row, else economy standard.
 const seatForFare = (fare) => /exec/i.test(fare || "") ? "1C" : /plus/i.test(fare || "") ? "7D" : "14F";
+// Cabin/zone label that matches the fare entitlement (paired with seatForFare for #9).
+const seatZone = (fare) => /exec/i.test(fare || "") ? "Business cabin" : /plus/i.test(fare || "") ? "Extra-legroom row" : "Standard · window";
 function Stepper({ active }) {
   return (
     <div className="bg-surface border-b border-line">
@@ -674,7 +676,7 @@ export function Basket({ shared, go }) {
               );
             })}
 
-            {/* Enhance your trip — curated cross-sell, horizontal image-left cards (#4, per reference design) */}
+            {/* Enhance your trip — curated cross-sell, image-on-top vertical cards: image → badges → title → desc → price/CTA (#4) */}
             <div>
               <div className="flex items-center gap-2 mb-1"><h2 className="text-[15px] font-bold">Enhance your trip</h2><span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5">Cross-sell</span></div>
               <p className="text-[12px] text-ink-muted mb-3">Hand-picked extras that pair well with your trip. Each adds to your cart instantly.</p>
@@ -689,16 +691,18 @@ export function Basket({ shared, go }) {
                   const px = trip.pax || 1;
                   const addX = () => { toggleExtra({ code, name, price: unit === "per person" ? base * px : base, cat }); persist(); r(); };
                   return (
-                    <div key={code} className={cx("rounded-xl border p-3 flex gap-3 transition-colors", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-tap-green/50")}>
-                      <div className="w-24 shrink-0 self-stretch rounded-lg overflow-hidden min-h-[96px]"><Img seed={code} src={imageFor(imgkey)} alt={name} className="w-full h-full object-cover" /></div>
-                      <div className="flex flex-col flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint bg-surface-mute rounded px-2 py-0.5">{badge}</span>
-                          {accent && <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded px-2 py-0.5">{accent}</span>}
+                    <div key={code} className={cx("rounded-xl border overflow-hidden flex flex-col transition-colors", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-tap-green/50")}>
+                      <div className="relative h-32 w-full overflow-hidden bg-surface-mute">
+                        <Img seed={code} src={imageFor(imgkey)} alt={name} className="w-full h-full object-cover" />
+                        <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-ink bg-white/90 backdrop-blur-sm rounded px-2 py-0.5 shadow-sm">{badge}</span>
+                          {accent && <span className="text-[10px] font-bold uppercase tracking-wide text-white bg-tap-green rounded px-2 py-0.5 shadow-sm">{accent}</span>}
                         </div>
-                        <div className="text-[14px] font-bold mt-1 leading-tight">{name}</div>
-                        <div className="text-[11px] text-ink-faint mt-0.5 flex-1">{sub}</div>
-                        <div className="flex items-end justify-between gap-2 mt-2">
+                      </div>
+                      <div className="flex flex-col flex-1 p-3">
+                        <div className="text-[14px] font-bold leading-tight">{name}</div>
+                        <div className="text-[11px] text-ink-faint mt-1 flex-1">{sub}</div>
+                        <div className="flex items-end justify-between gap-2 mt-3">
                           <div className="leading-tight"><span className="text-[15px] font-bold v2-num">{eurC(base)}</span> <span className="text-[10px] text-ink-faint">{unit}</span></div>
                           <Btn size="sm" variant="outline" className="shrink-0" onClick={addX}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
                         </div>
@@ -973,6 +977,7 @@ export function Payment({ shared, go }) {
   const [busy, setBusy] = useState(false);
   const [seat, setSeat] = useState(null);                 // recommended seat from history (DB)
   const [splitTab, setSplitTab] = useState("Split Equally");
+  const [splitAmts, setSplitAmts] = useState({});   // #16 — per-payer custom amounts (index → €)
   const [mix, setMix] = useState({ card: null, miles: 0, voucher: false, cashback: 0 }); // Payment Composer amounts
   const [editMiles, setEditMiles] = useState(false); // #7: Edit reveals an exact-amount field
   useEffect(() => { api.get("/seat-recommendation").then(setSeat).catch(() => {}); }, []);
@@ -985,7 +990,7 @@ export function Payment({ shared, go }) {
     cashback_amt = Math.min(cashbackBal, mix.cashback || 0);
   }
   const card_amt = Math.max(0, t.total - voucher_amt - miles_amt - cashback_amt);
-  const seatNo = seat?.seat || seatForFare(trip.outbound?.fare);
+  const seatNo = /exec|plus/i.test(trip.outbound?.fare || "") ? seatForFare(trip.outbound?.fare) : (seat?.seat || seatForFare(trip.outbound?.fare));
   const mixBreakdown = method === "Mix Method" ? [
     { label: "Card payment", text: EUR(card_amt) },
     { label: `Miles (${miles(miles_used)})`, text: miles_amt > 0 ? "−" + EUR(miles_amt) : EUR(0), green: miles_amt > 0 },
@@ -1080,6 +1085,11 @@ export function Payment({ shared, go }) {
               {method === "Split Payment" && (() => {
                 const payers = [{ name: (trip.passengers?.[0]?.first ? trip.passengers[0].first + " (you)" : (u.first_name || "You") + " (you)"), email: trip.contact?.email || u.email || "you@email.com", card: u.card_last4 || "4242", status: "Pay now", lead: true }, ...Array.from({ length: Math.max(0, trip.pax - 1) }).map((_, i) => { const p = trip.passengers?.[i + 1]; return { name: p?.first ? `${p.first} ${p.last || ""}` : `Guest ${i + 1}`, email: "guest" + (i + 1) + "@email.com", card: ["1881", "1234", "5079"][i] || "0000", status: i === 0 ? "Link sent" : "Link pending" }; })];
                 const equal = +(t.total / payers.length).toFixed(2);
+                // Amount each payer owes, by mode. Custom Split reads the editable splitAmts map.
+                const amtFor = (i) => splitTab === "Single Payer" ? (i === 0 ? t.total : 0) : splitTab === "Custom Split" ? (splitAmts[i] != null ? splitAmts[i] : equal) : equal;
+                const custom = splitTab === "Custom Split";
+                const allocated = +payers.reduce((s, _, i) => s + (amtFor(i) || 0), 0).toFixed(2);
+                const balanced = Math.abs(allocated - t.total) < 0.01;
                 return <div className="text-[13px]">
                   <div className="flex gap-4 text-[12px] font-semibold mb-3">{["Single Payer", "Split Equally", "Custom Split"].map(s => <button key={s} onClick={() => setSplitTab(s)} className={cx("pb-0.5 border-b-2", splitTab === s ? "border-tap-green text-tap-greenDeep" : "border-transparent text-ink-faint")}>{s}</button>)}</div>
                   {payers.map((p, i) => (
@@ -1087,11 +1097,22 @@ export function Payment({ shared, go }) {
                       <span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[13px] font-bold shrink-0">{p.name[0]}</span>
                       <div className="min-w-0"><div className="font-bold leading-tight text-[13px]">{p.name}</div><div className="text-[11px] text-ink-faint truncate">{p.email}</div></div>
                       <button className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red shrink-0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg> Remove</button>
-                      <div className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 ml-auto"><span className="font-bold v2-num text-[15px]">{EUR(equal)}</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+                      <div className={cx("inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 ml-auto", custom ? "border-tap-green bg-surface" : "border-line-strong")}>
+                        <span className="text-[13px] text-ink-faint">€</span>
+                        {custom
+                          ? <input type="number" min="0" step="0.01" value={amtFor(i)} onChange={e => setSplitAmts(a => ({ ...a, [i]: Math.max(0, +(+e.target.value).toFixed(2)) }))} className="w-20 bg-transparent font-bold v2-num text-[15px] outline-none" aria-label={`Amount for ${p.name}`} />
+                          : <span className="font-bold v2-num text-[15px]">{amtFor(i).toFixed(2)}</span>}
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={custom ? "var(--tap-green)" : "#9a9a9a"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                      </div>
                       <div className="text-[12px] text-ink-muted shrink-0">{p.lead ? `Card •••• ${p.card}` : p.status}</div>
                       <button className="text-[12px] font-bold text-tap-red shrink-0 hover:underline">{p.lead ? "Pay now" : p.status === "Link pending" ? "Send link" : "Resend"}</button>
                     </div>
                   ))}
+                  <div className={cx("flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-semibold", balanced ? "bg-lime-tint/60 text-tap-greenDeep" : "bg-[#fdecec] text-tap-red")}>
+                    <span>{custom ? "Allocated" : "Total split"}: {EUR(allocated)} of {EUR(t.total)}</span>
+                    <span>{balanced ? "✓ Balanced" : allocated > t.total ? `Over by ${EUR(allocated - t.total)}` : `${EUR(t.total - allocated)} unallocated`}</span>
+                  </div>
+                  {custom && <button onClick={() => setSplitAmts({})} className="mt-2 text-[11px] font-semibold text-ink-muted hover:text-tap-greenDeep">Reset to equal split</button>}
                 </div>;
               })()}
               <div className="mt-4 rounded-xl border border-dashed border-line p-3 flex items-center gap-3 text-[12px]"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center"><Icon name="lock" size={14} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><Pill tone="slate"><Icon name="lock" size={10} /> 3-D Secure 2.0</Pill></div>
@@ -1223,7 +1244,7 @@ export function ExpressCheckout({ shared, go }) {
 
   const o = trip.outbound, i = trip.inbound;
   const base = o?.price || 0;
-  const seatNo = seat?.seat || seatForFare(o?.fare);
+  const seatNo = /exec|plus/i.test(o?.fare || "") ? seatForFare(o?.fare) : (seat?.seat || seatForFare(o?.fare));
   const seatCost = seatUp ? 18 : 0, bagCost = bag ? 25 : 0, carbonCost = carbon ? 2 : 0;
   const taxes = Math.round((base + seatCost + bagCost + carbonCost) * 0.12);
   const total = base + seatCost + bagCost + carbonCost + taxes;
@@ -1279,7 +1300,7 @@ export function ExpressCheckout({ shared, go }) {
                 <div className="mt-3 rounded-xl border border-dashed border-line bg-surface-soft p-3 flex items-center gap-3 text-[12px]"><span className="w-8 h-8 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="lock" size={13} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask for a code, push, or biometric.</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink-muted rounded px-2 py-0.5 shrink-0">3-D Secure 2.0</span></div>
               </Sec>
               <Sec title="Seat selection" action="Change seat" onAction={() => go("seatchange")}>
-                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Outbound · {seatNo} (Window, extra legroom)</div><div className="text-[11px] text-ink-faint">{o.flight.flight_no} · {o.flight.aircraft} · Seat {seatNo}</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{eur2(18)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">Added</span></span></div>
+                <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Outbound · {seatNo} ({seatZone(o?.fare)})</div><div className="text-[11px] text-ink-faint">{o.flight.flight_no} · {o.flight.aircraft} · Seat {seatNo}</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{eur2(18)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">Added</span></span></div>
                 <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Return · 14C (Aisle, standard)</div><div className="text-[11px] text-ink-faint">{i?.flight?.flight_no || ""}{i ? ` · ${i.flight.aircraft} · Seat 14C` : ""}</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink rounded px-2 py-0.5">Free · {u.tier}</span></div>
               </Sec>
               <Sec title="Contact details" action="Edit" onAction={() => go("passenger")}>
