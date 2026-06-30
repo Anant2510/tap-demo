@@ -342,7 +342,7 @@ export function Home({ shared, go }) {
                 <div className="text-[12px] text-ink-muted mt-1">{pat.recommendedLabel} {pat.usualDep} · fare from {EUR(pat.usualPrice)} · hand bag only.</div>
                 <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="slate">2 taps</Pill><Pill tone="slate">Default card</Pill><Pill tone="slate">{miles(u.miles)} mi avail.</Pill></div>
                 <div className="mt-auto"><div className="h-px bg-line my-3" />
-                <div className="flex items-center justify-between"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from</div><div className="text-[18px] font-black v2-num">{EUR(rec?.package?.total || pat.usualPrice)}</div></div><Btn size="sm" onClick={() => go("express")}>Book Now →</Btn></div></div>
+                <div className="flex items-center justify-between"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from ({rec?.package?.hotelNights || 3} night{(rec?.package?.hotelNights || 3) !== 1 ? "s" : ""} · 1 pax)</div><div className="text-[18px] font-black v2-num">€{Number(rec?.package?.total || pat.usualPrice || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div><Btn size="sm" onClick={() => go("express")}>Book Now →</Btn></div></div>
               </div>
             </Card>
             {/* resume */}
