@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { api, EUR, miles, fmtDate } from "./lib.js";
 import { Btn, Card, Pill, Icon, cx } from "./ui.jsx";
-import { trip, setLeg, pingBasket } from "./trip.js";
+import { trip, setLeg, pingBasket, resetTrip } from "./trip.js";
 
 const roundTo = (n, s) => Math.round(n / s) * s;
 
@@ -144,6 +144,8 @@ export function Results({ shared, params, go }) {
   }, [flights, leg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function pickFare(f, fare) {
+    if (!fare) { setLeg(leg, null); setSel(null); return; }   // #17 — re-clicking the selected fare deselects (toggle)
+    if (trip.pnr) resetTrip();                                 // #18 — picking a flight after a completed booking starts a clean cart
     const choice = { flight: f, fare: fare.key, price: fare.price, leg, origin, dest, date };
     setLeg(leg, choice); setSel(choice);
     Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret || retDate });
@@ -614,7 +616,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
                       </li>
                     ))}
                   </ul>
-                  <Btn variant={picked ? "primary" : "outline"} className="mt-3 w-full" onClick={() => onPick(f, fare)}>{picked ? "Selected ✓" : "Select →"}</Btn>
+                  <Btn variant={picked ? "primary" : "outline"} className="mt-3 w-full" onClick={() => onPick(f, picked ? null : fare)}>{picked ? "Selected ✓" : "Select →"}</Btn>
                 </div>
               );
             })}

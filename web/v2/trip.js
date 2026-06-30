@@ -62,6 +62,7 @@ const TKEY = "flytap_trip";
 let _resetting = false;
 export function saveTrip() {
   if (_resetting) return;
+  if (trip.pnr) { try { localStorage.removeItem(TKEY); } catch {} return; }  // #18 — a confirmed booking is not a resumable in-progress cart
   try {
     const snap = {
       type: trip.type, pax: trip.pax, cabin: trip.cabin,

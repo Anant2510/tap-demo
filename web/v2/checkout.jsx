@@ -4,7 +4,7 @@
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS } from "./lib.js";
-import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS } from "./trip.js";
+import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
@@ -339,10 +339,12 @@ function SeatMapModal({ pax = 1, onClose, onConfirm }) {
 function CartView({ go, mode = "cart", shared }) {
   const isBasket = mode === "basket";
   const [, force] = useState(0); const r = () => force(x => x + 1);
-  const [carbonOn, setCarbonOn] = useState(true);
+  const [carbonOn, setCarbonOn] = useState(() => hasExtra("carbon"));
   // Don't re-seed a recommended basket if the member explicitly cleared it last time; an open
   // saved basket has already been restored on login, so seedExtras() is a no-op in that case.
   useEffect(() => { if (trip.outbound && shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
+  // #23 — Carbon offset is auto-added (default ON): mirror it as a real cart line so it shows in the basket and counts toward the total.
+  useEffect(() => { if (!hasExtra("carbon")) { toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); setCarbonOn(true); r(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!trip.outbound) return noTrip(go);
   const save = () => api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
   const add = (code, name, price, cat, meta) => { toggleExtra({ code, name, price, cat, ...(meta || {}) }); save(); r(); };
@@ -459,7 +461,7 @@ function CartView({ go, mode = "cart", shared }) {
 
             <Module n="02" icon="leaf" kicker="Carbon offset" title="Carbon offset" sub="Auto-checked · uncheck if you wish" right={<div className="text-right"><span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00]">Opt-out</span><div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></div>}>
               <label className={cx("flex items-center gap-3 rounded-xl border p-3", carbonOn ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-                <span className={cx("w-5 h-5 rounded-md border-2 inline-flex items-center justify-center shrink-0 cursor-pointer", carbonOn ? "bg-tap-green border-tap-green text-white" : "bg-surface border-line-strong text-transparent")} onClick={() => setCarbonOn(v => !v)}><Icon name="check" size={13} className="stroke-[3]" /></span>
+                <span className={cx("w-5 h-5 rounded-md border-2 inline-flex items-center justify-center shrink-0 cursor-pointer", carbonOn ? "bg-tap-green border-tap-green text-white" : "bg-surface border-line-strong text-transparent")} onClick={() => { const next = !carbonOn; setCarbonOn(next); if (next !== hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }}><Icon name="check" size={13} className="stroke-[3]" /></span>
                 <div className="flex-1 text-[13px] font-semibold">{carbonOn ? "Auto-added" : "Offset this trip's emissions"}</div>
                 <div className="text-[13px] font-bold v2-num">{eur2(10)}</div>
               </label>
@@ -666,7 +668,7 @@ export function Basket({ shared, go }) {
                             </div>
                           </div>
                           <div className="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-line">
-                            <div className="flex gap-4 text-[12px] font-semibold text-tap-greenDeep">{meta.links.map(l => <button key={l} className="hover:underline">{l}</button>)}</div>
+                            <div className="flex gap-4 text-[12px] font-semibold text-tap-greenDeep">{meta.links.map(l => <button key={l} className="hover:underline" onClick={() => go("cart", { focus: l })}>{l}</button>)}</div>
                             <div className="flex items-center gap-2.5">
                               {meta.qty && <div className="inline-flex items-center rounded-full border border-line"><button onClick={() => setQty(e, -1)} className="w-7 h-7 inline-flex items-center justify-center text-ink-muted hover:text-ink text-[15px] leading-none">−</button><span className="w-7 text-center text-[13px] font-semibold v2-num">{e.qty || 1}</span><button onClick={() => setQty(e, 1)} className="w-7 h-7 inline-flex items-center justify-center text-ink-muted hover:text-ink text-[15px] leading-none">+</button></div>}
                               <button onClick={() => remove(e)} className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red"><Icon name="x" size={12} /> Remove</button>
@@ -822,6 +824,46 @@ const MixComp = ({ on, title, sub, right, onToggle, onEdit, children }) => (
   </div>
 );
 
+// #19 — Split-payment cart variant: participant-wise allocation, Paid/Pending status, a
+// progress bar, outstanding balance and a contextual "Pay my share" CTA (vs the standard summary).
+function SplitSummary({ payers, amtFor, total, allocated, leadAmt, disabled, busy, onCta, onBack }) {
+  const paidCount = 0; // demo — the lead pays now; invited travellers are pending until they use their link
+  const pct = payers.length ? Math.round((paidCount / payers.length) * 100) : 0;
+  const outstanding = +(total - 0).toFixed(2);
+  const mismatch = Math.abs(allocated - total) > 0.01;
+  const statusOf = (p) => p.lead ? "Your share" : "Pending";
+  return (
+    <aside>
+      <Card className="p-5 lg:sticky lg:top-20">
+        <div className="flex items-start justify-between">
+          <div><div className="font-bold text-[16px]">Split payment</div><div className="text-[11px] text-ink-muted">{payers.length} traveller{payers.length !== 1 ? "s" : ""} · in EUR (€)</div></div>
+          <span className="text-[10px] font-bold uppercase tracking-wide bg-[#3b6fd6] text-white rounded px-2 py-1">Step 4/5</span>
+        </div>
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[11px] text-ink-muted"><span>{paidCount} of {payers.length} paid</span><span className="v2-num font-semibold">{eurC(outstanding)} outstanding</span></div>
+          <div className="h-2 rounded-full bg-surface-mute mt-1 overflow-hidden"><div className="h-full bg-tap-green rounded-full transition-all" style={{ width: pct + "%" }} /></div>
+        </div>
+        <div className="mt-3 space-y-2">
+          {payers.map((p, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2">
+              <div className="min-w-0"><div className="text-[13px] font-semibold truncate">{p.name}</div><div className="text-[10px] text-ink-faint truncate">{p.lead ? `Card •••• ${p.card}` : p.email}</div></div>
+              <div className="text-right shrink-0">
+                <div className="text-[14px] font-bold v2-num">{eurC(amtFor(i))}</div>
+                <span className={cx("text-[10px] font-bold uppercase tracking-wide", p.lead ? "text-tap-greenDeep" : "text-[#9a6b00]")}>{statusOf(p)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <Divider className="my-3" />
+        <div className="flex items-center justify-between"><span className="text-[13px] font-bold">Total charged</span><span className="text-[20px] font-black v2-num">{eurC(total)}</span></div>
+        {mismatch && <div className="mt-2 rounded-lg bg-[#fff4d6] text-[#9a6b00] text-[11px] font-semibold px-3 py-2">Allocated {eurC(allocated)} of {eurC(total)} — adjust the shares to match before paying.</div>}
+        <Btn size="lg" className="w-full mt-4" disabled={disabled || mismatch} onClick={onCta}>{busy ? "Processing…" : `Pay my share · ${eurC(leadAmt)} →`}</Btn>
+        <button onClick={onBack} className="w-full text-center text-[12px] font-semibold text-ink-muted mt-3 hover:text-ink">← Back to passenger details</button>
+        <div className="mt-3 rounded-xl bg-[#eef4ff] border border-[#d6e3ff] px-3 py-2.5 text-[11px] text-ink-muted">Each traveller pays their own share via their link. You're only charged {eurC(leadAmt)} now; others stay <span className="font-semibold">Pending</span> until they pay.</div>
+      </Card>
+    </aside>
+  );
+}
 
 function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
   const [p, setP] = useState(lead && prefill ? prefill : {});
@@ -982,14 +1024,15 @@ export function Payment({ shared, go }) {
   const [seat, setSeat] = useState(null);                 // recommended seat from history (DB)
   const [splitTab, setSplitTab] = useState("Split Equally");
   const [splitAmts, setSplitAmts] = useState({});   // #16 — per-payer custom amounts (index → €)
-  const [mix, setMix] = useState({ card: null, miles: 0, voucher: false, cashback: 0 }); // Payment Composer amounts
+  const [mix, setMix] = useState({ card: null, miles: 0, voucher: 0, cashback: 0 }); // Payment Composer amounts (€ per source)
   const [editMiles, setEditMiles] = useState(false); // #7: Edit reveals an exact-amount field
+  const [editVoucher, setEditVoucher] = useState(false), [editCash, setEditCash] = useState(false); // #21: Edit reveals partial-amount fields
   useEffect(() => { api.get("/seat-recommendation").then(setSeat).catch(() => {}); }, []);
   const cashbackBal = 38;
   let voucher_amt = 0, miles_used = 0, miles_amt = 0, cashback_amt = 0;
   if (method === "Miles & Go") { miles_used = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE)); miles_amt = Math.round(miles_used * MILES_RATE); voucher_amt = Math.min(voucher, Math.max(0, t.total - miles_amt)); }
   else if (method === "Mix Method") {
-    voucher_amt = mix.voucher ? Math.min(voucher, t.total) : 0;
+    voucher_amt = Math.min(voucher, mix.voucher || 0);
     miles_used = mix.miles; miles_amt = Math.round(miles_used * MILES_RATE);
     cashback_amt = Math.min(cashbackBal, mix.cashback || 0);
   }
@@ -1001,6 +1044,15 @@ export function Payment({ shared, go }) {
     { label: voucher ? `Voucher TAP-${shared.profile?.vouchers?.[0]?.code || "XYZ"}` : "Voucher", text: voucher_amt > 0 ? "−" + EUR(voucher_amt) : EUR(0), red: voucher_amt > 0 },
     { label: "Cashback wallet", text: cashback_amt > 0 ? "−" + EUR(cashback_amt) : EUR(0) + " (unused)", muted: cashback_amt === 0 },
   ] : null;
+  // #19 — split-payment participant model (shared by the left allocation editor and the right summary panel).
+  const splitPayers = method === "Split Payment"
+    ? [{ name: (trip.passengers?.[0]?.first ? trip.passengers[0].first + " (you)" : (u.first_name || "You") + " (you)"), email: trip.contact?.email || u.email || "you@email.com", card: u.card_last4 || "4242", lead: true },
+       ...Array.from({ length: Math.max(0, (trip.pax || 1) - 1) }).map((_, i) => { const p = trip.passengers?.[i + 1]; return { name: p?.first ? `${p.first} ${p.last || ""}`.trim() : `Guest ${i + 1}`, email: "guest" + (i + 1) + "@email.com", card: ["1881", "1234", "5079"][i] || "0000", status: i === 0 ? "Link sent" : "Link pending" }; })]
+    : [];
+  const splitEqual = splitPayers.length ? +(t.total / splitPayers.length).toFixed(2) : 0;
+  const splitAmtFor = (i) => splitTab === "Single Payer" ? (i === 0 ? t.total : 0) : splitTab === "Custom Split" ? (splitAmts[i] != null ? splitAmts[i] : splitEqual) : splitEqual;
+  const splitAllocated = +splitPayers.reduce((s, _, i) => s + (splitAmtFor(i) || 0), 0).toFixed(2);
+  const splitLeadAmt = splitPayers.length ? (splitAmtFor(0) || 0) : 0;
 
   async function pay() {
     setBusy(true);
@@ -1080,8 +1132,12 @@ export function Payment({ shared, go }) {
                     <div className="px-1 mt-3"><input type="range" min="0" max={milesMax} step="100" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: +e.target.value }))} className="w-full accent-[#46a41a]" /></div>
                     {editMiles && <div className="px-1 mt-2.5 flex items-center gap-2 text-[12px]"><span className="text-ink-muted">Use exactly</span><input type="number" min="0" max={milesMax} step="100" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: clampMiles(e.target.value) }))} className="w-28 rounded-lg border border-line-strong px-2 py-1 text-[13px] font-bold v2-num" /><span className="text-ink-faint">miles = {EUR(miles_amt)}</span><button onClick={() => setMix(m => ({ ...m, miles: milesMax }))} className="ml-auto text-[11px] font-bold text-tap-greenDeep hover:underline">Max</button></div>}
                   </MixComp>
-                  <MixComp on={mix.voucher && voucher > 0} title={`Voucher${voucher ? " TAP-" + (shared.profile?.vouchers?.[0]?.code || "XYZ") : ""}`} sub={voucher ? `Eligible: ${EUR(voucher)}` : "No active voucher"} onToggle={() => voucher && setMix(m => ({ ...m, voucher: !m.voucher }))} right={<span className="text-[13px] font-bold v2-num">{EUR(voucher_amt)}</span>} />
-                  <MixComp on={cashback_amt > 0} title="Cashback wallet" sub={`Balance: ${EUR(cashbackBal)}`} onToggle={() => setMix(m => ({ ...m, cashback: m.cashback > 0 ? 0 : cashbackBal }))} right={<span className="text-[13px] font-bold v2-num">{EUR(cashback_amt)}</span>} />
+                  <MixComp on={(mix.voucher || 0) > 0 && voucher > 0} title={`Voucher${voucher ? " TAP-" + (shared.profile?.vouchers?.[0]?.code || "XYZ") : ""}`} sub={voucher ? `Eligible: ${EUR(voucher)}` : "No active voucher"} onToggle={() => voucher && setMix(m => ({ ...m, voucher: (m.voucher || 0) > 0 ? 0 : voucher }))} onEdit={() => voucher && setEditVoucher(v => !v)} right={<span className="text-[13px] font-bold v2-num">{EUR(voucher_amt)}</span>}>
+                    {editVoucher && voucher > 0 && <div className="px-1 mt-2.5 flex items-center gap-2 text-[12px]"><span className="text-ink-muted">Apply €</span><input type="number" min="0" max={voucher} step="1" value={mix.voucher || 0} onChange={e => setMix(m => ({ ...m, voucher: Math.max(0, Math.min(voucher, +(+e.target.value).toFixed(2))) }))} className="w-24 rounded-lg border border-line-strong px-2 py-1 text-[13px] font-bold v2-num" /><span className="text-ink-faint">of {EUR(voucher)}</span><button onClick={() => setMix(m => ({ ...m, voucher }))} className="ml-auto text-[11px] font-bold text-tap-greenDeep hover:underline">Max</button></div>}
+                  </MixComp>
+                  <MixComp on={cashback_amt > 0} title="Cashback wallet" sub={`Balance: ${EUR(cashbackBal)}`} onToggle={() => setMix(m => ({ ...m, cashback: m.cashback > 0 ? 0 : cashbackBal }))} onEdit={() => setEditCash(v => !v)} right={<span className="text-[13px] font-bold v2-num">{EUR(cashback_amt)}</span>}>
+                    {editCash && <div className="px-1 mt-2.5 flex items-center gap-2 text-[12px]"><span className="text-ink-muted">Apply €</span><input type="number" min="0" max={cashbackBal} step="1" value={mix.cashback || 0} onChange={e => setMix(m => ({ ...m, cashback: Math.max(0, Math.min(cashbackBal, +(+e.target.value).toFixed(2))) }))} className="w-24 rounded-lg border border-line-strong px-2 py-1 text-[13px] font-bold v2-num" /><span className="text-ink-faint">of {EUR(cashbackBal)}</span><button onClick={() => setMix(m => ({ ...m, cashback: cashbackBal }))} className="ml-auto text-[11px] font-bold text-tap-greenDeep hover:underline">Max</button></div>}
+                  </MixComp>
                   <p className="text-[11px] text-ink-faint">Your live payment breakdown is shown in My trip basket on the right.</p>
                 </div>;
               })()}
@@ -1127,12 +1183,13 @@ export function Payment({ shared, go }) {
               {[["lock", "PCI-DSS Level 1 · Stripe", "text-[#caa53d]"], ["shield", "3-D Secure 2.0", "text-tap-red"], ["clock", "Free 24h cancellation", "text-ink-muted"], ["star", "24/7 TAP Care", "text-tap-greenDeep"]].map(([ic, t2, col]) => <span key={t2} className="flex items-center gap-1.5"><Icon name={ic} size={14} className={col} /> {t2}</span>)}
             </Card>
           </div>
-          <BasketSummary step={4} grouped cta={busy ? "Processing…" : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy} onCta={pay} note="By paying you confirm fare conditions & privacy policy." secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method" || method === "Split Payment"} milesSwitch={(method === "Mix Method" || method === "Split Payment") ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")}
+          {method === "Split Payment"
+            ? <SplitSummary payers={splitPayers} amtFor={splitAmtFor} total={t.total} allocated={splitAllocated} leadAmt={splitLeadAmt} disabled={!agree || busy} busy={busy} onCta={pay} onBack={() => go("passenger")} />
+            : <BasketSummary step={4} grouped cta={busy ? "Processing…" : method === "Mix Method" ? `Pay ${EUR(card_amt)} by card →` : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy} onCta={pay} note={method === "Mix Method" ? `Card covers the ${EUR(card_amt)} balance after miles, voucher & wallet.` : "By paying you confirm fare conditions & privacy policy."} secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method"} milesSwitch={method === "Mix Method" ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")}
             footer={<>
-              {method === "Split Payment" && <div className="mt-3 rounded-xl bg-[#eef4ff] border border-[#d6e3ff] px-3 py-2.5 text-[12px]"><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="text-[#3b6fd6]" /> Both charges happen at the same time</div><div className="text-ink-muted mt-0.5">If either card fails, booking is cancelled & full refund issued.</div></div>}
               <div className="mt-2 rounded-xl bg-surface-soft border border-line px-3 py-2.5 flex items-start gap-2 text-[12px]"><Icon name="lock" size={13} className="text-tap-greenDeep mt-0.5 shrink-0" /><div><div className="font-bold">PCI-DSS Level 1</div><div className="text-ink-faint">Stripe encrypts and tokenises every card.</div></div></div>
               <div className="text-[11px] text-ink-faint text-center mt-2"><SessionTimer prefix="No charge yet · price locked" /></div>
-            </>} />
+            </>} />}
         </div>
       </div>
     </div>
@@ -1235,6 +1292,7 @@ export function ExpressCheckout({ shared, go }) {
 
   useEffect(() => {
     api.get("/seat-recommendation").then(setSeat).catch(() => {});
+    if (trip.pnr) resetTrip();   // #18 — a completed booking must not seed a new Express Checkout session
     if (!trip.outbound) {
       Object.assign(trip, { origin, dest, date, ret: retDate, pax: 1, cabin: "Economy" });
       api.get(`/search?origin=${origin}&dest=${dest}&date=${date}`).then(r => {

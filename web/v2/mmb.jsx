@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS } from "./lib.js";
 import { trip } from "./trip.js";
-import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, WhyChip, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 
 /* ── shared helpers ───────────────────────────────────────────── */
@@ -997,6 +997,24 @@ export function AddExtras({ shared, go, params }) {
     return def.match.some(k => s.includes(k));
   };
 
+  // Figma "My trip cart" template — group the post-booking catalogue into categorized sections,
+  // each rendered as a section card with item rows (name · desc · price · Add/Remove).
+  const SECTIONS = [
+    { id: "seats", title: "Seats & baggage", icon: "seat", match: ["seat", "bag", "luggage", "baggage"] },
+    { id: "lounge", title: "Lounge & services", icon: "star", match: ["lounge", "wifi", "wi-fi", "internet", "priority", "fast"] },
+    { id: "dining", title: "Onboard & dining", icon: "bag", match: ["meal", "food", "cater", "drink", "snack"] },
+    { id: "protect", title: "Protection & flexibility", icon: "shield", match: ["insur", "flex", "protect", "refund", "change"] },
+  ];
+  const sectionOf = (a) => (SECTIONS.find(sec => sec.match.some(k => `${a.code} ${a.name} ${a.icon}`.toLowerCase().includes(k))) || SECTIONS[0]).id;
+  const sectioned = SECTIONS.map(sec => ({ ...sec, items: anc.filter(a => sectionOf(a) === sec.id) })).filter(sec => sec.items.length);
+  // Enhance · cross-sell — curated experiences/transfers that stage straight into the add-ons basket.
+  const XSELL = [
+    ["xsell-sintra", "Sintra full-day from Lisbon", "Pena Palace, Quinta da Regaleira & Cabo da Roca.", 89, "per person", "Day trip", "sintra,portugal", null],
+    ["xsell-douro", "Douro Valley wine tour", "Vineyards, tastings & a river cruise. Full day.", 120, "per person", "Wine", "douro,vineyard", null],
+    ["xsell-xfer-return", "Return transfer hotel → airport", "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "car,sedan", "Bundle −10%"],
+    ["xsell-late-checkout", "Guaranteed late checkout", "Stay until 16:00 on departure day.", 40, "one-time", "Hotel add-on", "hotel,room", null],
+  ];
+
   return (
     <div className="mx-auto max-w-page px-6 py-8">
       {/* #1 — breadcrumb now carries flight context (route) so the user always sees which flight */}
@@ -1010,101 +1028,96 @@ export function AddExtras({ shared, go, params }) {
       <p className="text-[13px] text-ink-muted mt-1">Add bags, seats, meals &amp; lounge — paid direct to TAP. Agency does not need to be involved.</p>
       <div className="mt-4"><BookingBand booking={sel} airports={airports} /></div>
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
-        <div className="space-y-7">
-          {/* #2 — BUNDLES: grouped, priced, one CTA each */}
-          {bundleDefs.length > 0 && (
-            <section>
-              <div className="flex items-baseline justify-between mb-3">
-                <h2 className="text-[17px] font-black">Choose a bundle</h2>
-                <span className="text-[12px] text-ink-faint">Save more than buying à la carte</span>
+      <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
+        <div className="space-y-6">
+          {sectioned.map(sec => (
+            <section key={sec.id}>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-7 h-7 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name={sec.icon} size={15} className="text-ink-muted" /></span>
+                <h2 className="text-[16px] font-black">{sec.title}</h2>
+                <span className="text-[11px] text-ink-faint">{sec.items.length} option{sec.items.length !== 1 ? "s" : ""}</span>
               </div>
-              <div className="grid sm:grid-cols-3 gap-4">
-                {bundleDefs.map(b => {
-                  const on = bundleStaged(b), saving = bundleSaving(b);
+              <div className="space-y-2.5">
+                {sec.items.map(a => {
+                  const already = onBooking.has(a.code);
+                  const isStaged = staged.some(x => x.code === a.code);
                   return (
-                    <Card key={b.id} className={cx("p-5 flex flex-col v2-in", b.tag === "Best value" ? "ring-1 ring-tap-green/40" : "", on && "ring-1 ring-tap-green/60 bg-lime-tint/25")}>
-                      <div className="flex items-center justify-between">
-                        <div className="font-bold text-[15px]">{b.name}</div>
-                        {b.tag && <Pill tone={b.tag === "Best value" ? "green" : "lime"}>{b.tag}</Pill>}
+                    <div key={a.code} className={cx("rounded-xl border p-4 flex items-start gap-3 transition-colors", already ? "border-line bg-surface-mute/50" : isStaged ? "border-tap-green bg-lime-tint/30 ring-1 ring-tap-green" : "border-line hover:border-tap-green/40")}>
+                      <span className="w-10 h-10 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={ICON[a.icon] || "bag"} size={18} /></span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && !already && <Pill tone="green">Recommended</Pill>}{already && <Pill tone="slate">On your booking</Pill>}{isStaged && <Pill tone="lime">Added</Pill>}</div>
+                        <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
+                        {a.reason && !already && <div className="text-[11px] text-tap-greenDeep mt-1 inline-flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
                       </div>
-                      <div className="text-[12px] text-ink-muted mt-1 min-h-[34px]">{b.desc}</div>
-                      <ul className="mt-3 space-y-1.5 flex-1">
-                        {b.items.map(a => <li key={a.code} className="flex items-center gap-2 text-[12px]"><Icon name="check" size={12} className="text-tap-green shrink-0" /> <span className="truncate">{a.name}</span></li>)}
-                      </ul>
-                      <div className="mt-4 flex items-end justify-between">
-                        <div>
-                          <div className="text-[20px] font-black text-tap-green v2-num">{EUR(bundleNet(b))}</div>
-                          {saving > 0 && <div className="text-[11px] text-ink-faint v2-num">Save {EUR(saving)} · was {EUR(bundlePrice(b))}</div>}
-                        </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
+                        {already
+                          ? <span className="text-[12px] font-semibold text-ink-faint inline-flex items-center gap-1 mt-1"><Icon name="check" size={13} className="text-tap-green" /> Added</span>
+                          : <Btn size="sm" variant="outline" className="mt-1.5" onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
                       </div>
-                      <Btn size="sm" variant={on ? "outline" : "primary"} className="w-full mt-3" disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={12} /> Added</> : "Add bundle"}</Btn>
-                    </Card>
+                    </div>
                   );
                 })}
               </div>
             </section>
-          )}
+          ))}
 
-          {/* #3 — ENHANCE YOUR TRIP: category-filtered à-la-carte cards */}
+          {/* Enhance your trip — cross-sell, image-on-top cards (matches the My-trip-cart template) */}
           <section>
-            <div className="flex items-baseline justify-between mb-3">
-              <h2 className="text-[17px] font-black">Enhance your trip</h2>
-              <span className="text-[12px] text-ink-faint">{enhanceItems.length} add-ons available</span>
-            </div>
-            <div className="flex flex-wrap gap-2 mb-4">
-              {CATS.map(c => {
-                const on = enhanceCat === c.id;
-                return <button key={c.id} onClick={() => setEnhanceCat(c.id)} className={cx("text-[12px] font-semibold rounded-full px-3.5 py-1.5 border transition-colors", on ? "bg-tap-green text-white border-tap-green" : "border-line-strong text-ink hover:border-tap-green/50")}>{c.label}</button>;
-              })}
-            </div>
+            <div className="flex items-center gap-2 mb-1"><h2 className="text-[16px] font-black">Enhance your trip</h2><span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5">Cross-sell</span></div>
+            <p className="text-[12px] text-ink-muted mb-3">Hand-picked extras that pair well with your trip. Each adds to your basket instantly.</p>
             <div className="grid sm:grid-cols-2 gap-4">
-              {enhanceItems.filter(a => catMatch(a, enhanceCat)).map(a => {
-                const already = onBooking.has(a.code);
-                const isStaged = staged.some(x => x.code === a.code);
+              {XSELL.map(([code, name, sub, price, unit, badge, imgkey, accent]) => {
+                const isStaged = staged.some(x => x.code === code);
                 return (
-                  <Card key={a.code} className={cx("p-4 v2-in", already ? "bg-surface-mute/60" : isStaged ? "ring-1 ring-tap-green/50 bg-lime-tint/30" : a.recommended && "ring-1 ring-tap-green/30")}>
-                    <div className="flex items-start gap-3">
-                      <span className="w-9 h-9 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={ICON[a.icon] || "bag"} size={16} /></span>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && !already && <Pill tone="green">Recommended</Pill>}{already && <Pill tone="slate">On your booking</Pill>}{isStaged && <Pill tone="lime">Added</Pill>}</div>
-                        <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
-                        {a.reason && !already && <div className="text-[11px] text-tap-greenDeep mt-1 flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
-                        {a.recommended && a.reason && !already && <WhyChip reason={a.reason} signals={a.signals} className="mt-1" />}
+                  <div key={code} className={cx("rounded-xl border overflow-hidden flex flex-col transition-colors", isStaged ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-tap-green/50")}>
+                    <div className="relative h-32 w-full overflow-hidden bg-surface-mute">
+                      <Img seed={code} src={imageFor(imgkey)} alt={name} className="w-full h-full object-cover" />
+                      <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-ink bg-white/90 backdrop-blur-sm rounded px-2 py-0.5 shadow-sm">{badge}</span>
+                        {accent && <span className="text-[10px] font-bold uppercase tracking-wide text-white bg-tap-green rounded px-2 py-0.5 shadow-sm">{accent}</span>}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
-                      {already
-                        ? <span className="text-[12px] font-semibold text-ink-faint inline-flex items-center gap-1"><Icon name="check" size={13} className="text-tap-green" /> Added</span>
-                        : <Btn size="sm" variant="outline" onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
+                    <div className="flex flex-col flex-1 p-3">
+                      <div className="text-[14px] font-bold leading-tight">{name}</div>
+                      <div className="text-[11px] text-ink-faint mt-1 flex-1">{sub}</div>
+                      <div className="flex items-end justify-between gap-2 mt-3">
+                        <div className="leading-tight"><span className="text-[15px] font-bold v2-num">{EUR(price)}</span> <span className="text-[10px] text-ink-faint">{unit}</span></div>
+                        <Btn size="sm" variant="outline" className="shrink-0" onClick={() => isStaged ? unstage(code) : stage({ code, name, price })}>{isStaged ? "✓ Added" : "+ Add to cart"}</Btn>
+                      </div>
                     </div>
-                  </Card>
+                  </div>
                 );
               })}
             </div>
           </section>
         </div>
 
-        {/* #4 — itemized "Your add-ons" summary with total, recommendation & Pay CTA */}
+        {/* Basket summary — matches the My-trip-cart right panel */}
         <aside>
-          <Card className="p-5 sticky top-20">
-            <div className="font-bold text-[15px] mb-3">Your add-ons</div>
+          <Card className="p-5 lg:sticky lg:top-20">
+            <div className="flex items-start justify-between">
+              <div><h2 className="text-[16px] font-bold">My add-ons</h2><div className="text-[11px] text-ink-muted">All amounts in EUR (€)</div></div>
+              <span className="text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded px-2 py-1">PNR {sel.pnr}</span>
+            </div>
+            <div className="rounded-lg bg-surface-soft px-3 py-2 mt-3">
+              <div className="text-[12px] font-semibold">{cityOf(airports, f.origin)}–{cityOf(airports, f.dest)} · {fmtDate(sel.flight_date)}</div>
+              <div className="text-[11px] text-ink-faint mt-0.5">{staged.length} add-on{staged.length !== 1 ? "s" : ""} in your basket</div>
+            </div>
             {staged.length === 0
-              ? <div className="rounded-xl border border-dashed border-line-strong px-3 py-4 text-center text-[12px] text-ink-faint">Nothing added yet.<br />Pick a bundle or tap “+ Add” to build your trip.</div>
-              : <div className="space-y-2.5 text-[13px]">{staged.map(x => <div key={x.code} className="flex items-center justify-between gap-2"><span className="text-ink flex-1 truncate">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span><button onClick={() => unstage(x.code)} className="text-ink-faint hover:text-tap-red shrink-0" aria-label={"Remove " + x.name} title="Remove"><Icon name="x" size={14} /></button></div>)}</div>}
+              ? <div className="rounded-xl border border-dashed border-line-strong px-3 py-5 text-center text-[12px] text-ink-faint mt-3">Nothing added yet.<br />Tap “+ Add” on any extra to build your trip.</div>
+              : <div className="space-y-1.5 text-[13px] mt-3">{staged.map(x => <div key={x.code} className="flex items-center justify-between gap-2"><span className="text-ink-muted flex-1 truncate">{x.name}</span><span className="font-semibold v2-num">{x.price > 0 ? EUR(x.price) : "Free"}</span><button onClick={() => unstage(x.code)} className="text-ink-faint hover:text-tap-red shrink-0" aria-label={"Remove " + x.name} title="Remove"><Icon name="x" size={13} /></button></div>)}</div>}
             <Divider className="my-3" />
-            <div className="flex items-center justify-between"><span className="text-[13px] font-bold">Total add-ons</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(total)}</span></div>
-            {/* recommendation block */}
-            {staged.length > 0 && total > 0 && bundleDefs[0] && !bundleStaged(bundleDefs.find(b => b.id === "premium") || bundleDefs[0]) && (
-              <button onClick={() => addBundle(bundleDefs.find(b => b.id === "premium") || bundleDefs[0])} className="mt-3 w-full text-left rounded-xl bg-lime-tint border border-tap-green/30 px-3 py-2.5 hover:bg-lime-tint/70 transition-colors">
-                <div className="text-[12px] font-bold text-tap-greenDark flex items-center gap-1.5"><Icon name="spark" size={13} /> Add to your trip</div>
-                <div className="text-[11px] text-ink-muted mt-0.5">Upgrade to the Premium bundle and save vs. à la carte.</div>
-              </button>
-            )}
+            <div className="flex items-center justify-between"><span className="text-[14px] font-bold">Total add-ons</span><span className="text-[22px] font-black text-tap-green v2-num">{EUR(total)}</span></div>
+            {total > 0 && <div className="mt-2 rounded-lg bg-lime-tint/60 px-3 py-2 text-[12px] flex items-center justify-between"><span className="inline-flex items-center gap-1.5 font-semibold text-tap-greenDark"><Icon name="spark" size={13} /> You'll earn</span><span className="font-bold v2-num">{miles(Math.round(total * 2.77))} miles</span></div>}
             <Btn className="w-full mt-3" disabled={staged.length === 0 || busy} onClick={() => total > 0 ? setStep("pay") : commit()}>
-              {staged.length === 0 ? "Add extras to continue" : total > 0 ? <>Pay {EUR(total)} →</> : busy ? "Adding…" : "Add to booking →"}
+              {staged.length === 0 ? "Add extras to continue" : total > 0 ? <>Continue · {EUR(total)} →</> : busy ? "Adding…" : "Add to booking →"}
             </Btn>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-muted">
+              <span className="inline-flex items-center gap-1"><Icon name="lock" size={11} /> Secure · Stripe</span>
+              <span className="inline-flex items-center gap-1"><Icon name="clock" size={11} /> Free 24h cancel</span>
+              <span className="inline-flex items-center gap-1"><Icon name="star" size={11} /> 24/7 Care</span>
+            </div>
           </Card>
         </aside>
       </div>
