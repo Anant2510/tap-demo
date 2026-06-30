@@ -334,6 +334,7 @@ export function CabinUpgrade({ shared, go }) {
   // Upgrade prices derived from the booking's own fare so the demo numbers track the real
   // booking. Executive ≈60% of fare (min €60); Premium Economy ≈55% of the Executive step.
   const baseFare = booking.flight?.price || 180;
+  const curCabin = booking.meta?.cabin || "Economy";   // #26 — actual booked cabin, not hardcoded
   const execDiff = Math.max(60, Math.round(baseFare * 0.6 / 5) * 5);
   const premDiff = Math.max(40, Math.round(execDiff * 0.55 / 5) * 5);
   const UPGRADE_BENEFITS = ["Lie-flat seat (Executive)", "Priority boarding", "Lounge access included", "2 bags 32kg free", "Premium meal & wine"];
@@ -350,7 +351,7 @@ export function CabinUpgrade({ shared, go }) {
     setBusy(true);
     // The cabin code isn't seeded in the ancillaries table (demo): the endpoint returns
     // {ok:false}; we still advance to success so the journey is demoable.
-    await api.post("/bookings/ancillary", { code: "cabin-" + sel }).catch(() => ({ ok: false }));
+    await api.post("/bookings/ancillary", { code: "cabin-" + sel, pnr: booking.pnr }).catch(() => ({ ok: false }));
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
   if (done) return (
@@ -378,7 +379,7 @@ export function CabinUpgrade({ shared, go }) {
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
         <div>
           <div className="rounded-xl bg-surface-soft border border-line px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
-            <span className="text-ink-muted">Current:</span><span className="font-semibold">Economy · Seat {booking.seat || "24F"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
+            <span className="text-ink-muted">Current:</span><span className="font-semibold">{curCabin} · Seat {booking.seat || "4C"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
           </div>
           <div className="grid sm:grid-cols-2 gap-4 mt-4">
             {["prem", "exec"].map(k => { const o = OPTS[k]; const on = sel === k; return (
@@ -405,14 +406,14 @@ export function CabinUpgrade({ shared, go }) {
           <Card className="p-5">
             <div className="font-bold text-[16px] mb-3">Upgrade summary</div>
             <div className="space-y-2 text-[13px]">
-              <div className="flex justify-between"><span className="text-ink-muted">Current Economy fare</span><span className="v2-num">{EUR(baseFare)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Current {curCabin} fare</span><span className="v2-num">{EUR(baseFare)}</span></div>
               <div className="flex justify-between"><span className="text-ink-muted">Cabin upgrade · {chosen.name}</span><span className="v2-num">+{EUR(fareDiff)}</span></div>
             </div>
             <Divider className="my-3" />
             <div className="flex items-end justify-between"><span className="font-bold">New total</span><span className="text-[22px] font-black v2-num">{EUR(newTotal)}</span></div>
             <div className="text-[11px] text-ink-faint mt-1">or {miles(milesPrice)} miles</div>
             <Btn size="lg" className="w-full mt-3" disabled={busy} onClick={confirm}>{busy ? "Confirming…" : `Upgrade for ${EUR(newTotal)} →`}</Btn>
-            <Btn variant="outline" className="w-full mt-2" onClick={() => go("manage")}>No thanks, keep Economy</Btn>
+            <Btn variant="outline" className="w-full mt-2" onClick={() => go("manage")}>No thanks, keep {curCabin}</Btn>
           </Card>
           <div className="rounded-xl border border-[#f5d9a8] bg-[#fffaf0] px-4 py-3 text-[12px]">
             <div className="font-bold text-[#b45309]">{chosen.seats} {chosen.name} seats remaining</div>
@@ -440,16 +441,18 @@ export function SeatChange({ shared, go }) {
   const aircraft = booking.flight?.aircraft || "A330-900neo";
   const curSeat = booking.seat || rec?.seat || "8A";
   const curRow = parseInt(curSeat, 10) || 8;
-  const cabinOfRow = (r) => (r <= 2 ? "First" : r <= 9 ? "Executive" : "Economy");
+  const cabinOfRow = (r) => (r <= 5 ? "Business" : r <= 11 ? "Premium" : "Economy");
 
-  // Every cabin on the aircraft is selectable, so the full seat map (First / Executive /
-  // Economy) is available — not just one section.
+  // Cabin tabs match the booking flow (Economy / Premium / Business), not First/Executive.
+  // Each zone is physically distinct: Business 1-1 lie-flat · Premium 2-2 · Economy 3-3.
   const CABINS = {
-    First: { cols: ["A", "D"], rows: [1, 2], config: "1 – 1", desc: "Lie-flat First suite", extraRows: [1], exitRows: [], aisleAfter: [0] },
-    Executive: { cols: ["A", "B", "C", "D"], rows: [1, 2, 3, 4, 5, 6, 7, 8, 9], config: "1 – 2 – 1", desc: "Lie-flat Executive", extraRows: [1], exitRows: [1], aisleAfter: [0, 2] },
     Economy: { cols: ["A", "B", "C", "D", "E", "F"], rows: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], config: "3 – 3", desc: "Standard Economy", extraRows: [20, 26], exitRows: [20, 26], aisleAfter: [2] },
+    Premium: { cols: ["A", "C", "D", "F"], rows: [6, 7, 8, 9, 10, 11], config: "2 – 2", desc: "Premium cabin · wider seat", extraRows: [6], exitRows: [6], aisleAfter: [1] },
+    Business: { cols: ["A", "D"], rows: [1, 2, 3, 4, 5], config: "1 – 1", desc: "Lie-flat Business suite", extraRows: [1], exitRows: [], aisleAfter: [0] },
   };
-  const cabinKey = cabin || cabinOfRow(curRow);
+  // Default to the cabin actually booked (normalise any legacy First/Executive labels), else infer from the seat row.
+  const bookingCabin = ({ First: "Business", Executive: "Business", "Premium Economy": "Premium" }[booking.meta?.cabin] || booking.meta?.cabin);
+  const cabinKey = cabin || (CABINS[bookingCabin] ? bookingCabin : cabinOfRow(curRow));
   const C = CABINS[cabinKey];
   const taken = new Set();
   C.rows.forEach((r, i) => C.cols.forEach((col, j) => { if (((r * 7 + j * 3 + i * 2) % 5) === 0) taken.add(`${r}${col}`); }));
@@ -462,7 +465,7 @@ export function SeatChange({ shared, go }) {
 
   const confirm = async () => {
     setBusy(true);
-    await api.post("/bookings/ancillary", { code: "seat-" + sel }).catch(() => ({ ok: false }));
+    await api.post("/bookings/ancillary", { code: "seat-" + sel, pnr: booking.pnr }).catch(() => ({ ok: false }));
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
 
@@ -541,7 +544,7 @@ export function SeatChange({ shared, go }) {
           <Card className="p-5 v2-in">
             <div className="font-bold text-[16px] mb-3">Seat change summary</div>
             <div className="flex items-center gap-2">
-              <div className="flex-1 rounded-xl border border-line p-3"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[18px] font-black v2-num">{curSeat}</div><div className="text-[10px] text-ink-faint">Standard · row {curRow}</div></div>
+              <div className="flex-1 rounded-xl border border-line p-3"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[18px] font-black v2-num">{curSeat}</div><div className="text-[10px] text-ink-faint">{cabinKey} · row {curRow}</div></div>
               <Icon name="arrow" size={16} className="text-ink-faint shrink-0" />
               <div className={cx("flex-1 rounded-xl border p-3", sel ? "border-tap-green/50 bg-lime-tint/40" : "border-line border-dashed")}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[18px] font-black v2-num">{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
             </div>
@@ -1030,37 +1033,34 @@ export function AddExtras({ shared, go, params }) {
 
       <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
         <div className="space-y-6">
-          {sectioned.map(sec => (
-            <section key={sec.id}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-7 h-7 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name={sec.icon} size={15} className="text-ink-muted" /></span>
-                <h2 className="text-[16px] font-black">{sec.title}</h2>
-                <span className="text-[11px] text-ink-faint">{sec.items.length} option{sec.items.length !== 1 ? "s" : ""}</span>
-              </div>
-              <div className="space-y-2.5">
-                {sec.items.map(a => {
-                  const already = onBooking.has(a.code);
-                  const isStaged = staged.some(x => x.code === a.code);
-                  return (
-                    <div key={a.code} className={cx("rounded-xl border p-4 flex items-start gap-3 transition-colors", already ? "border-line bg-surface-mute/50" : isStaged ? "border-tap-green bg-lime-tint/30 ring-1 ring-tap-green" : "border-line hover:border-tap-green/40")}>
-                      <span className="w-10 h-10 rounded-xl bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name={ICON[a.icon] || "bag"} size={18} /></span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap"><div className="font-bold text-[14px]">{a.name}</div>{a.recommended && !already && <Pill tone="green">Recommended</Pill>}{already && <Pill tone="slate">On your booking</Pill>}{isStaged && <Pill tone="lime">Added</Pill>}</div>
-                        <div className="text-[12px] text-ink-muted mt-0.5">{a.descr}</div>
-                        {a.reason && !already && <div className="text-[11px] text-tap-greenDeep mt-1 inline-flex items-center gap-1"><Icon name="spark" size={11} className="shrink-0" /> {a.reason}</div>}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-[15px] font-bold v2-num">{a.price > 0 ? EUR(a.price) : "Included"}{a.was ? <span className="text-[11px] text-ink-faint line-through ml-1.5">{EUR(a.was)}</span> : null}</div>
-                        {already
-                          ? <span className="text-[12px] font-semibold text-ink-faint inline-flex items-center gap-1 mt-1"><Icon name="check" size={13} className="text-tap-green" /> Added</span>
-                          : <Btn size="sm" variant="outline" className="mt-1.5" onClick={() => isStaged ? unstage(a.code) : stage(a)}>{isStaged ? <><Icon name="x" size={12} /> Remove</> : "+ Add"}</Btn>}
-                      </div>
+          {/* #25 — bundle-based add-ons: 3 packages with grouped benefits, savings & a single CTA each (replaces the individual category cards). */}
+          <section>
+            <div className="flex items-center gap-2 mb-3"><h2 className="text-[18px] font-black">Choose a bundle</h2><span className="text-[11px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5">Save vs à la carte</span></div>
+            <div className="grid sm:grid-cols-3 gap-4 items-stretch">
+              {bundleDefs.map(b => {
+                const best = b.id === "comfort";
+                const saving = bundleSaving(b);
+                const on = bundleStaged(b);
+                return (
+                  <div key={b.id} className={cx("rounded-2xl border p-4 flex flex-col transition-all", best ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green shadow-md" : "border-line bg-surface shadow-sm hover:shadow-md")}>
+                    {b.tag && <span className={cx("self-start text-[9px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5 mb-2", best ? "bg-tap-greenDeep text-white" : "bg-surface-mute text-ink-muted")}>{best ? "Best value" : b.tag}</span>}
+                    <div className="text-[16px] font-black">{b.name}</div>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-[24px] font-black v2-num">{EUR(bundleNet(b))}</span>
+                      {saving > 0 && <span className="text-[12px] font-bold text-tap-greenDeep">save {EUR(saving)}</span>}
                     </div>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+                    <div className="h-px bg-line my-3" />
+                    <ul className="space-y-1.5 flex-1">
+                      {b.items.map(a => <li key={a.code} className="flex items-start gap-1.5 text-[12px] text-ink"><Icon name="check" size={13} className="text-tap-green mt-0.5 shrink-0" /> <span>{a.name}{a.price > 0 ? "" : " · included"}</span></li>)}
+                    </ul>
+                    {best
+                      ? <Btn size="sm" className="w-full mt-4" disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "Add bundle"}</Btn>
+                      : <Btn variant="outline" size="sm" className="w-full mt-4" disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "+ Add"}</Btn>}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
           {/* Enhance your trip — cross-sell, image-on-top cards (matches the My-trip-cart template) */}
           <section>
@@ -1070,7 +1070,7 @@ export function AddExtras({ shared, go, params }) {
               {XSELL.map(([code, name, sub, price, unit, badge, imgkey, accent]) => {
                 const isStaged = staged.some(x => x.code === code);
                 return (
-                  <div key={code} className={cx("rounded-xl border overflow-hidden flex flex-col transition-colors", isStaged ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-tap-green/50")}>
+                  <div key={code} className={cx("rounded-xl border overflow-hidden flex flex-col bg-surface shadow-sm transition-all", isStaged ? "border-tap-green ring-1 ring-tap-green shadow-md" : "border-line hover:border-tap-green/50 hover:shadow-md")}>
                     <div className="relative h-32 w-full overflow-hidden bg-surface-mute">
                       <Img seed={code} src={imageFor(imgkey)} alt={name} className="w-full h-full object-cover" />
                       <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">

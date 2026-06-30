@@ -169,8 +169,10 @@ export function Results({ shared, params, go }) {
     api.post("/journey", { origin, dest, date, stage: "seat", flight_no: f.flight_no, cabin: fare.cabin || "Economy", device: "Web app" }).catch(() => {});
   }
   function advance() {
-    if (type === "round" && leg === "outbound") go("results", { ...params, leg: "inbound" });
-    else go("cart", { ...params });
+    if (!sel) return;                                                   // #28 — current leg must have a selected flight + fare
+    if (type === "round" && leg === "outbound") { go("results", { ...params, leg: "inbound" }); return; }
+    if (type === "round" && !trip.outbound) { go("results", { ...params, leg: "outbound" }); return; }   // outbound missing → send back to pick it
+    go("cart", { ...params });
   }
 
   const cityOf = (c) => shared.airports?.find(a => a.code === c)?.city || c;
@@ -338,25 +340,29 @@ export function Results({ shared, params, go }) {
         </div>
       </div>
 
-      {/* selection bar — sticky to the bottom of the results, above the footer */}
-      {sel && (
-        <div className="sticky bottom-4 z-30 mt-6">
-          <div className="mx-auto max-w-page px-6">
-            <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
-              <div className="min-w-0">
+      {/* selection bar — always shown so the next-step CTA is explicit; it stays disabled with a
+          validation message until a flight + fare is selected for the current leg (#28). */}
+      <div className="sticky bottom-4 z-30 mt-6">
+        <div className="mx-auto max-w-page px-6">
+          <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
+            <div className="min-w-0">
+              {sel ? <>
                 <div className="text-[10px] font-bold tracking-widest text-lime uppercase">{leg === "inbound" ? "Inbound selected · ✓ Outbound" : "Outbound selected"}</div>
                 {leg === "inbound" && trip.outbound
                   ? <div className="text-[13px] font-semibold truncate">{String(trip.outbound.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {trip.outbound.flight.origin}→{trip.outbound.flight.dest} {EUR(trip.outbound.price)} &nbsp;+&nbsp; {String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} {EUR(sel.price)} &nbsp;=&nbsp; <span className="text-lime">{EUR(trip.outbound.price + sel.price - 15)}</span> <span className="text-white/60 font-normal">(bundle saved €15)</span></div>
                   : <div className="text-[13px] font-semibold">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} · {sel.flight.dep} → {sel.flight.arr} · {EUR(sel.price)}</div>}
-              </div>
-              <div className="ml-auto flex items-center gap-2 shrink-0">
-                <button onClick={() => go("express")} className="rounded-full border border-white/40 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-white/10 transition-colors shrink-0">Express Checkout</button>
-                <Btn variant="lime" onClick={advance}>{type === "round" && leg === "outbound" ? "Pick inbound" : "Continue to cart"} <Icon name="arrow" size={14} /></Btn>
-              </div>
+              </> : <>
+                <div className="text-[10px] font-bold tracking-widest text-white/50 uppercase">{leg === "inbound" ? "Select your inbound flight" : "Select your outbound flight"}</div>
+                <div className="text-[13px] font-semibold text-white/80">Choose a flight and fare above to continue.</div>
+              </>}
+            </div>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <button onClick={() => go("express")} className="rounded-full border border-white/40 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-white/10 transition-colors shrink-0">Express Checkout</button>
+              <Btn variant="lime" disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{type === "round" && leg === "outbound" ? "Pick inbound" : "Continue to cart"} <Icon name="arrow" size={14} /></Btn>
             </div>
           </div>
         </div>
-      )}
+        </div>
       {holdOpen && (sel?.flight || view[0]) && (
         <HoldFareModal flight={sel?.flight || view[0]} date={date} fare={sel?.fare || "Eco Classic"}
           price={sel?.price ?? (view[0] && view[0]._fares.find(x => x.key === "Classic").price) ?? 0} seat="12A"
@@ -590,7 +596,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
         </div>
         {/* airline block — TP mark + number, aircraft, bag + earn MI */}
         <div className="flex-1 min-w-[180px]">
-          <div className="flex items-center gap-1.5"><span className="font-black text-[13px] leading-none"><span className="text-tap-red">T</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+          <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-surface-mute px-1.5 py-0.5 text-[11px] font-black leading-none tracking-tight"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
           <div className="text-[11px] text-ink-faint mt-0.5">{f.aircraft}{m.features.length ? " · " + m.features.join(" · ") : ""}</div>
           <div className="flex items-center gap-2 mt-1.5">
             {headline.feats[1][1] ? <Badge tone="green">Bag included</Badge> : <Badge>No bag</Badge>}
