@@ -656,4 +656,33 @@ function localProfile(personaId) {
   return { user: { ...P.user }, prefs: { ...P.prefs }, voucher: { ...P.voucher } };
 }
 
+/* ── Migration: realign stored seat & cabin on Premium/Business/Plus bookings ──────────
+   Bookings created before cabin-aware seating stored an economy-default seat (e.g. "4C")
+   and cabin "Economy" even when the fare was Premium/Executive/Plus, so My Trips showed
+   the wrong seat/cabin. This realigns the stored seat to the fare's cabin entitlement and
+   corrects meta.cabin. Runs every boot but is idempotent: it only rewrites a seat that is
+   still a generic economy default (so an explicit non-default seat pick is preserved), and
+   only when the value actually disagrees with the fare. Economy bookings are left untouched. */
+(function realignCabinSeats() {
+  try {
+    const seatForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "1C" : /premium/i.test(f) ? "5A" : /plus/i.test(f) ? "7D" : null; };
+    const cabinForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "Business" : /premium/i.test(f) ? "Premium" : null; };
+    const GENERIC = new Set(["4C", "14F", "14B", "4A"]);   // economy auto-assign defaults — safe to overwrite
+    const rows = db.prepare("SELECT id, seat, meta_json FROM bookings WHERE meta_json IS NOT NULL").all();
+    const upd = db.prepare("UPDATE bookings SET seat=?, meta_json=? WHERE id=?");
+    let n = 0;
+    for (const r of rows) {
+      let meta = null; try { meta = JSON.parse(r.meta_json || "null"); } catch {}
+      if (!meta) continue;
+      const fare = meta.fare || meta.cabin;
+      const wantSeat = seatForFare(fare), wantCabin = cabinForFare(fare);
+      let seat = r.seat, m = meta, changed = false;
+      if (wantSeat && (!r.seat || GENERIC.has(String(r.seat).toUpperCase())) && r.seat !== wantSeat) { seat = wantSeat; changed = true; }
+      if (wantCabin && meta.cabin !== wantCabin) { m = { ...meta, cabin: wantCabin }; changed = true; }
+      if (changed) { upd.run(seat, JSON.stringify(m), r.id); n++; }
+    }
+    if (n) console.log(`[migrate] realigned ${n} Premium/Business/Plus booking seat(s)/cabin to fare entitlement`);
+  } catch (e) { console.warn("[migrate] cabin-seat realign skipped:", e.message); }
+})();
+
 module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedUser, seedSharedCatalogs, KNOWN_USERS, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile };
