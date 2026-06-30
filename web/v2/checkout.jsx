@@ -43,12 +43,16 @@ const STEPS = ["Select flights", "View & customize cart", "My Trip Basket", "Pas
 const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
 const eurC = (n) => `€${Number(n || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // #9 — when no seat was explicitly chosen, the default follows the fare/cabin entitlement:
-// Executive → front business zone (1A–3F), Plus → extra-legroom row, else economy standard.
-const seatForFare = (fare) => /exec/i.test(fare || "") ? "1C" : /plus/i.test(fare || "") ? "7D" : "14F";
+// Executive → front business zone, Premium → premium cabin, Plus → extra-legroom row, else economy standard.
+const seatForFare = (fare) => /exec/i.test(fare || "") ? "1C" : /premium/i.test(fare || "") ? "5A" : /plus/i.test(fare || "") ? "7D" : "14F";
 // Cabin/zone label that matches the fare entitlement (paired with seatForFare for #9).
-const seatZone = (fare) => /exec/i.test(fare || "") ? "Business cabin" : /plus/i.test(fare || "") ? "Extra-legroom row" : "Standard · window";
+const seatZone = (fare) => /exec/i.test(fare || "") ? "Business cabin" : /premium/i.test(fare || "") ? "Premium cabin" : /plus/i.test(fare || "") ? "Extra-legroom row" : "Standard · window";
 // Seat-class chip label and adjacent-seat assignment for extra passengers on the same booking.
-const seatClassLabel = (fare) => /exec/i.test(fare || "") ? "Business seat" : /plus/i.test(fare || "") ? "Extra-legroom seat" : "Standard seat";
+const seatClassLabel = (fare) => /exec/i.test(fare || "") ? "Business seat" : /premium/i.test(fare || "") ? "Premium seat" : /plus/i.test(fare || "") ? "Extra-legroom seat" : "Standard seat";
+// Cabin name from the fare brand (Economy / Premium / Business) — used for the seat module, seat map, and the booking record.
+const fareCabin = (fare) => /exec/i.test(fare || "") ? "Business" : /premium/i.test(fare || "") ? "Premium" : "Economy";
+// An explicitly chosen seat from the seat-map ("Seats · 8A") always wins over the fare default / recommendation.
+const chosenSeat = () => { const sm = (trip.extras || []).find(e => e.code === "seat-map"); const m = sm && String(sm.name).match(/\b(\d{1,2}[A-K])\b/); return m ? m[1] : null; };
 const SEAT_LETTERS = ["A", "B", "C", "D", "E", "F"];
 const adjSeat = (lead, n = 0) => { const m = String(lead || "14A").match(/^(\d+)\s*([A-Fa-f])/); if (!m) return lead || "14A"; const li = SEAT_LETTERS.indexOf(m[2].toUpperCase()); return m[1] + SEAT_LETTERS[((li < 0 ? 0 : li) + n) % 6]; };
 function Stepper({ active }) {
@@ -208,26 +212,68 @@ function Module({ n, kicker, title, sub, right, badge, children, icon }) {
   );
 }
 
-/* ── Full Cabin View · seat-map modal (opens from Seats & baggage → "Full Cabin View") ── */
-const SEAT_TYPES = [
-  { code: "std", name: "Standard", price: 0, sub: "Pick any available seat", note: "Free for Star members" },
-  { code: "nsf", name: "Next Seat Free", price: 48, sub: "Adjacent seat blocked", note: "Privacy & space" },
-  { code: "couple", name: "Couple seat", price: 36, sub: "Auto-paired window+aisle", note: "Travel together" },
-  { code: "win", name: "Window+", price: 68, sub: "Window + free middle + legroom", note: "Premium experience" },
-];
-const SEAT_ROWS = 8;
-// Two 3-seat blocks. Display labels mirror the Figma (A B C · C D E); ids are block-unique so
-// the duplicated "C" column can't collide. (Figma right block repeats C — kept visually, made unique here.)
-const SEAT_BLOCKS = [["A", "B", "C"], ["C", "D", "E"]];
-const SEAT_TAKEN = new Set(["1C-0", "2A-0", "5B-0", "5C-0", "6A-0", "2C-1", "2E-1", "3C-1", "6C-1", "6E-1", "7C-1"]);
-const SEAT_WIN = new Set(["1A-0"]);
-const SEAT_NSF = new Set(["3A-0"]);
-const SEAT_EXIT_ROWS = new Set([1, 8]); // extra-leg rows · €18
+/* ── Full Cabin View · seat-map modal — physically distinct layout & pricing per cabin ── */
+// Each cabin has its own layout (abreast count), seat sizing, pricing chips and legend:
+// Economy 3-3 · Premium 2-2 (wider) · Business 1-1 lie-flat suites.
+const SEAT_CABINS = {
+  Economy: {
+    aircraftFallback: "A320neo", blocks: [["A", "B", "C"], ["D", "E", "F"]],
+    startRow: 10, rows: 12,
+    seatW: "w-9 h-9", colW: "w-9", colGap: "gap-1.5", rowGap: "space-y-1.5", blockGap: "gap-6",
+    fee: (row) => (row === 10 || row === 21) ? { price: 18, tag: "Exit row · extra leg" } : { price: 0, tag: "Standard seat" },
+    taken: ["12C-0", "13A-0", "15B-0", "16D-1", "18E-1", "20A-0", "21F-1"],
+    window: ["10A-0", "14A-0", "19A-0"], legroom: ["10D-1", "21A-0"],
+    types: [
+      { code: "std", name: "Standard", price: 0, sub: "Pick any available seat", note: "Free for Star members" },
+      { code: "nsf", name: "Next Seat Free", price: 48, sub: "Adjacent seat blocked", note: "Privacy & space" },
+      { code: "couple", name: "Couple seat", price: 36, sub: "Auto-paired window+aisle", note: "Travel together" },
+      { code: "win", name: "Window+", price: 68, sub: "Window + free middle + legroom", note: "Premium experience" },
+    ],
+    legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window"], ["bg-tap-green/50", "Extra legroom"], ["bg-surface-mute", "Taken"]],
+    upsell: true,
+  },
+  Premium: {
+    aircraftFallback: "A330neo", blocks: [["A", "C"], ["D", "F"]],
+    startRow: 6, rows: 6,
+    seatW: "w-12 h-11", colW: "w-12", colGap: "gap-2.5", rowGap: "space-y-2.5", blockGap: "gap-12",
+    fee: (row) => row === 6 ? { price: 25, tag: "Bulkhead · extra legroom" } : { price: 0, tag: "Premium seat · included" },
+    taken: ["7C-0", "8D-1", "9A-0", "10F-1"],
+    window: ["6A-0", "8A-0", "11A-0"], legroom: ["6D-1"],
+    types: [
+      { code: "std", name: "Premium seat", price: 0, sub: "Wider seat · recline · included", note: "Included with Premium" },
+      { code: "legroom", name: "Extra legroom", price: 0, sub: "Bulkhead & front rows", note: "Included with Premium" },
+      { code: "solo", name: "Solo · no neighbour", price: 40, sub: "Block the seat beside you", note: "Space to work & rest" },
+      { code: "front", name: "Front row · priority", price: 25, sub: "First off the aircraft", note: "Priority deplane" },
+    ],
+    legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window"], ["bg-tap-green/50", "Bulkhead"], ["bg-surface-mute", "Taken"]],
+    upsell: false,
+  },
+  Business: {
+    aircraftFallback: "A330neo", blocks: [["A"], ["D"]],
+    startRow: 1, rows: 5,
+    seatW: "w-16 h-12", colW: "w-16", colGap: "gap-3", rowGap: "space-y-3", blockGap: "gap-16",
+    fee: (row) => ({ price: 0, tag: row === 1 ? "Front suite · first served" : "Business suite · lie-flat" }),
+    taken: ["2A-0", "4D-1"],
+    window: ["1A-0", "2A-0", "3A-0", "5A-0"], legroom: ["1D-1"],
+    types: [
+      { code: "std", name: "Business suite", price: 0, sub: "Lie-flat · direct aisle · included", note: "Included with Business" },
+      { code: "throne", name: "Throne seat", price: 0, sub: "Extra-wide solo seat", note: "Most private" },
+      { code: "window", name: "Window suite", price: 0, sub: "Window · do-not-disturb", note: "Best for rest" },
+      { code: "bulkhead", name: "Front bulkhead", price: 0, sub: "First row · first served", note: "Priority everything" },
+    ],
+    legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window suite"], ["bg-tap-green/50", "Front row"], ["bg-surface-mute", "Taken"]],
+    upsell: false,
+  },
+};
 const SEAT_PAX_NAMES = ["Daniel", "Mariana", "Sofia", "Lars", "Guest"];
 
-function SeatMapModal({ pax = 1, onClose, onConfirm }) {
-  const [type, setType] = useState("std");
-  const [picks, setPicks] = useState(() => ["8A-0", "8B-0"].slice(0, Math.max(1, pax)));
+function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, onClose, onConfirm }) {
+  const cfg = SEAT_CABINS[cabin] || SEAT_CABINS.Economy;
+  const rowsArr = Array.from({ length: cfg.rows }, (_, i) => cfg.startRow + i);
+  const takenSet = new Set(cfg.taken), winSet = new Set(cfg.window || []), legSet = new Set(cfg.legroom || []);
+  const firstFree = (() => { const out = []; for (const row of rowsArr) for (let b = 0; b < cfg.blocks.length; b++) for (const c of cfg.blocks[b]) { const id = row + c + "-" + b; if (!takenSet.has(id)) { out.push(id); if (out.length >= Math.max(1, pax)) return out; } } return out; })();
+  const [type, setType] = useState(cfg.types[0].code);
+  const [picks, setPicks] = useState(() => firstFree.slice(0, Math.max(1, pax)));
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -235,20 +281,22 @@ function SeatMapModal({ pax = 1, onClose, onConfirm }) {
   }, [onClose]);
   const seatLabel = (id) => id.split("-")[0];
   const seatRow = (id) => parseInt(id, 10);
-  const feeOf = (id) => (SEAT_EXIT_ROWS.has(seatRow(id)) ? 18 : 0);
+  const feeInfo = (id) => cfg.fee(seatRow(id));
+  const feeOf = (id) => feeInfo(id).price;
   const toggle = (id) => {
-    if (SEAT_TAKEN.has(id)) return;
+    if (takenSet.has(id)) return;
     setPicks((cur) => cur.includes(id) ? cur.filter(s => s !== id) : (cur.length >= pax ? [...cur.slice(1), id] : [...cur, id]));
   };
   const total = picks.reduce((s, id) => s + feeOf(id), 0);
   const label = picks.map(seatLabel).join(", ");
   const seatClass = (id) => {
     if (picks.includes(id)) return "bg-lime text-ink ring-2 ring-tap-green";
-    if (SEAT_TAKEN.has(id)) return "bg-surface-mute text-ink-faint cursor-not-allowed";
-    if (SEAT_WIN.has(id)) return "bg-[#E8C75A]/60 text-ink";
-    if (SEAT_NSF.has(id)) return "bg-tap-green/50 text-white";
+    if (takenSet.has(id)) return "bg-surface-mute text-ink-faint cursor-not-allowed";
+    if (winSet.has(id)) return "bg-[#E8C75A]/60 text-ink";
+    if (legSet.has(id)) return "bg-tap-green/50 text-white";
     return "bg-surface border border-line hover:border-tap-green text-ink";
   };
+  const abreast = cfg.blocks.reduce((s, b) => s + b.length, 0);
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4" onClick={onClose}>
       <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-[1080px] my-6 p-6" onClick={(e) => e.stopPropagation()}>
@@ -261,13 +309,13 @@ function SeatMapModal({ pax = 1, onClose, onConfirm }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-          {SEAT_TYPES.map((s) => {
+          {cfg.types.map((s) => {
             const on = type === s.code;
             return (
               <button key={s.code} onClick={() => setType(s.code)} className={cx("text-left rounded-xl border p-3 relative", on ? "border-tap-green ring-1 ring-tap-green bg-surface" : "border-line")}>
                 {on && <span className="absolute top-2.5 right-2.5 text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-tap-green text-white">Selected</span>}
                 <div className="text-[13px] font-bold">{s.name}</div>
-                <div className="text-[20px] font-black v2-num mt-0.5">{eur2(s.price)}</div>
+                <div className="text-[20px] font-black v2-num mt-0.5">{s.price ? eur2(s.price) : "Included"}</div>
                 <div className="text-[11px] text-ink-faint mt-1">{s.sub}</div>
                 <div className="text-[11px] text-tap-greenDeep font-semibold mt-2">{s.note}</div>
                 <span className={cx("mt-2 inline-flex items-center justify-center w-full rounded-full py-1.5 text-[12px] font-semibold", on ? "bg-tap-green text-white" : "border border-line-strong text-ink")}>{on ? "Active" : "Switch"}</span>
@@ -278,48 +326,52 @@ function SeatMapModal({ pax = 1, onClose, onConfirm }) {
 
         <div className="grid lg:grid-cols-[1fr_320px] gap-5 mt-5 items-start">
           <div className="rounded-2xl border border-line p-4">
-            <div className="text-center text-[15px] font-bold">A330-900neo · Executive cabin</div>
-            <div className="text-center text-[11px] font-semibold text-ink-faint mt-1 mb-3">Front</div>
-            <div className="flex justify-center gap-7">
-              {SEAT_BLOCKS.map((cols, b) => (
-                <div key={b} className="space-y-2">
-                  <div className="flex gap-2 justify-center text-[11px] font-bold text-ink-faint">{cols.map((c, i) => <span key={i} className="w-10 text-center">{c}</span>)}</div>
-                  {Array.from({ length: SEAT_ROWS }, (_, ri) => {
-                    const row = ri + 1;
-                    return (
-                      <div key={row} className="flex gap-2 items-center relative">
-                        {b === 0 && <span className="absolute -left-5 text-[10px] text-ink-faint w-3 text-right">{row}</span>}
-                        {cols.map((c, ci) => {
-                          const id = `${row}${c}-${b}`;
-                          return <button key={ci} disabled={SEAT_TAKEN.has(id)} onClick={() => toggle(id)} className={cx("w-10 h-10 rounded-lg text-[11px] font-bold inline-flex items-center justify-center", seatClass(id))}>{row}{c}</button>;
-                        })}
-                      </div>
-                    );
-                  })}
+            <div className="text-center text-[15px] font-bold">{aircraft || cfg.aircraftFallback} · {cabin} cabin</div>
+            <div className="text-center text-[11px] font-semibold text-ink-faint mt-1">{cfg.blocks.map(b => b.length).join("-")} layout · {abreast} across</div>
+            <div className="text-center text-[11px] font-semibold text-ink-faint mb-3">Front</div>
+            <div className={cx("flex justify-center", cfg.blockGap)}>
+              {cfg.blocks.map((cols, b) => (
+                <div key={b} className={cfg.rowGap}>
+                  <div className={cx("flex justify-center text-[11px] font-bold text-ink-faint", cfg.colGap)}>{cols.map((c, i) => <span key={i} className={cx(cfg.colW, "text-center")}>{c}</span>)}</div>
+                  {rowsArr.map((row) => (
+                    <div key={row} className={cx("flex items-center relative", cfg.colGap)}>
+                      {b === 0 && <span className="absolute -left-5 text-[10px] text-ink-faint w-3 text-right">{row}</span>}
+                      {cols.map((c, ci) => {
+                        const id = row + c + "-" + b;
+                        return <button key={ci} disabled={takenSet.has(id)} onClick={() => toggle(id)} className={cx(cfg.seatW, "rounded-lg text-[10px] font-bold inline-flex items-center justify-center", seatClass(id))}>{row}{c}</button>;
+                      })}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
             <div className="h-px bg-line my-3" />
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-ink-muted justify-center">
-              {[["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-tap-green/50", "Next Seat Free"], ["bg-[#E8C75A]/60", "Window+"], ["bg-lime-tint", "Couple"], ["bg-surface-mute", "Taken"]].map(([cl, lb]) => <span key={lb} className="inline-flex items-center gap-1.5"><span className={cx("w-3.5 h-3.5 rounded", cl)} />{lb}</span>)}
+              {cfg.legend.map(([cl, lb]) => <span key={lb} className="inline-flex items-center gap-1.5"><span className={cx("w-3.5 h-3.5 rounded", cl)} />{lb}</span>)}
             </div>
           </div>
 
           <div className="space-y-4">
-            <div className="rounded-2xl border-2 border-lime bg-lime-tint/60 p-4">
-              <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">New · Non-status flyer</span>
-              <div className="text-[16px] font-bold mt-2">Buy premium without status</div>
-              <p className="text-[11px] text-ink-muted mt-1">Get every status-only perk for one flight — front cabin, priority boarding, lounge, hot meal, +2× miles.</p>
-              <div className="mt-2"><span className="text-[22px] font-black v2-num">€89</span> <span className="text-[11px] text-ink-faint">per passenger · vs €189 cabin</span></div>
-              <button className="mt-3 w-full rounded-full bg-tap-greenDeep text-white py-2.5 text-[13px] font-semibold">Unlock NSF · {eur2(89 * pax)} for {pax}</button>
-            </div>
+            {cfg.upsell
+              ? <div className="rounded-2xl border-2 border-lime bg-lime-tint/60 p-4">
+                  <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">New · Non-status flyer</span>
+                  <div className="text-[16px] font-bold mt-2">Buy premium without status</div>
+                  <p className="text-[11px] text-ink-muted mt-1">Get every status-only perk for one flight — front cabin, priority boarding, lounge, hot meal, +2× miles.</p>
+                  <div className="mt-2"><span className="text-[22px] font-black v2-num">€89</span> <span className="text-[11px] text-ink-faint">per passenger · vs €189 cabin</span></div>
+                  <button className="mt-3 w-full rounded-full bg-tap-greenDeep text-white py-2.5 text-[13px] font-semibold">Unlock NSF · {eur2(89 * pax)} for {pax}</button>
+                </div>
+              : <div className="rounded-2xl border border-tap-green/40 bg-lime-tint/40 p-4">
+                  <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-tap-greenDeep text-white">{cabin} cabin</span>
+                  <div className="text-[15px] font-bold mt-2">{cabin === "Business" ? "Lie-flat suites · all included" : "Wider seats · all included"}</div>
+                  <p className="text-[11px] text-ink-muted mt-1">{cabin === "Business" ? "Every seat is a lie-flat suite with direct aisle access — lounge & priority included, no extra seat fee." : "Premium seats include extra legroom and recline. Pick any open seat at no extra charge."}</p>
+                </div>}
             <div className="rounded-2xl border border-line p-4">
               <div className="text-[14px] font-bold">Your selection</div>
               <div className="mt-2 space-y-2">
                 {picks.length === 0 && <div className="text-[12px] text-ink-faint">Tap a seat to assign it.</div>}
                 {picks.map((id, i) => (
                   <div key={id} className="flex items-center justify-between text-[12px]">
-                    <span className="inline-flex items-center gap-2"><span className="w-6 h-6 rounded-full bg-lime text-ink text-[10px] font-bold inline-flex items-center justify-center">{seatLabel(id)}</span><span>{SEAT_PAX_NAMES[i] || `Passenger ${i + 1}`}{SEAT_EXIT_ROWS.has(seatRow(id)) ? " · Exit row · extra leg" : ""}</span></span>
+                    <span className="inline-flex items-center gap-2"><span className="w-6 h-6 rounded-full bg-lime text-ink text-[10px] font-bold inline-flex items-center justify-center">{seatLabel(id)}</span><span>{SEAT_PAX_NAMES[i] || `Passenger ${i + 1}`} · {feeInfo(id).tag}</span></span>
                     <span className="font-semibold v2-num">{feeOf(id) ? eur2(feeOf(id)) : "Free"}</span>
                   </div>
                 ))}
@@ -345,18 +397,25 @@ function CartView({ go, mode = "cart", shared }) {
   useEffect(() => { if (trip.outbound && shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
   // #23 — Carbon offset is auto-added (default ON): mirror it as a real cart line so it shows in the basket and counts toward the total.
   useEffect(() => { if (!hasExtra("carbon")) { toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); setCarbonOn(true); r(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Insurance is mandatory and pre-selected to the recommended Plus plan. Reflect that pre-selection
+  // in the basket/total from first render (not only after the user re-picks a plan) so any extra
+  // that is pre-selected for the user is counted in the summary from the start.
+  useEffect(() => { if (trip.outbound && !hasExtra("ins-plus") && !hasExtra("ins-std")) { const px = trip.pax || 1; toggleExtra({ code: "ins-plus", name: `Travel Insurance · Plus × ${px}`, price: 38 * px, cat: "Insurance", source: "auto" }); r(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!trip.outbound) return noTrip(go);
   const save = () => api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
   const add = (code, name, price, cat, meta) => { toggleExtra({ code, name, price, cat, ...(meta || {}) }); save(); r(); };
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
   const seat = trip.extras.find(e => e.cat === "Seats & baggage");
   const pax = trip.pax || 1;
+  const cab = fareCabin(trip.outbound?.fare);                 // Economy / Premium / Business
+  const fareLabel = trip.outbound?.fare || "Classic";
+  const seatIncluded = { Economy: { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" }, Premium: { name: "Premium seat", sub: "Wider seat · recline · priority · included" }, Business: { name: "Business seat", sub: "Lie-flat · lounge access · included" } }[cab] || { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" };
   const tripDays = (() => { try { if (trip.date && trip.ret) { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); if (d > 0) return d; } } catch { } return 5; })();
   const catCount = (cat) => trip.extras.filter(e => e.cat === cat).length;
   const catBadge = (cat) => { const n = catCount(cat); return n ? `${n} added` : null; };
   const [meal, setMeal] = useState("Standard meal");
   const [allHotels, setAllHotels] = useState(false);
-  const [ins, setIns] = useState("plus");
+  const [ins, setIns] = useState(() => hasExtra("ins-std") ? "standard" : hasExtra("ins-plus") ? "plus" : "plus");
   const [seatMapOpen, setSeatMapOpen] = useState(false);
   const confirmSeats = (lbl, tot) => {
     const ex = trip.extras.find(e => e.code === "seat-map");
@@ -440,7 +499,7 @@ function CartView({ go, mode = "cart", shared }) {
 
   return (
     <div className="bg-surface-soft min-h-screen">
-      {seatMapOpen && <SeatMapModal pax={pax} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
+      {seatMapOpen && <SeatMapModal pax={pax} cabin={cab} aircraft={trip.outbound?.flight?.aircraft} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
       {isBasket
         ? <div className="mx-auto max-w-page px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
         : <Stepper active={1} />}
@@ -454,9 +513,9 @@ function CartView({ go, mode = "cart", shared }) {
           <div className="space-y-5">
             <Module n="01" icon="seat" kicker="Seats & baggage" title="Seats & baggage" sub="Pick where you sit and what you bring.">
               <div className="flex items-center justify-between mb-2"><Eyebrow>Choose your seat type · per passenger · both flights</Eyebrow><button onClick={() => setSeatMapOpen(true)} className="text-[12px] font-semibold text-tap-greenDeep shrink-0 hover:underline">Full Cabin View</button></div>
-              <div className="flex flex-col sm:flex-row gap-3"><SeatType code="std" name="Standard" sub="Standard 78cm pitch · auto-assigned" /><SeatType code="seat-nsf" name="Next Seat Free" sub="+10cm legroom · exit-row seats" price={48} /><SeatType code="seat-win" name="Window+" sub="Window + free middle + legroom" price={68} /></div>
-              <Eyebrow className="mt-4 mb-2">Baggage · what's included with Classic fare</Eyebrow>
-              <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked /><Bag name="Checked bag · 23kg" sub="1 piece per traveller · Classic fare" locked /><Bag code="bag-extra" name="Extra checked bag · 23kg" sub="Add a 2nd bag · saves €15 vs airport" price={55} /></div>
+              <div className="flex flex-col sm:flex-row gap-3"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} /><SeatType code="seat-nsf" name="Next Seat Free" sub="+10cm legroom · exit-row seats" price={48} /><SeatType code="seat-win" name="Window+" sub="Window + free middle + legroom" price={68} /></div>
+              <Eyebrow className="mt-4 mb-2">Baggage · what's included with {fareLabel} fare</Eyebrow>
+              <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked /><Bag name={cab === "Economy" ? "Checked bag · 23kg" : "2× Checked bags · 23kg"} sub={cab === "Economy" ? `1 piece per traveller · ${fareLabel} fare` : `2 pieces per traveller · included with ${cab} fare`} locked /><Bag code="bag-extra" name="Extra checked bag · 23kg" sub="Add a 2nd bag · saves €15 vs airport" price={55} /></div>
             </Module>
 
             <Module n="02" icon="leaf" kicker="Carbon offset" title="Carbon offset" sub="Auto-checked · uncheck if you wish" right={<div className="text-right"><span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00]">Opt-out</span><div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></div>}>
@@ -1037,7 +1096,7 @@ export function Payment({ shared, go }) {
     cashback_amt = Math.min(cashbackBal, mix.cashback || 0);
   }
   const card_amt = Math.max(0, t.total - voucher_amt - miles_amt - cashback_amt);
-  const seatNo = /exec|plus/i.test(trip.outbound?.fare || "") ? seatForFare(trip.outbound?.fare) : (seat?.seat || seatForFare(trip.outbound?.fare));
+  const seatNo = chosenSeat() || (/exec|plus|premium/i.test(trip.outbound?.fare || "") ? seatForFare(trip.outbound?.fare) : (seat?.seat || seatForFare(trip.outbound?.fare)));
   const mixBreakdown = method === "Mix Method" ? [
     { label: "Card payment", text: EUR(card_amt) },
     { label: `Miles (${miles(miles_used)})`, text: miles_amt > 0 ? "−" + EUR(miles_amt) : EUR(0), green: miles_amt > 0 },
@@ -1057,7 +1116,7 @@ export function Payment({ shared, go }) {
   async function pay() {
     setBusy(true);
     try {
-      const r = await api.post("/pay", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code || e.name), total: t.total, voucher_amt, miles_used, miles_amt, card_amt, seat: seatNo, date: trip.date, fare: trip.outbound?.fare, cabin: /exec/i.test(trip.outbound?.fare || "") ? "Executive" : "Economy", pax: trip.pax, passengers: (trip.passengers || []).filter(p => p && p.first).map(p => ({ title: p.title, first: p.first, last: p.last })), inbound: trip.inbound?.flight?.flight_no ? { flight_no: trip.inbound.flight.flight_no, date: trip.ret } : null, contact: trip.contact || null });
+      const r = await api.post("/pay", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code || e.name), total: t.total, voucher_amt, miles_used, miles_amt, card_amt, seat: seatNo, date: trip.date, fare: trip.outbound?.fare, cabin: fareCabin(trip.outbound?.fare), pax: trip.pax, passengers: (trip.passengers || []).filter(p => p && p.first).map(p => ({ title: p.title, first: p.first, last: p.last })), inbound: trip.inbound?.flight?.flight_no ? { flight_no: trip.inbound.flight.flight_no, date: trip.ret } : null, contact: trip.contact || null });
       if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to }; go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
@@ -1204,7 +1263,7 @@ export function Confirmation({ shared, go }) {
   const pay = trip.payment || {}, o = trip.outbound, i = trip.inbound, u = shared.profile?.user || {}, t = tripTotals();
   const pax = trip.passengers.filter(p => p && p.first).length ? trip.passengers.filter(p => p && p.first) : [{ first: u.first_name, last: "" }];
   // Seat display driven by the booked fare so Executive/Plus never show an economy seat (e.g. Daniel's 4C).
-  const leadSeat = /exec|plus/i.test(o?.fare || "") ? seatForFare(o?.fare) : (trip.seat || seatForFare(o?.fare));
+  const leadSeat = chosenSeat() || trip.seat || seatForFare(o?.fare);
   const inSeat = i ? seatForFare(i.fare) : null;
   const seatClass = seatClassLabel(o?.fare);
   // #13 — quick actions now produce real downloads (e-ticket / boarding pass text, .ics calendar).
@@ -1310,7 +1369,7 @@ export function ExpressCheckout({ shared, go }) {
 
   const o = trip.outbound, i = trip.inbound;
   const base = o?.price || 0;
-  const seatNo = /exec|plus/i.test(o?.fare || "") ? seatForFare(o?.fare) : (seat?.seat || seatForFare(o?.fare));
+  const seatNo = chosenSeat() || (/exec|plus|premium/i.test(o?.fare || "") ? seatForFare(o?.fare) : (seat?.seat || seatForFare(o?.fare)));
   const seatCost = seatUp ? 18 : 0, bagCost = bag ? 25 : 0, carbonCost = carbon ? 2 : 0;
   const taxes = Math.round((base + seatCost + bagCost + carbonCost) * 0.12);
   const total = base + seatCost + bagCost + carbonCost + taxes;
@@ -1320,7 +1379,7 @@ export function ExpressCheckout({ shared, go }) {
     if (!o) return; setBusy(true);
     try {
       const items = ["seat-" + seatNo, bag && "checked-bag", carbon && "carbon"].filter(Boolean);
-      const r = await api.post("/pay", { flight_no: o.flight.flight_no, items, total, voucher_amt: 0, miles_used: 0, miles_amt: 0, card_amt: total, seat: seatNo, date, fare: o?.fare, cabin: /exec/i.test(o?.fare || "") ? "Executive" : "Economy", pax: trip.pax, passengers: (trip.passengers || []).filter(p => p && p.first).map(p => ({ title: p.title, first: p.first, last: p.last })) });
+      const r = await api.post("/pay", { flight_no: o.flight.flight_no, items, total, voucher_amt: 0, miles_used: 0, miles_amt: 0, card_amt: total, seat: seatNo, date, fare: o?.fare, cabin: fareCabin(o?.fare), pax: trip.pax, passengers: (trip.passengers || []).filter(p => p && p.first).map(p => ({ title: p.title, first: p.first, last: p.last })) });
       if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total, card_amt: total, method: "Card", email: r.email?.to }; go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
