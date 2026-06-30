@@ -47,6 +47,10 @@ const eurC = (n) => `€${Number(n || 0).toLocaleString("en-GB", { minimumFracti
 const seatForFare = (fare) => /exec/i.test(fare || "") ? "1C" : /plus/i.test(fare || "") ? "7D" : "14F";
 // Cabin/zone label that matches the fare entitlement (paired with seatForFare for #9).
 const seatZone = (fare) => /exec/i.test(fare || "") ? "Business cabin" : /plus/i.test(fare || "") ? "Extra-legroom row" : "Standard · window";
+// Seat-class chip label and adjacent-seat assignment for extra passengers on the same booking.
+const seatClassLabel = (fare) => /exec/i.test(fare || "") ? "Business seat" : /plus/i.test(fare || "") ? "Extra-legroom seat" : "Standard seat";
+const SEAT_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const adjSeat = (lead, n = 0) => { const m = String(lead || "14A").match(/^(\d+)\s*([A-Fa-f])/); if (!m) return lead || "14A"; const li = SEAT_LETTERS.indexOf(m[2].toUpperCase()); return m[1] + SEAT_LETTERS[((li < 0 ? 0 : li) + n) % 6]; };
 function Stepper({ active }) {
   return (
     <div className="bg-surface border-b border-line">
@@ -1142,12 +1146,16 @@ export function Confirmation({ shared, go }) {
   if (!trip.pnr) return noTrip(go);
   const pay = trip.payment || {}, o = trip.outbound, i = trip.inbound, u = shared.profile?.user || {}, t = tripTotals();
   const pax = trip.passengers.filter(p => p && p.first).length ? trip.passengers.filter(p => p && p.first) : [{ first: u.first_name, last: "" }];
+  // Seat display driven by the booked fare so Executive/Plus never show an economy seat (e.g. Daniel's 4C).
+  const leadSeat = /exec|plus/i.test(o?.fare || "") ? seatForFare(o?.fare) : (trip.seat || seatForFare(o?.fare));
+  const inSeat = i ? seatForFare(i.fare) : null;
+  const seatClass = seatClassLabel(o?.fare);
   // #13 — quick actions now produce real downloads (e-ticket / boarding pass text, .ics calendar).
   const ticketText = () => {
     const seg = (c, d, seat) => c ? `${c.flight.origin} -> ${c.flight.dest}  ${c.flight.flight_no}\n  ${fmtDate(d)} · dep ${c.flight.dep} · arr ${c.flight.arr} · seat ${seat}` : "";
-    return [`TAP AIR PORTUGAL — E-TICKET`, `PNR: ${trip.pnr}`, `Passenger(s): ${pax.map(p => `${p.first} ${p.last || ""}`.trim()).join(", ")}`, ``, seg(o, trip.date, trip.seat || "14A"), i ? seg(i, trip.ret, "14B") : "", ``, `Total paid: ${EUR(t.total)}`].filter(Boolean).join("\n");
+    return [`TAP AIR PORTUGAL — E-TICKET`, `PNR: ${trip.pnr}`, `Passenger(s): ${pax.map(p => `${p.first} ${p.last || ""}`.trim()).join(", ")}`, ``, seg(o, trip.date, leadSeat), i ? seg(i, trip.ret, inSeat || "14B") : "", ``, `Total paid: ${EUR(t.total)}`].filter(Boolean).join("\n");
   };
-  const addCalendar = () => { const ics = [o, i].filter(Boolean).map(c => buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? (trip.seat || "14A") : "14B"}` })).join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
+  const addCalendar = () => { const ics = [o, i].filter(Boolean).map(c => buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? leadSeat : (inSeat || "14B")}` })).join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
   const downloadTicket = () => downloadFile(`eticket-${trip.pnr}.txt`, ticketText(), "text/plain");
   const addWallet = () => downloadFile(`boarding-pass-${trip.pnr}.txt`, ticketText(), "text/plain");
   return (
@@ -1161,11 +1169,11 @@ export function Confirmation({ shared, go }) {
               {[o, i].filter(Boolean).map((c, idx) => (
                 <div key={idx} className="rounded-2xl p-5 mb-2 flex flex-wrap items-center gap-4" style={{ background: "#f2ffdb" }}>
                   <div><div className="text-[26px] font-bold v2-num leading-none">{c.flight.dep}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.origin} · Terminal 1</div></div>
-                  <div className="flex-1 min-w-[170px] text-center text-[11px] text-ink-muted">{c.flight.duration} · nonstop<div className="h-px bg-ink/80 my-2" /><div className="font-bold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="mt-0.5">Seat {idx === 0 ? (trip.seat || "14A") : "14B"} · Gate info 90 min before</div></div>
+                  <div className="flex-1 min-w-[170px] text-center text-[11px] text-ink-muted">{c.flight.duration} · nonstop<div className="h-px bg-ink/80 my-2" /><div className="font-bold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="mt-0.5">Seat {idx === 0 ? leadSeat : (inSeat || "14B")} · Gate info 90 min before</div></div>
                   <div className="text-right"><div className="text-[26px] font-bold v2-num leading-none">{c.flight.arr}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.dest} · Terminal 1</div></div>
                 </div>
               ))}
-              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {n === 0 ? (trip.seat || "14A") : (["14B", "14C", "14D"][n - 1] || "14A")}</span>)}<span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="seat" size={11} className="text-ink-muted" /> Standard seat</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="leaf" size={11} className="text-ink-muted" /> Snack</span></div>
+              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span>{/exec/i.test(o?.fare || "") && <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="star" size={11} className="text-ink-muted" /> Lounge access</span>}</div>
               <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} className="hover:underline">Add to Wallet</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
@@ -1301,7 +1309,7 @@ export function ExpressCheckout({ shared, go }) {
               </Sec>
               <Sec title="Seat selection" action="Change seat" onAction={() => go("seatchange")}>
                 <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Outbound · {seatNo} ({seatZone(o?.fare)})</div><div className="text-[11px] text-ink-faint">{o.flight.flight_no} · {o.flight.aircraft} · Seat {seatNo}</div></div><span className="flex items-center gap-2"><span className="v2-num font-bold">{eur2(18)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">Added</span></span></div>
-                <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Return · 14C (Aisle, standard)</div><div className="text-[11px] text-ink-faint">{i?.flight?.flight_no || ""}{i ? ` · ${i.flight.aircraft} · Seat 14C` : ""}</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink rounded px-2 py-0.5">Free · {u.tier}</span></div>
+                <div className="flex items-center justify-between text-[13px] py-1 mt-1"><div><div className="font-semibold">Return · {seatForFare(i?.fare)} ({seatZone(i?.fare)})</div><div className="text-[11px] text-ink-faint">{i?.flight?.flight_no || ""}{i ? ` · ${i.flight.aircraft} · Seat ${seatForFare(i?.fare)}` : ""}</div></div><span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink rounded px-2 py-0.5">Free · {u.tier}</span></div>
               </Sec>
               <Sec title="Contact details" action="Edit" onAction={() => go("passenger")}>
                 <div className="text-[13px]">{(u.email || "d•••@gmail.com").replace(/(.).+(@.+)/, "$1•••••$2")} · {u.phone || "+351 ••• 482"}</div>
