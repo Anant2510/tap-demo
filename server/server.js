@@ -622,6 +622,9 @@ app.post("/api/pay", async (req, res) => {
   const meta = {
     fare: fare || null,
     cabin: cabin || (/exec/i.test(fare || "") ? "Executive" : "Economy"),
+    // Snapshot of the booked flight so My Trips renders the correct route/times even if this
+    // (often generated) flight row is later pruned, or its number collides on another route/date.
+    origin: f.origin, dest: f.dest, dep: f.dep, arr: f.arr, duration: f.duration, aircraft: f.aircraft,
     pax: Number(pax) || (Array.isArray(passengers) ? passengers.length : 0) || 1,
     passengers: Array.isArray(passengers) ? passengers.filter(p => p && p.first).map(p => ({ title: p.title || "", first: p.first, last: p.last || "" })) : [],
     inbound: inbound && inbound.flight_no ? { flight_no: inbound.flight_no, date: inbound.date || null } : null,
@@ -642,7 +645,7 @@ app.post("/api/pay", async (req, res) => {
   log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
   cancelAllSearchFollowups(req.uid);   // converted — don't chase with abandonment emails
   const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
-  cdpEvents.emit("booked", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
+  cdpEvents.emit("booked", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: meta.cabin || "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
   cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "booked", spend: Number(total) || 0,
     lounge: (items || []).some(i => /lounge/i.test(i.name || i.label || i)) });   // online booking → unified profile
   res.json({ ok: true, pnr, email });
@@ -650,14 +653,21 @@ app.post("/api/pay", async (req, res) => {
 
 app.get("/api/bookings", (req, res) => {
   const rows = db.prepare("SELECT * FROM bookings WHERE user_id=? ORDER BY id DESC").all(req.uid);
+  const byNoDate = (no, d) => db.prepare("SELECT * FROM flights WHERE flight_no=? AND flight_date=?").get(no, d);
+  // Resolve the displayed flight: exact (number+date) → any row with that number → snapshot
+  // stored in meta at booking time. The snapshot guarantees the card renders the real route
+  // and times even for generated flights whose rows were pruned or whose number collides.
+  const resolve = (no, d, snap) => byNoDate(no, d) || flightByNo(no) || (snap && snap.origin ? { flight_no: no, flight_date: d, ...snap } : null);
   res.json(rows.map(r => {
     let meta = null; try { meta = JSON.parse(r.meta_json || "null"); } catch {}
+    const snap = meta ? { origin: meta.origin, dest: meta.dest, dep: meta.dep, arr: meta.arr, duration: meta.duration, aircraft: meta.aircraft } : null;
+    const inb = meta && meta.inbound && meta.inbound.flight_no;
     return {
       ...r,
       items: JSON.parse(r.items_json || "[]"),
-      flight: flightByNo(r.flight_no),
+      flight: resolve(r.flight_no, r.flight_date, snap),
       meta,
-      inboundFlight: meta && meta.inbound && meta.inbound.flight_no ? flightByNo(meta.inbound.flight_no) : null,
+      inboundFlight: inb ? resolve(meta.inbound.flight_no, meta.inbound.date, null) : null,
       days_to_go: daysToGo(r.flight_date),
     };
   }));
@@ -2239,6 +2249,34 @@ app.post("/api/admin/cdp/event/test", async (req, res) => {
   const stage = (req.body && req.body.stage) || "results";
   const r = await cdpEvents.streamEvent(stage, liveIdentity(), { origin: "OPO", destination: "LIS", travelDate: searchToday(), cabin: "Economy", channel: "Demo test", abandoned: false });
   res.json(r);
+});
+// Force streaming segmentation to MATERIALIZE membership for the demo personas. Batch-ingested
+// profiles are evaluated by streaming audiences only on the nightly job OR when a streaming event
+// touches them — so we stream one ExperienceEvent per persona (loyaltyId = primary identity). RT-CDP
+// then re-evaluates each profile against every streaming audience and WRITES segmentMembership, which
+// is what the profile's "Audience membership" tab and our app read. (Audience preview / "Sample
+// profiles" matches the definition ad-hoc and does NOT require this — materialized membership does.)
+// Body/query: ?persona=<id> to touch one persona; otherwise all. Membership appears in ~5–20 min.
+app.post("/api/admin/cdp/segments/materialize", async (req, res) => {
+  const stage = (req.body && req.body.stage) || "results";
+  const only = (req.body && req.body.persona) || req.query.persona || null;
+  const keys = only && PERSONAS[only] ? [only] : Object.keys(PERSONAS);
+  const results = [];
+  for (const k of keys) {
+    const u = PERSONAS[k].user;
+    let r;
+    try {
+      r = await cdpEvents.streamEvent(stage, { loyaltyId: u.member_no, email: u.email },
+        { origin: u.home_airport || "OPO", destination: "LIS", travelDate: searchToday(), cabin: "Economy", channel: "Segment materialize", abandoned: false });
+    } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    results.push({ persona: k, loyaltyId: u.member_no, ok: r && r.ok !== false, detail: r });
+  }
+  res.json({
+    ok: results.every(o => o.ok),
+    count: results.length,
+    note: "Streamed a touch event per persona to trigger streaming segmentation. segmentMembership materializes in ~5–20 min (Edge→Hub propagation). Re-check the profile's Audience membership tab, then re-hydrate the app's CDP console.",
+    results,
+  });
 });
 // XDM payload without sending it (works even before credentials are configured).
 app.post("/api/admin/cdp/ingest", async (req, res) => {

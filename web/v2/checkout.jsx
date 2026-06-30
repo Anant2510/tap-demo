@@ -256,10 +256,7 @@ const SEAT_CABINS = {
     taken: ["2A-0", "4D-1"],
     window: ["1A-0", "2A-0", "3A-0", "5A-0"], legroom: ["1D-1"],
     types: [
-      { code: "std", name: "Business suite", price: 0, sub: "Lie-flat · direct aisle · included", note: "Included with Business" },
-      { code: "throne", name: "Throne seat", price: 0, sub: "Extra-wide solo seat", note: "Most private" },
-      { code: "window", name: "Window suite", price: 0, sub: "Window · do-not-disturb", note: "Best for rest" },
-      { code: "bulkhead", name: "Front bulkhead", price: 0, sub: "First row · first served", note: "Priority everything" },
+      { code: "std", name: "Business seat", price: 0, sub: "Lie-flat suite · direct aisle · lounge · included", note: "Included with Business — no other seat types" },
     ],
     legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window suite"], ["bg-tap-green/50", "Front row"], ["bg-surface-mute", "Taken"]],
     upsell: false,
@@ -308,7 +305,7 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, onClose, onConfirm
           <button onClick={onClose} aria-label="Close" className="shrink-0 w-9 h-9 rounded-full hover:bg-surface-mute inline-flex items-center justify-center"><Icon name="x" size={18} /></button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+        <div className={cx("grid gap-3 mt-4", cfg.types.length === 1 ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4")}>
           {cfg.types.map((s) => {
             const on = type === s.code;
             return (
