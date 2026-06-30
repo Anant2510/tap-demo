@@ -146,6 +146,12 @@ export function ManageBooking({ shared, go }) {
         <div className="space-y-4">
           {list.map((b, idx) => {
             const f = b.flight || {};
+            const meta = b.meta || {};
+            const cabin = meta.cabin || b.cabin || "Economy";
+            const fareName = meta.fare || cabin;                         // e.g. "Plus" / "Executive"; falls back to cabin
+            const paxN = meta.pax || (meta.passengers || []).length || 1;
+            const paxNames = (meta.passengers || []).map(p => [p.title, p.first, p.last].filter(Boolean).join(" ").trim()).filter(Boolean);
+            const inb = b.inboundFlight;
             return (
               <Card key={b.pnr || idx} className="p-5 v2-in">
                 <div className="flex items-start gap-3 flex-wrap">
@@ -153,11 +159,13 @@ export function ManageBooking({ shared, go }) {
                   <div className="flex-1 min-w-[220px]">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[16px] font-black">{f.origin || "OPO"} <span className="text-ink-faint">→</span> {f.dest || "LIS"}</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">{b.cabin || "Economy"}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded px-2 py-0.5">{fareName}</span>
                       <span className="text-[15px] font-bold v2-num ml-1">{f.dep || "—"} <span className="text-ink-faint">→</span> {f.arr || "—"}</span>
                     </div>
                     <div className="text-[12px] text-ink-muted mt-1">{cityOf(airports, f.origin)}–{cityOf(airports, f.dest)} · {fmtDate(b.flight_date)} · {f.duration || "1h05"} · Direct</div>
-                    <div className="text-[12px] text-ink-muted mt-0.5">1 adult · {f.flight_no || b.flight_no} · Class {b.cabin || "Economy"}</div>
+                    <div className="text-[12px] text-ink-muted mt-0.5">{paxN} traveller{paxN > 1 ? "s" : ""} · {f.flight_no || b.flight_no} · {fareName}</div>
+                    {paxNames.length > 0 && <div className="text-[12px] text-ink mt-0.5 flex items-center gap-1.5 flex-wrap"><Icon name="user" size={11} className="text-ink-faint" />{paxNames.map((nm, i) => <span key={i} className="font-medium">{nm}{i < paxNames.length - 1 ? "," : ""}</span>)}</div>}
+                    {inb && <div className="text-[12px] text-ink-muted mt-0.5">Return · {inb.origin}<span className="text-ink-faint"> → </span>{inb.dest} · {fmtDate(meta.inbound?.date || inb.flight_date)} · {inb.flight_no}</div>}
                   </div>
                   <div className="text-right shrink-0">
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded-full px-2.5 py-1"><Icon name="check" size={10} /> Confirmed</span>

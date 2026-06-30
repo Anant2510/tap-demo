@@ -613,13 +613,22 @@ app.post("/api/hold", async (req, res) => {
 
 /* ── Payment → booking + confirmation email ──────────────────── */
 app.post("/api/pay", async (req, res) => {
-  const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt, seat, date } = req.body;
+  const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt, seat, date, fare, cabin, pax, passengers, inbound, contact } = req.body;
   const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
   const f = flightByNo(flight_no);
   if (!f) { log("pay_unknown_flight", { flight_no }); return res.status(400).json({ ok: false, error: "unknown flight — search the route first" }); }
   const bookDate = date || f.flight_date;   // honor the date the customer is booking (e.g. express recommended date)
-  const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,created_at)
-    VALUES (?,?,?,?,?,?,?)`).run(pnr, req.uid, flight_no, bookDate, seat || "4C", JSON.stringify(items || []), now());
+  // #15 — full booking context so My Trip mirrors the real booking (travellers, fare/cabin, return leg).
+  const meta = {
+    fare: fare || null,
+    cabin: cabin || (/exec/i.test(fare || "") ? "Executive" : "Economy"),
+    pax: Number(pax) || (Array.isArray(passengers) ? passengers.length : 0) || 1,
+    passengers: Array.isArray(passengers) ? passengers.filter(p => p && p.first).map(p => ({ title: p.title || "", first: p.first, last: p.last || "" })) : [],
+    inbound: inbound && inbound.flight_no ? { flight_no: inbound.flight_no, date: inbound.date || null } : null,
+    contact: contact || null,
+  };
+  const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,meta_json,created_at)
+    VALUES (?,?,?,?,?,?,?,?)`).run(pnr, req.uid, flight_no, bookDate, seat || "4C", JSON.stringify(items || []), JSON.stringify(meta), now());
   db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), total, voucher_amt, miles_used, miles_amt, card_amt, now());
   if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=?").run(miles_used, req.uid);
@@ -641,7 +650,17 @@ app.post("/api/pay", async (req, res) => {
 
 app.get("/api/bookings", (req, res) => {
   const rows = db.prepare("SELECT * FROM bookings WHERE user_id=? ORDER BY id DESC").all(req.uid);
-  res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items_json || "[]"), flight: flightByNo(r.flight_no), days_to_go: daysToGo(r.flight_date) })));
+  res.json(rows.map(r => {
+    let meta = null; try { meta = JSON.parse(r.meta_json || "null"); } catch {}
+    return {
+      ...r,
+      items: JSON.parse(r.items_json || "[]"),
+      flight: flightByNo(r.flight_no),
+      meta,
+      inboundFlight: meta && meta.inbound && meta.inbound.flight_no ? flightByNo(meta.inbound.flight_no) : null,
+      days_to_go: daysToGo(r.flight_date),
+    };
+  }));
 });
 
 /* ── Disruption: live ops event → AI recovery → email ────────── */

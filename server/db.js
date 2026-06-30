@@ -131,6 +131,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS pss_ingest_log (
 // PSS bookings stamp the member they belong to. The unified, multi-row profile +
 // identity stitching + segments live in cdp_profiles (see cdp-profile.js).
 try { db.exec("ALTER TABLE bookings ADD COLUMN member_no TEXT"); } catch {}
+// #15 — capture the full booking context (fare/cabin, passengers, inbound leg) so My Trip renders
+// the actual booked flight & travellers instead of defaults. Additive; seeded bookings stay null.
+try { db.exec("ALTER TABLE bookings ADD COLUMN meta_json TEXT"); } catch {}
 
 // ── CDP unified profile store (Phase 3) ──────────────────────────────────────
 // A local mirror of the Adobe RT-CDP profile: one row per resolved identity
