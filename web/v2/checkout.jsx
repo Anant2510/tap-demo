@@ -569,7 +569,6 @@ function CartView({ go, mode = "cart", shared }) {
   return (
     <div className="bg-surface-soft min-h-screen">
       {seatMapOpen && <SeatMapModal pax={pax} cabin={cab} aircraft={trip.outbound?.flight?.aircraft} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
-      {editItem && <ItemEditModal item={editItem.item} link={editItem.link} onClose={() => setEditItem(null)} onApply={applyEdit} />}
       {isBasket
         ? <div className="mx-auto max-w-page px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
         : <Stepper active={1} />}
@@ -678,6 +677,7 @@ export function Cart(props) { return <CartView {...props} mode="cart" />; }
 // section), step 3 of the linear flow and the page the nav cart opens. Continues to passenger.
 export function Basket({ shared, go }) {
   const [, force] = useState(0); const r = () => force(x => x + 1);
+  const [editItem, setEditItem] = useState(null);   // #22 — { item, link } for the active line-item editor (hook must precede any early return)
   if (!trip.outbound) return noTrip(go);
   const t = tripTotals();
   const ob = trip.outbound, ib = trip.inbound;
@@ -701,8 +701,7 @@ export function Basket({ shared, go }) {
   const persist = () => api.post("/basket", { flight_no: trip.outbound?.flight?.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
   const remove = (e) => { toggleExtra(e); persist(); r(); };
   const setQty = (e, d) => { e.qty = Math.max(1, (e.qty || 1) + d); pingBasket(); persist(); r(); };
-  const [editItem, setEditItem] = useState(null);   // #22 — { item, link } for the active line-item editor
-  const applyEdit = (item, changes) => { Object.assign(item, changes); pingBasket(); persist(); r(); };   // mutate the basket line in place
+  const applyEdit = (item, changes) => { Object.assign(item, changes); pingBasket(); persist(); r(); };   // #22 — mutate the basket line in place
   const dateRange = `${fmtDate(trip.date).replace(/ \d{4}/, "")} – ${fmtDate(trip.ret).replace(/ \d{4}/, "")}`;
   const dateOne = fmtDate(trip.date).replace(/ \d{4}/, "");
   // per-category card detail (sub, chips, action links, per-unit price, quantity-editable) — Tab 6 #3/#5
@@ -737,6 +736,7 @@ export function Basket({ shared, go }) {
 
   return (
     <div className="bg-surface-soft min-h-screen">
+      {editItem && <ItemEditModal item={editItem.item} link={editItem.link} onClose={() => setEditItem(null)} onApply={applyEdit} />}
       <Stepper active={2} />
       <div className="mx-auto max-w-content px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[28px] font-bold">My trip cart</h1><Pill tone="slate">{itemCount} items</Pill></div>
