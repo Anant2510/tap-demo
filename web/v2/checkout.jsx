@@ -45,7 +45,7 @@ const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
 const eurC = (n) => `€${Number(n || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // #9 — when no seat was explicitly chosen, the default follows the fare/cabin entitlement:
 // Executive → front business zone, Premium → premium cabin, Plus → extra-legroom row, else economy standard.
-const seatForFare = (fare) => /exec/i.test(fare || "") ? "1C" : /premium/i.test(fare || "") ? "5A" : /plus/i.test(fare || "") ? "7D" : "14F";
+const seatForFare = (fare) => /exec/i.test(fare || "") ? "1A" : /premium/i.test(fare || "") ? "5A" : /plus/i.test(fare || "") ? "7D" : "14F";
 // Cabin/zone label that matches the fare entitlement (paired with seatForFare for #9).
 const seatZone = (fare) => /exec/i.test(fare || "") ? "Business cabin" : /premium/i.test(fare || "") ? "Premium cabin" : /plus/i.test(fare || "") ? "Extra-legroom row" : "Standard · window";
 // Seat-class chip label and adjacent-seat assignment for extra passengers on the same booking.
@@ -479,6 +479,14 @@ function CartView({ go, mode = "cart", shared }) {
   const cab = fareCabin(trip.outbound?.fare);                 // Economy / Premium / Business
   const fareLabel = trip.outbound?.fare || "Classic";
   const seatIncluded = { Economy: { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" }, Premium: { name: "Premium seat", sub: "Wider seat · recline · priority · included" }, Business: { name: "Business seat", sub: "Lie-flat · lounge access · included" } }[cab] || { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" };
+  // #33 — within the selected cabin, keep the included seat AND still offer cabin-appropriate upgrades.
+  const SEAT_TYPE_OPTS = {
+    Economy: [{ code: "seat-nsf", name: "Next Seat Free", sub: "+10cm legroom · exit-row seats", price: 48 }, { code: "seat-win", name: "Window+", sub: "Window + free middle + legroom", price: 68 }],
+    Premium: [{ code: "seat-legroom", name: "Extra legroom", sub: "Bulkhead & front rows · more recline", price: 20 }, { code: "seat-solo", name: "Solo · no neighbour", sub: "Block the seat beside you", price: 40 }],
+    Business: [{ code: "seat-throne", name: "Throne seat", sub: "Extra-wide solo suite · single aisle", price: 45 }, { code: "seat-winsuite", name: "Window suite", sub: "Window · do-not-disturb divider", price: 30 }],
+  }[cab] || [];
+  // #34 — baggage entitlement follows the FARE, not just the cabin: Basic = 0 checked, Classic/Plus = 1, Premium/Executive = 2.
+  const fareBags = /exec|premium/i.test(fareLabel) ? 2 : /basic/i.test(fareLabel) ? 0 : 1;
   const tripDays = (() => { try { if (trip.date && trip.ret) { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); if (d > 0) return d; } } catch { } return 5; })();
   const catCount = (cat) => trip.extras.filter(e => e.cat === cat).length;
   const catBadge = (cat) => { const n = catCount(cat); return n ? `${n} added` : null; };
@@ -582,9 +590,9 @@ function CartView({ go, mode = "cart", shared }) {
           <div className="space-y-5">
             <Module n="01" icon="seat" kicker="Seats & baggage" title="Seats & baggage" sub="Pick where you sit and what you bring.">
               <div className="flex items-center justify-between mb-2"><Eyebrow>Choose your seat type · per passenger · both flights</Eyebrow><button onClick={() => setSeatMapOpen(true)} className="text-[12px] font-semibold text-tap-greenDeep shrink-0 hover:underline">Full Cabin View</button></div>
-              <div className="flex flex-col sm:flex-row gap-3"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} />{cab === "Economy" && <><SeatType code="seat-nsf" name="Next Seat Free" sub="+10cm legroom · exit-row seats" price={48} /><SeatType code="seat-win" name="Window+" sub="Window + free middle + legroom" price={68} /></>}</div>
+              <div className="flex flex-col sm:flex-row gap-3"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} />{SEAT_TYPE_OPTS.map(o => <SeatType key={o.code} code={o.code} name={o.name} sub={o.sub} price={o.price} />)}</div>
               <Eyebrow className="mt-4 mb-2">Baggage · what's included with {fareLabel} fare</Eyebrow>
-              <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked /><Bag name={cab === "Economy" ? "Checked bag · 23kg" : "2× Checked bags · 23kg"} sub={cab === "Economy" ? `1 piece per traveller · ${fareLabel} fare` : `2 pieces per traveller · included with ${cab} fare`} locked /><Bag code="bag-extra" name="Extra checked bag · 23kg" sub="Add a 2nd bag · saves €15 vs airport" price={55} /></div>
+              <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked />{fareBags >= 1 ? <Bag name={fareBags === 2 ? "2× Checked bags · 23kg" : "Checked bag · 23kg"} sub={`${fareBags} piece${fareBags > 1 ? "s" : ""} per traveller · included with ${fareLabel} fare`} locked /> : <Bag code="bag-checked" name="Checked bag · 23kg" sub={`Not included in ${fareLabel} · add one`} price={30} />}<Bag code="bag-extra" name={fareBags >= 1 ? "Extra checked bag · 23kg" : "Second checked bag · 23kg"} sub="Add another bag · saves €15 vs airport" price={55} /></div>
             </Module>
 
             <Module n="02" icon="leaf" kicker="Carbon offset" title="Carbon offset" sub="Auto-checked · uncheck if you wish" right={<div className="text-right"><span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00]">Opt-out</span><div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></div>}>

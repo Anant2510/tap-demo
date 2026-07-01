@@ -353,7 +353,7 @@ export function Home({ shared, go }) {
                   <div className="font-bold text-[15px]">Resume booking</div>
                   <div className="text-[12px] text-ink-muted mt-1">{journey.origin} → {journey.dest} · stopped at {journey.stage}.{journey.seat ? ` Seat ${journey.seat} held.` : ""}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="green">{["search", "results", "seat", "extras", "review"].indexOf(journey.stage) + 1} of 5 done</Pill><Pill tone="slate">Fare held</Pill></div>
-                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => { api.post("/journey/resume", {}).catch(() => {}); go("cart"); }}>Continue →</Btn></div></div>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => { api.post("/journey/resume", {}).catch(() => {}); go("results", { origin: journey.origin || pat.origin || u.home_airport, dest: journey.dest || pat.dest || "LIS", date: journey.date || journey.travel_date || pat.recommendedDate, type: "round", pax: 1, cabin: journey.cabin || "Economy" }); }}>Continue →</Btn></div></div>
                 </> : <>
                   <div className="font-bold text-[15px]">Nothing in progress</div>
                   <div className="text-[12px] text-ink-muted mt-1">Start a new search to begin a booking.</div>

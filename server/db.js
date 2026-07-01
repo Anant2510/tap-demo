@@ -665,7 +665,7 @@ function localProfile(personaId) {
    only when the value actually disagrees with the fare. Economy bookings are left untouched. */
 (function realignCabinSeats() {
   try {
-    const seatForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "1C" : /premium/i.test(f) ? "5A" : /plus/i.test(f) ? "7D" : null; };
+    const seatForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "1A" : /premium/i.test(f) ? "5A" : /plus/i.test(f) ? "7D" : null; };
     const cabinForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "Business" : /premium/i.test(f) ? "Premium" : null; };
     const GENERIC = new Set(["4C", "14F", "14B", "4A"]);   // economy auto-assign defaults — safe to overwrite
     const rows = db.prepare("SELECT id, seat, meta_json FROM bookings WHERE meta_json IS NOT NULL").all();
@@ -683,6 +683,44 @@ function localProfile(personaId) {
     }
     if (n) console.log(`[migrate] realigned ${n} Premium/Business/Plus booking seat(s)/cabin to fare entitlement`);
   } catch (e) { console.warn("[migrate] cabin-seat realign skipped:", e.message); }
+})();
+
+/* ── Ensure Daniel's My Trips is always populated with a rich, cabin-varied set ──────────
+   The demo /pay bookings a user creates are transient and vanish whenever the DB is rebuilt,
+   leaving only the base seed (2 Economy trips). This idempotently tops Daniel (user_id=1) up
+   to a representative set across cabins (Economy / Plus / Premium / Business), with correct
+   seats, fares and meta, so My Trips always looks complete. Skips any PNR that already exists,
+   and only runs when Daniel is the live record. Dates roll forward from today on every boot. */
+(function ensureDanielUpcoming() {
+  try {
+    const u = db.prepare("SELECT id, member_no FROM users WHERE id=1").get();
+    if (!u || u.member_no !== "PT-990001") return;   // only when Daniel occupies the live record
+    // [pnr, flight_no, origin, dest, dep, arr, duration, price, seat, fare, cabin, dayOffset, items]
+    const TRIPS = [
+      ["TPDAN02", "TP1931", "OPO", "LIS", "09:10", "10:05", "0h55", 128, "7D", "Plus", "Economy", 3, ["seat", "bag"]],
+      ["TPDAN03", "TP1937", "OPO", "LIS", "12:40", "13:35", "0h55", 214, "5A", "Premium Flex", "Premium", 6, ["seat", "bag", "meal", "lounge"]],
+      ["TPDAN04", "TP1943", "LIS", "OPO", "18:35", "19:30", "0h55", 342, "1A", "Executive Flex", "Business", 9, ["seat", "bag", "meal", "lounge"]],
+      ["TPDAN05", "TP1520", "OPO", "LHR", "20:50", "23:30", "2h40", 298, "5A", "Premium Flex", "Premium", 14, ["seat", "carbon", "ins-plus"]],
+      ["TPDAN06", "TP1080", "OPO", "MAD", "07:40", "09:55", "2h15", 156, "4C", "Classic", "Economy", 21, ["seat", "bag", "meal"]],
+    ];
+    const has = db.prepare("SELECT 1 c FROM bookings WHERE pnr=? AND user_id=1");
+    const seenF = new Set(db.prepare("SELECT flight_no FROM flights").all().map(r => r.flight_no));
+    const insF = db.prepare("INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,status) VALUES (?,?,?,?,?,?,?,?,?,?,?, 'scheduled')");
+    const insB = db.prepare("INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,meta_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)");
+    const insP = db.prepare("INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)");
+    let n = 0;
+    for (const [pnr, fno, o, d, dep, arr, dur, price, seat, fare, cabin, off, items] of TRIPS) {
+      if (has.get(pnr)) continue;
+      const bdate = isoAdd(TODAY, off);
+      const aircraft = d === "LHR" ? "A321neo" : "A320neo";
+      if (!seenF.has(fno)) { insF.run(fno, o, d, dep, arr, dur, aircraft, price, 9, bdate, 0); seenF.add(fno); }
+      const meta = { fare, cabin, origin: o, dest: d, dep, arr, aircraft };
+      const r = insB.run(pnr, 1, fno, bdate, seat, "confirmed", 0, JSON.stringify(items), JSON.stringify(meta), TODAY + " 08:30:00");
+      insP.run(Number(r.lastInsertRowid), price, 0, 0, 0, +price.toFixed(2), TODAY + " 08:30:00");
+      n++;
+    }
+    if (n) console.log(`[seed] ensured ${n} upcoming demo booking(s) for Daniel across cabins`);
+  } catch (e) { console.warn("[seed] ensureDanielUpcoming skipped:", e.message); }
 })();
 
 module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedUser, seedSharedCatalogs, KNOWN_USERS, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile };

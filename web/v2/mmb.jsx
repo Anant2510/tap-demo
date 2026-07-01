@@ -28,13 +28,21 @@ function useActiveBooking() {
   const [state, setState] = useState({ booking: null, all: [], loading: true, err: null });
   useEffect(() => {
     let alive = true;
-    api.get("/bookings")
+    const load = () => api.get("/bookings")
       .then(rows => { if (alive) setState({ booking: pickActive(rows, trip.pnr), all: rows || [], loading: false, err: null }); })
-      .catch(e => { if (alive) setState({ booking: null, all: [], loading: false, err: e?.message || "Couldn't load your bookings" }); });
-    return () => { alive = false; };
+      .catch(e => { if (alive) setState(s => ({ ...s, loading: false, err: e?.message || "Couldn't load your bookings" })); });
+    load();
+    // #36/#38 — re-pull the booking when a seat/cabin/extras change is committed elsewhere, or when the
+    // window regains focus, so My Trip, check-in and the boarding pass always show the latest record.
+    const onChange = () => load();
+    window.addEventListener("tap:booking-changed", onChange);
+    window.addEventListener("focus", onChange);
+    return () => { alive = false; window.removeEventListener("tap:booking-changed", onChange); window.removeEventListener("focus", onChange); };
   }, []);
   return state;
 }
+// Fired after any booking mutation (seat change, cabin upgrade, extras purchase) so open views refresh.
+const notifyBookingChanged = () => { try { window.dispatchEvent(new Event("tap:booking-changed")); } catch { /* noop */ } };
 
 const cityOf = (airports, code) => (airports || []).find(a => a.code === code)?.city || code || "—";
 const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
@@ -352,6 +360,7 @@ export function CabinUpgrade({ shared, go }) {
     // The cabin code isn't seeded in the ancillaries table (demo): the endpoint returns
     // {ok:false}; we still advance to success so the journey is demoable.
     await api.post("/bookings/ancillary", { code: "cabin-" + sel, pnr: booking.pnr }).catch(() => ({ ok: false }));
+    notifyBookingChanged();   // #36/#38 — refresh My Trip / check-in / boarding pass
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
   if (done) return (
@@ -363,7 +372,7 @@ export function CabinUpgrade({ shared, go }) {
         <Divider className="my-4" />
         <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Upgrade charged</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(fareDiff)}</span></div>
       </Card>
-      <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
+      <div className="flex gap-3 mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
     </div>
   );
   return (
@@ -466,6 +475,7 @@ export function SeatChange({ shared, go }) {
   const confirm = async () => {
     setBusy(true);
     await api.post("/bookings/ancillary", { code: "seat-" + sel, pnr: booking.pnr }).catch(() => ({ ok: false }));
+    notifyBookingChanged();   // #36 — seat change must reflect in My Trip immediately
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
 
@@ -477,7 +487,7 @@ export function SeatChange({ shared, go }) {
         <div className="flex flex-wrap gap-2 mt-3"><Pill tone="lime">Seat {sel}</Pill><Pill tone="slate">{cabinKey} cabin</Pill>{selFee > 0 && <Pill tone="gold">Extra legroom · {EUR(selFee)}</Pill>}</div>
       </Card>
       <div className="rounded-2xl border border-tap-green/30 p-4 mt-4 text-[12px]" style={{ background: "#f2ffdb88" }}><span className="font-semibold">New boarding pass issued.</span> Old pass invalidated · Wallet &amp; email updated · gate info continues.</div>
-      <div className="mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn></div>
+      <div className="mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn></div>
     </div>
   );
 
@@ -610,7 +620,7 @@ export function Rebook({ shared, go }) {
         <div className="text-[12px] text-ink-muted mt-1">Your booking now shows flight {done.id}. Your seat and extras carry over.</div>
         <div className="flex flex-wrap gap-2 mt-3"><Pill tone="green">Rebooked</Pill><Pill tone="slate">Flight {done.id}</Pill><Pill tone="lime">No fare difference</Pill></div>
       </Card>
-      <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
+      <div className="flex gap-3 mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
     </div>
   );
   const cur = active?.flight || {};
@@ -719,10 +729,23 @@ export function CheckInIndirect({ shared, go }) {
   const [doc, setDoc] = useState("");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
-  const [picks, setPicks] = useState(() => Object.fromEntries(CHECKIN_PAX.map(p => [p.id, !!p.on])));
+  const [picks, setPicks] = useState({});   // #37 — keyed by real passenger id; default handled via isOn()
   const u = shared.profile?.user || {};
   if (loading) return <Loading label="Loading check-in…" />;
   if (err || !booking) return <Empty go={go} title="Nothing to check in" msg="Online check-in opens 24 hours before departure." />;
+  // #37 — passengers come from the booking/PNR (meta.passengers when a party was booked), otherwise the
+  // single profile traveller. Seat, name and document all follow the actual booking record.
+  const meta = booking.meta || {};
+  const bookedSeat = booking.seat || "—";
+  const bookedPax = (Array.isArray(meta.passengers) && meta.passengers.length)
+    ? meta.passengers.map((p, i) => {
+        const first = p.first || p.firstName || "", last = p.last || p.lastName || "";
+        const nm = (last && first) ? `${last}, ${first}` : (p.name || `${first} ${last}`.trim() || `Passenger ${i + 1}`);
+        const child = /child|chd|infant/i.test(p.type || "");
+        return { id: "p" + i, avatar: (last || first || "P")[0].toUpperCase(), name: nm, type: child ? "Child" : "Adult", doc: p.doc || p.passport || (child ? "ID document pending" : (u.doc_id ? "Passport " + u.doc_id : "Passport")), verified: !child, seat: i === 0 ? bookedSeat : (p.seat || "—"), needsDocs: child && !p.doc, on: true };
+      })
+    : [{ id: "self", avatar: (u.first_name || "D")[0].toUpperCase(), name: u.full_name ? `${u.full_name.split(" ").slice(-1)[0]}, ${u.first_name || u.full_name.split(" ")[0]}` : "Ferreira, Daniel", type: "Adult", doc: u.doc_id ? "Passport " + u.doc_id : "Passport", verified: true, seat: bookedSeat, on: true }];
+  const isOn = (p) => picks[p.id] ?? p.on;
   const checkin = async () => {
     setBusy(true);
     const r = await api.post("/bookings/checkin", { doc_id: doc || null }).catch(() => ({ ok: false, state: "error" }));
@@ -747,12 +770,12 @@ export function CheckInIndirect({ shared, go }) {
           <div className="px-5 pb-5"><div className="rounded-lg bg-lime-tint text-tap-greenDark px-3 py-2.5 text-[12px] flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> Gate closes 20 minutes before departure. Have your ID ready.</div></div>
         </Card>
         <div className="flex flex-wrap gap-5 mt-5 text-[13px] font-semibold text-tap-greenDeep"><button onClick={() => downloadFile(`boarding-pass-${res.pnr}.txt`, bpText)}>Add to Wallet</button><button onClick={() => downloadFile(`boarding-pass-${res.pnr}.txt`, bpText)}>Download boarding pass</button></div>
-        <div className="mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn></div>
+        <div className="mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn></div>
       </div>
     );
   }
-  const selCount = Object.values(picks).filter(Boolean).length;
-  const total = CHECKIN_PAX.length;
+  const selCount = bookedPax.filter(isOn).length;
+  const total = bookedPax.length;
   return (
     <div className="mx-auto max-w-page px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr}${booking.flight_no ? " — " + booking.flight_no : ""}`, page: "manage" }, { label: "Online check-in" }]} />
@@ -762,7 +785,7 @@ export function CheckInIndirect({ shared, go }) {
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
         <div className="space-y-4">
           {/* Passenger cards (#4) */}
-          {CHECKIN_PAX.map(p => (
+          {bookedPax.map(p => (
             <Card key={p.id} className="p-4">
               <div className="flex items-start gap-3">
                 <span className="w-9 h-9 rounded-full bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center text-[14px] font-bold shrink-0">{p.avatar}</span>
@@ -778,7 +801,7 @@ export function CheckInIndirect({ shared, go }) {
               </div>
               {p.needsDocs
                 ? <div className="mt-3 rounded-lg border border-tap-green/20 px-3 py-2.5 flex items-center justify-between gap-2" style={{ background: "#f2ffdb88" }}><div className="text-[12px]"><div className="font-semibold">Travel-with-minor docs required</div><div className="text-[11px] text-ink-faint">Upload parental authorisation (PDF / image) — required by SEF before boarding</div></div><Btn size="sm" className="shrink-0">Upload PDF</Btn></div>
-                : <label className="flex items-center gap-2 mt-3 text-[12px] font-semibold cursor-pointer"><input type="checkbox" checked={!!picks[p.id]} onChange={() => setPicks(s => ({ ...s, [p.id]: !s[p.id] }))} className="accent-ink w-4 h-4" /> Check in this passenger</label>}
+                : <label className="flex items-center gap-2 mt-3 text-[12px] font-semibold cursor-pointer"><input type="checkbox" checked={isOn(p)} onChange={() => setPicks(s => ({ ...s, [p.id]: !(s[p.id] ?? p.on) }))} className="accent-ink w-4 h-4" /> Check in this passenger</label>}
             </Card>
           ))}
 
@@ -852,6 +875,7 @@ export function AddExtras({ shared, go, params }) {
   const commit = async () => {
     setBusy(true);
     const r = await api.post("/bookings/extras/checkout", { pnr: sel.pnr, codes: staged.map(x => x.code), total }).catch(() => ({ ok: false }));
+    notifyBookingChanged();   // #38 — purchased extras must appear on the booking / My Trip
     setBusy(false); setResult(r || { ok: false }); setStep("done");
   };
 
@@ -945,7 +969,7 @@ export function AddExtras({ shared, go, params }) {
             </div>
           </Card>
         )}
-        <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>Back to my trip →</Btn><Btn variant="outline" onClick={() => { setStaged([]); setStep("pick"); setResult(null); }}>Add to another trip</Btn></div>
+        <div className="flex gap-3 mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to my trip →</Btn><Btn variant="outline" onClick={() => { setStaged([]); setStep("pick"); setResult(null); }}>Add to another trip</Btn></div>
       </div>
     );
   }

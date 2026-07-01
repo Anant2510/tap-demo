@@ -729,8 +729,30 @@ Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${fl
 app.post("/api/bookings/ancillary", async (req, res) => {
   const { code, pnr } = req.body;
   const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=?").get(pnr, req.uid) : null) || currentBooking(req.uid);
+  if (!b) return res.json({ ok: false });
+  // Cabin upgrade / seat change persist directly onto the booking (these aren't ancillary SKUs),
+  // so My Trip, the seat map, check-in and the boarding pass all reflect the change. (#26/#27)
+  if (/^cabin-/i.test(code || "")) {
+    const map = { "cabin-exec": { cabin: "Business", fare: "Executive", seat: "1A" }, "cabin-prem": { cabin: "Premium", fare: "Premium", seat: "5A" } };
+    const up = map[String(code).toLowerCase()];
+    if (up) {
+      let meta = {}; try { meta = JSON.parse(b.meta_json || "{}") || {}; } catch {}
+      meta.cabin = up.cabin; meta.fare = up.fare;
+      db.prepare("UPDATE bookings SET meta_json=?, seat=? WHERE id=?").run(JSON.stringify(meta), up.seat, b.id);
+      log("cabin_upgraded", { pnr: b.pnr, cabin: up.cabin, seat: up.seat });
+      return res.json({ ok: true, pnr: b.pnr, cabin: up.cabin, seat: up.seat });
+    }
+  }
+  if (/^seat-/i.test(code || "")) {
+    const seat = String(code).replace(/^seat-/i, "").toUpperCase();
+    if (/^\d{1,2}[A-K]$/.test(seat)) {
+      db.prepare("UPDATE bookings SET seat=? WHERE id=?").run(seat, b.id);
+      log("seat_changed", { pnr: b.pnr, seat });
+      return res.json({ ok: true, pnr: b.pnr, seat });
+    }
+  }
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
-  if (!b || !a) return res.json({ ok: false });
+  if (!a) return res.json({ ok: false });
   const items = JSON.parse(b.items_json || "[]");
   if (!items.includes(code)) items.push(code);
   db.prepare("UPDATE bookings SET items_json=? WHERE id=?").run(JSON.stringify(items), b.id);
