@@ -245,8 +245,8 @@ const PERSONAS = {
       ["TPB7H4","TP1690","OPO","FNC","09:15","10:45",54,"2026-04-25","11A","completed",1,["seat","bag","meal"]],
       ["TPX1C9","TP1927","OPO","LIS","07:05","08:00",79,"2026-05-04","4C","completed",1,["seat","bag","meal","wifi","transfer"]],
       ["TPK6D2","TP1080","OPO","MAD","07:40","09:55",95,"2026-05-20","4C","completed",1,["seat","bag","meal","wifi","lounge"]],
-      ["TPN3T5","TP1927","OPO","LIS","07:05","08:00",86,"2026-06-15","4C","confirmed",0,["seat","bag","meal"]],
-      ["TPG8Y1","TP1080","OPO","MAD","07:40","09:55",98,"2026-06-22","4C","confirmed",0,["seat","bag","meal"]],
+      ["TPN3T5","TP1927","OPO","LIS","07:05","08:00",86,"2026-06-15","22C","confirmed",0,["seat","bag","meal"]],
+      ["TPG8Y1","TP1080","OPO","MAD","07:40","09:55",98,"2026-06-22","22C","confirmed",0,["seat","bag","meal"]],
     ],
     searches: [
       ["OPO","CDG","2026-06-19",1,3,"MacBook Pro",2],
@@ -665,23 +665,27 @@ function localProfile(personaId) {
    only when the value actually disagrees with the fare. Economy bookings are left untouched. */
 (function realignCabinSeats() {
   try {
-    const seatForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "1A" : /premium/i.test(f) ? "5A" : /plus/i.test(f) ? "7D" : null; };
+    const seatForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "1A" : /premium/i.test(f) ? "6A" : /plus/i.test(f) ? "22D" : null; };
     const cabinForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "Business" : /premium/i.test(f) ? "Premium" : null; };
-    const GENERIC = new Set(["4C", "14F", "14B", "4A"]);   // economy auto-assign defaults — safe to overwrite
-    const rows = db.prepare("SELECT id, seat, meta_json FROM bookings WHERE meta_json IS NOT NULL").all();
+    const GENERIC = new Set(["4C", "14F", "14B", "4A", "1C"]);   // seats that don't exist in the aligned maps — safe to overwrite
+    const ECON_DEFAULT = "22C";                                   // valid Economy seat (rows 20–32)
+    const rows = db.prepare("SELECT id, seat, meta_json FROM bookings").all();
     const upd = db.prepare("UPDATE bookings SET seat=?, meta_json=? WHERE id=?");
+    const updSeat = db.prepare("UPDATE bookings SET seat=? WHERE id=?");
     let n = 0;
     for (const r of rows) {
-      let meta = null; try { meta = JSON.parse(r.meta_json || "null"); } catch {}
-      if (!meta) continue;
-      const fare = meta.fare || meta.cabin;
-      const wantSeat = seatForFare(fare), wantCabin = cabinForFare(fare);
-      let seat = r.seat, m = meta, changed = false;
-      if (wantSeat && (!r.seat || GENERIC.has(String(r.seat).toUpperCase())) && r.seat !== wantSeat) { seat = wantSeat; changed = true; }
-      if (wantCabin && meta.cabin !== wantCabin) { m = { ...meta, cabin: wantCabin }; changed = true; }
-      if (changed) { upd.run(seat, JSON.stringify(m), r.id); n++; }
+      let meta = null; try { meta = r.meta_json ? JSON.parse(r.meta_json) : null; } catch {}
+      const fare = meta ? (meta.fare || meta.cabin) : "";
+      const isGeneric = GENERIC.has(String(r.seat || "").toUpperCase());
+      // Business/Premium/Plus fares get their entitlement seat; anything else with a bad/generic seat → valid Economy seat.
+      const wantSeat = seatForFare(fare) || (isGeneric ? ECON_DEFAULT : null);
+      const wantCabin = cabinForFare(fare);
+      let seat = r.seat, changed = false;
+      if (wantSeat && (!r.seat || isGeneric) && r.seat !== wantSeat) { seat = wantSeat; changed = true; }
+      if (meta && wantCabin && meta.cabin !== wantCabin) { meta = { ...meta, cabin: wantCabin }; changed = true; }
+      if (changed) { meta ? upd.run(seat, JSON.stringify(meta), r.id) : updSeat.run(seat, r.id); n++; }
     }
-    if (n) console.log(`[migrate] realigned ${n} Premium/Business/Plus booking seat(s)/cabin to fare entitlement`);
+    if (n) console.log(`[migrate] realigned ${n} booking seat(s)/cabin to a valid seat for the cabin`);
   } catch (e) { console.warn("[migrate] cabin-seat realign skipped:", e.message); }
 })();
 
@@ -697,11 +701,11 @@ function localProfile(personaId) {
     if (!u || u.member_no !== "PT-990001") return;   // only when Daniel occupies the live record
     // [pnr, flight_no, origin, dest, dep, arr, duration, price, seat, fare, cabin, dayOffset, items]
     const TRIPS = [
-      ["TPDAN02", "TP1931", "OPO", "LIS", "09:10", "10:05", "0h55", 128, "7D", "Plus", "Economy", 3, ["seat", "bag"]],
-      ["TPDAN03", "TP1937", "OPO", "LIS", "12:40", "13:35", "0h55", 214, "5A", "Premium Flex", "Premium", 6, ["seat", "bag", "meal", "lounge"]],
+      ["TPDAN02", "TP1931", "OPO", "LIS", "09:10", "10:05", "0h55", 128, "22D", "Plus", "Economy", 3, ["seat", "bag"]],
+      ["TPDAN03", "TP1937", "OPO", "LIS", "12:40", "13:35", "0h55", 214, "6A", "Premium Flex", "Premium", 6, ["seat", "bag", "meal", "lounge"]],
       ["TPDAN04", "TP1943", "LIS", "OPO", "18:35", "19:30", "0h55", 342, "1A", "Executive Flex", "Business", 9, ["seat", "bag", "meal", "lounge"]],
-      ["TPDAN05", "TP1520", "OPO", "LHR", "20:50", "23:30", "2h40", 298, "5A", "Premium Flex", "Premium", 14, ["seat", "carbon", "ins-plus"]],
-      ["TPDAN06", "TP1080", "OPO", "MAD", "07:40", "09:55", "2h15", 156, "4C", "Classic", "Economy", 21, ["seat", "bag", "meal"]],
+      ["TPDAN05", "TP1520", "OPO", "LHR", "20:50", "23:30", "2h40", 298, "6A", "Premium Flex", "Premium", 14, ["seat", "carbon", "ins-plus"]],
+      ["TPDAN06", "TP1080", "OPO", "MAD", "07:40", "09:55", "2h15", 156, "22C", "Classic", "Economy", 21, ["seat", "bag", "meal"]],
     ];
     const has = db.prepare("SELECT 1 c FROM bookings WHERE pnr=? AND user_id=1");
     const seenF = new Set(db.prepare("SELECT flight_no FROM flights").all().map(r => r.flight_no));

@@ -45,7 +45,7 @@ const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
 const eurC = (n) => `€${Number(n || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // #9 — when no seat was explicitly chosen, the default follows the fare/cabin entitlement:
 // Executive → front business zone, Premium → premium cabin, Plus → extra-legroom row, else economy standard.
-const seatForFare = (fare) => /exec/i.test(fare || "") ? "1A" : /premium/i.test(fare || "") ? "5A" : /plus/i.test(fare || "") ? "7D" : "14F";
+const seatForFare = (fare) => /exec/i.test(fare || "") ? "1A" : /premium/i.test(fare || "") ? "6A" : /plus/i.test(fare || "") ? "22D" : "22C";
 // Cabin/zone label that matches the fare entitlement (paired with seatForFare for #9).
 const seatZone = (fare) => /exec/i.test(fare || "") ? "Business cabin" : /premium/i.test(fare || "") ? "Premium cabin" : /plus/i.test(fare || "") ? "Extra-legroom row" : "Standard · window";
 // Seat-class chip label and adjacent-seat assignment for extra passengers on the same booking.
@@ -219,11 +219,11 @@ function Module({ n, kicker, title, sub, right, badge, children, icon }) {
 const SEAT_CABINS = {
   Economy: {
     aircraftFallback: "A320neo", blocks: [["A", "B", "C"], ["D", "E", "F"]],
-    startRow: 10, rows: 12,
+    startRow: 20, rows: 13,
     seatW: "w-9 h-9", colW: "w-9", colGap: "gap-1.5", rowGap: "space-y-1.5", blockGap: "gap-6",
-    fee: (row) => (row === 10 || row === 21) ? { price: 18, tag: "Exit row · extra leg" } : { price: 0, tag: "Standard seat" },
-    taken: ["12C-0", "13A-0", "15B-0", "16D-1", "18E-1", "20A-0", "21F-1"],
-    window: ["10A-0", "14A-0", "19A-0"], legroom: ["10D-1", "21A-0"],
+    fee: (row) => (row === 20 || row === 31) ? { price: 18, tag: "Exit row · extra leg" } : { price: 0, tag: "Standard seat" },
+    taken: ["22C-0", "23A-0", "25B-0", "26D-1", "28E-1", "30A-0", "31F-1"],
+    window: ["20A-0", "24A-0", "29A-0"], legroom: ["20D-1", "31A-0"],
     types: [
       { code: "std", name: "Standard", price: 0, sub: "Pick any available seat", note: "Free for Star members" },
       { code: "nsf", name: "Next Seat Free", price: 48, sub: "Adjacent seat blocked", note: "Privacy & space" },
@@ -686,6 +686,7 @@ export function Cart(props) { return <CartView {...props} mode="cart" />; }
 export function Basket({ shared, go }) {
   const [, force] = useState(0); const r = () => force(x => x + 1);
   const [editItem, setEditItem] = useState(null);   // #22 — { item, link } for the active line-item editor (hook must precede any early return)
+  useEffect(() => { if (trip.pnr) resetTrip(); }, []);   // #32 — a confirmed booking must not linger as a stale basket on a direct revisit
   if (!trip.outbound) return noTrip(go);
   const t = tripTotals();
   const ob = trip.outbound, ib = trip.inbound;

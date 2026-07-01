@@ -7,6 +7,7 @@ export const trip = {
   outbound: null, inbound: null,   // { flight, fare, price }
   extras: [],                       // [{ code, name, price, qty, cat, source }]  source: recommended | auto | user
   passengers: [], contact: null, payment: null, pnr: null,
+  seeded: false,                    // #18 — recommended extras are seeded once per fresh trip, never re-seeded
 };
 
 // Lightweight pub/sub so anything outside a screen (e.g. the top-nav basket badge)
@@ -26,7 +27,7 @@ export function resetTrip() {
     type: "round", pax: 1, cabin: "Economy",
     origin: null, dest: null, date: null, ret: null,
     outbound: null, inbound: null, extras: [],
-    passengers: [], contact: null, payment: null, pnr: null,
+    passengers: [], contact: null, payment: null, pnr: null, seeded: false,
   });
   try { localStorage.removeItem(TKEY); } catch {}
   _resetting = false;
@@ -42,7 +43,7 @@ export function toggleExtra(item) {
   notify();
 }
 // Empty just the add-ons (keep the chosen flight) — the user's explicit "clear basket".
-export function clearBasket() { trip.extras = []; notify(); }
+export function clearBasket() { trip.extras = []; trip.seeded = true; notify(); }
 // A serializable snapshot persisted to the server so the basket survives an abandoned
 // session: flight context + every add-on with its source (user / recommended / auto).
 export function tripSnapshot() {

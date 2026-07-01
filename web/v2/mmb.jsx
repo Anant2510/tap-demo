@@ -48,8 +48,8 @@ const cityOf = (airports, code) => (airports || []).find(a => a.code === code)?.
 const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
 const lastName = (u) => u.last_name || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : "");
 // Friendly labels for the seeded extra codes stored on a booking's items_json.
-const EXTRA_LABEL = { seat: "Seat", bag: "Checked bag", meal: "Meal", wifi: "Wi-Fi", transfer: "Transfer", car: "Transfer", lounge: "Lounge", upgrade: "Cabin upgrade" };
-const extraLabel = (c) => EXTRA_LABEL[c] || String(c);
+const EXTRA_LABEL = { seat: "Seat", bag: "Checked bag", meal: "Meal", wifi: "Wi-Fi", transfer: "Transfer", car: "Transfer", lounge: "Lounge", upgrade: "Cabin upgrade", carbon: "Carbon offset", "checked-bag": "Checked bag", "bag-extra": "Extra checked bag", insurance: "Insurance", "ins-plus": "Insurance", priority: "Priority boarding", "xsell-sintra": "Sintra day trip", "xsell-douro": "Douro wine tour", "xsell-xfer-return": "Return transfer", "xsell-late-checkout": "Late checkout" };
+const extraLabel = (c) => EXTRA_LABEL[c] || String(c).replace(/^(xsell|cabin)-/i, "").replace(/-/g, " ").replace(/\b\w/g, m => m.toUpperCase());
 
 const Loading = ({ label = "Retrieving your booking…" }) => (
   <Page><Card className="p-10 text-center v2-in"><div className="text-[14px] text-ink-muted">{label}</div></Card></Page>
@@ -183,7 +183,10 @@ export function ManageBooking({ shared, go }) {
                 <div className="flex items-center gap-2 mt-3 flex-wrap text-[12px] text-ink-muted">
                   <span>Includes:</span>
                   <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="seat" size={11} /> Seat {b.seat || "4C"}</span>
-                  {(b.items || []).slice(0, 4).map((c, i) => <span key={i} className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink">{extraLabel(c)}</span>)}
+                  {(() => { const xs = (b.items || []).filter(c => c !== "seat"); return <>
+                    {xs.slice(0, 8).map((c, i) => <span key={i} className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink">{extraLabel(c)}</span>)}
+                    {xs.length > 8 && <span className="inline-flex items-center border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink-muted">+{xs.length - 8} more</span>}
+                  </>; })()}
                   {!(b.items || []).length && <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="bag" size={11} /> Carry-on</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
@@ -463,6 +466,12 @@ export function SeatChange({ shared, go }) {
   const bookingCabin = ({ First: "Business", Executive: "Business", "Premium Economy": "Premium" }[booking.meta?.cabin] || booking.meta?.cabin);
   const cabinKey = cabin || (CABINS[bookingCabin] ? bookingCabin : cabinOfRow(curRow));
   const C = CABINS[cabinKey];
+  // #35 — validate the assigned seat against the ACTIVE cabin layout; if it doesn't exist there
+  // (e.g. a legacy 4C on a Business A/D map), remap to the first valid seat so the map, the
+  // "current" badge and the confirm button all reference a seat that actually exists.
+  const seatInCabin = (s) => { const m = String(s || "").match(/^(\d+)([A-Z])$/); return !!(m && C.cols.includes(m[2]) && C.rows.includes(+m[1])); };
+  const safeSeat = seatInCabin(curSeat) ? curSeat : `${C.rows[0]}${C.cols[0]}`;
+  const safeRow = parseInt(safeSeat, 10) || C.rows[0];
   const taken = new Set();
   C.rows.forEach((r, i) => C.cols.forEach((col, j) => { if (((r * 7 + j * 3 + i * 2) % 5) === 0) taken.add(`${r}${col}`); }));
 
@@ -470,7 +479,7 @@ export function SeatChange({ shared, go }) {
   const isExit = (id) => C.exitRows.includes(parseInt(id, 10));
   const selFee = sel ? feeOf(sel) : 0;
   const selExit = sel ? isExit(sel) : false;
-  const canConfirm = sel && sel !== curSeat && (!selExit || eligOk);
+  const canConfirm = sel && sel !== safeSeat && (!selExit || eligOk);
 
   const confirm = async () => {
     setBusy(true);
@@ -522,7 +531,7 @@ export function SeatChange({ shared, go }) {
                 <div key={r} className="flex items-center gap-2">
                   <span className="w-5 text-[10px] text-ink-faint text-right shrink-0">{r}</span>
                   {C.cols.map((col, ci) => {
-                    const id = `${r}${col}`, isCur = id === curSeat, isTaken = taken.has(id) && !isCur, isSel = sel === id, extra = feeOf(id) > 0, isRec = rec?.seat === id && !isCur;
+                    const id = `${r}${col}`, isCur = id === safeSeat, isTaken = taken.has(id) && !isCur, isSel = sel === id, extra = feeOf(id) > 0, isRec = rec?.seat === id && !isCur;
                     return (
                       <React.Fragment key={id}>
                       <button disabled={isTaken} title={isExit(id) ? "Exit row · extra legroom" : extra ? "Extra legroom" : ""} onClick={() => { setSel(id); setEligOk(false); }}
@@ -554,7 +563,7 @@ export function SeatChange({ shared, go }) {
           <Card className="p-5 v2-in">
             <div className="font-bold text-[16px] mb-3">Seat change summary</div>
             <div className="flex items-center gap-2">
-              <div className="flex-1 rounded-xl border border-line p-3"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[18px] font-black v2-num">{curSeat}</div><div className="text-[10px] text-ink-faint">{cabinKey} · row {curRow}</div></div>
+              <div className="flex-1 rounded-xl border border-line p-3"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[18px] font-black v2-num">{safeSeat}</div><div className="text-[10px] text-ink-faint">{cabinKey} · row {safeRow}</div></div>
               <Icon name="arrow" size={16} className="text-ink-faint shrink-0" />
               <div className={cx("flex-1 rounded-xl border p-3", sel ? "border-tap-green/50 bg-lime-tint/40" : "border-line border-dashed")}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[18px] font-black v2-num">{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
             </div>
@@ -566,7 +575,7 @@ export function SeatChange({ shared, go }) {
                 <label className="flex items-center gap-2 text-[12px] font-semibold mt-2"><input type="checkbox" checked={eligOk} onChange={e => setEligOk(e.target.checked)} className="accent-tap-green" /> I confirm I meet exit-row requirements</label>
               </div>
             )}
-            <Btn size="lg" className="w-full mt-4" disabled={busy || !canConfirm} onClick={confirm}>{busy ? "Reissuing…" : (sel && sel !== curSeat) ? `Confirm seat ${sel}${selFee ? " · " + eur2(selFee) : ""} →` : "Pick a new seat"}</Btn>
+            <Btn size="lg" className="w-full mt-4" disabled={busy || !canConfirm} onClick={confirm}>{busy ? "Reissuing…" : (sel && sel !== safeSeat) ? `Confirm seat ${sel}${selFee ? " · " + eur2(selFee) : ""} →` : "Pick a new seat"}</Btn>
             <button onClick={() => go("manage")} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Keep current seat</button>
           </Card>
           <div className="rounded-2xl border border-tap-green/30 p-4" style={{ background: "#f2ffdb88" }}>
@@ -607,7 +616,7 @@ export function Rebook({ shared, go }) {
   if (data.loading) return <Loading label="Checking your flight status…" />;
   if (data.err || !rec) return <Empty go={go} title="No disruption to manage" msg={data.err || "Your flights are all on schedule."} />;
   const confirm = async () => {
-    const opt = shownAlts.find(o => o.id === sel) || shownAlts[0];
+    const opt = [...shownAlts, ...(keep ? [keep] : [])].find(o => o.id === sel) || shownAlts[0];   // #40 — keep is selectable too
     setBusy(true);
     const r = await api.post("/rebook", { option: { id: opt.id } }).catch(() => ({ ok: false }));
     setBusy(false); setDone({ id: opt.id, label: opt.label, email: r?.email?.to }); window.scrollTo({ top: 0 });
@@ -672,9 +681,20 @@ export function Rebook({ shared, go }) {
                   </button>
                 );
               })}
-              {keep && (
-                <Card className="p-4 opacity-80"><div className="flex items-center gap-3"><span className="w-4 h-4 rounded-full border-2 border-line-strong inline-flex shrink-0" /><div><div className="font-bold text-[14px]">{keep.label}</div><div className="text-[12px] text-ink-muted mt-0.5">{keep.detail}</div></div><span className="ml-auto text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink-muted rounded px-2 py-0.5 shrink-0">No change</span></div></Card>
-              )}
+              {keep && (() => {
+                const on = sel === keep.id;
+                return (
+                  <button key={keep.id} onClick={() => setSel(keep.id)} className="w-full text-left">
+                    <Card className={cx("p-4 transition-colors", on ? "ring-2 ring-tap-green" : "opacity-90 hover:border-tap-green/40")}>
+                      <div className="flex items-center gap-3">
+                        <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green bg-tap-green" : "border-line-strong")}>{on && <span className="w-1.5 h-1.5 bg-white rounded-full" />}</span>
+                        <div><div className="font-bold text-[14px]">{keep.label}</div><div className="text-[12px] text-ink-muted mt-0.5">{keep.detail}</div></div>
+                        <span className="ml-auto text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink-muted rounded px-2 py-0.5 shrink-0">No change</span>
+                      </div>
+                    </Card>
+                  </button>
+                );
+              })()}
             </div>
           </div>
 
@@ -903,7 +923,10 @@ export function AddExtras({ shared, go, params }) {
                   </div>
                   <div className="text-[12px] text-ink-muted mt-3">{fmtDate(b.flight_date)} · {f.flight_no || b.flight_no} · Seat {b.seat || "4C"}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2">
-                    {(b.items || []).slice(0, 5).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
+                    {(() => { const xs = (b.items || []).filter(c => c !== "seat"); return <>
+                      {xs.slice(0, 8).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
+                      {xs.length > 8 && <Pill tone="slate">+{xs.length - 8} more</Pill>}
+                    </>; })()}
                   </div>
                   <div className="mt-3 text-[13px] font-semibold text-tap-greenDeep inline-flex items-center gap-1">Add extras to this trip <Icon name="arrow" size={13} /></div>
                 </Card>
@@ -1169,7 +1192,7 @@ export function Refund({ shared, go }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
-  const [picks, setPicks] = useState(() => Object.fromEntries(REFUND_ITEMS.map(it => [it.id, it.on])));
+  const [picks, setPicks] = useState({});   // #39 — keyed by derived refund-item id; default via isOn()
   const [dest, setDest] = useState("Visa");
   if (loading) return <Loading label="Loading cancellation…" />;
   if (err || !booking) return <Empty go={go} title="No booking to cancel" msg="You don't have an active booking right now." />;
@@ -1195,8 +1218,25 @@ export function Refund({ shared, go }) {
       <div className="mt-5"><Btn onClick={() => go("home")}>Find another flight →</Btn></div>
     </div>
   );
-  const selItems = REFUND_ITEMS.filter(it => picks[it.id]);
-  const totalPaid = REFUND_ITEMS.reduce((s, it) => s + it.paid, 0);
+  // #39 — refundable items come from the actual booking/PNR: one fare line per booked passenger, the
+  // real seat, each purchased extra, and taxes. Airline-cancelled fares refund in full.
+  const meta = booking.meta || {};
+  const u = shared.profile?.user || {};
+  const farePrice = booking.flight?.price || booking.price || meta.price || 128;
+  const paxNames = (Array.isArray(meta.passengers) && meta.passengers.length)
+    ? meta.passengers.map(p => ([p.first || p.firstName, p.last || p.lastName].filter(Boolean).join(" ") || p.name || "Passenger"))
+    : [[u.first_name, lastName(u)].filter(Boolean).join(" ") || "Daniel Ferreira"];
+  const bookedCodes = (() => { try { return booking.items || JSON.parse(booking.items_json || "[]"); } catch { return []; } })();
+  const EXTRA_REFUND = { meal: { name: "Hot meal", paid: 14 }, bag: { name: "Checked bag · 23kg", paid: 25 }, "bag-extra": { name: "Extra checked bag · 23kg", paid: 55 }, wifi: { name: "Wi-Fi Full Pass", paid: 6 }, lounge: { name: "Lounge access", paid: 24 }, transfer: { name: "Airport transfer", paid: 32 }, car: { name: "Airport transfer", paid: 32 } };
+  const refundItems = [
+    ...paxNames.map((nm, i) => ({ id: "fl-" + i, name: `Outbound flight · ${nm}`, paid: farePrice, refund: farePrice, status: "airline cancel · full", kind: "fare", on: true })),
+    { id: "seat", name: `Seat ${booking.seat || "—"}`, paid: 22, refund: 22, status: "unused", kind: "extras", on: true },
+    ...bookedCodes.filter(c => EXTRA_REFUND[c]).map(c => ({ id: "x-" + c, name: EXTRA_REFUND[c].name, paid: EXTRA_REFUND[c].paid, refund: EXTRA_REFUND[c].paid, status: "unused", kind: "extras", on: true })),
+    { id: "tax", name: "Taxes & fees · refundable portion", paid: 42, refund: 36, status: "", kind: "taxes", on: true },
+  ];
+  const isOn = (it) => picks[it.id] ?? it.on;
+  const selItems = refundItems.filter(isOn);
+  const totalPaid = refundItems.reduce((s, it) => s + it.paid, 0);
   const sub = (kind) => selItems.filter(it => it.kind === kind).reduce((s, it) => s + it.refund, 0);
   const fareRef = sub("fare"), extrasRef = sub("extras"), taxRef = sub("taxes");
   const refundTotal = fareRef + extrasRef + taxRef;
@@ -1219,11 +1259,11 @@ export function Refund({ shared, go }) {
           <Card className="p-5">
             <div className="font-bold text-[15px] mb-3">Refundable items</div>
             <div className="divide-y divide-line">
-              {REFUND_ITEMS.map(it => {
-                const on = picks[it.id], can = it.refund > 0;
+              {refundItems.map(it => {
+                const on = isOn(it), can = it.refund > 0;
                 return (
                   <label key={it.id} className={cx("flex items-center gap-3 py-3 cursor-pointer", !can && "opacity-55")}>
-                    <input type="checkbox" checked={on} disabled={!can} onChange={() => setPicks(p => ({ ...p, [it.id]: !p[it.id] }))} className="accent-ink w-4 h-4 shrink-0" />
+                    <input type="checkbox" checked={on} disabled={!can} onChange={() => setPicks(p => ({ ...p, [it.id]: !(p[it.id] ?? it.on) }))} className="accent-ink w-4 h-4 shrink-0" />
                     <div className="flex-1"><div className="text-[13px] font-semibold">{it.name}</div><div className="text-[11px] text-ink-faint">Paid {eur2(it.paid)}</div></div>
                     <div className={cx("text-[13px] font-bold v2-num shrink-0", can ? "text-tap-greenDeep" : "text-ink-faint")}>{eur2(it.refund)}{it.status && <span className="font-medium text-ink-faint"> ({it.status})</span>}</div>
                   </label>
@@ -1256,7 +1296,7 @@ export function Refund({ shared, go }) {
             <div className="font-bold text-[16px] mb-3">Refund summary</div>
             <div className="space-y-2 text-[13px]">
               <div className="flex justify-between"><span className="text-ink-muted">Original paid</span><span className="font-semibold v2-num">{eur2(totalPaid)}</span></div>
-              <div className="flex justify-between"><span className="text-ink-muted">Items selected</span><span className="font-semibold v2-num">{selItems.length} of {REFUND_ITEMS.length}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Items selected</span><span className="font-semibold v2-num">{selItems.length} of {refundItems.length}</span></div>
             </div>
             <Divider className="my-3" />
             <div className="space-y-2 text-[13px]">

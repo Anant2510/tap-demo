@@ -733,7 +733,7 @@ app.post("/api/bookings/ancillary", async (req, res) => {
   // Cabin upgrade / seat change persist directly onto the booking (these aren't ancillary SKUs),
   // so My Trip, the seat map, check-in and the boarding pass all reflect the change. (#26/#27)
   if (/^cabin-/i.test(code || "")) {
-    const map = { "cabin-exec": { cabin: "Business", fare: "Executive", seat: "1A" }, "cabin-prem": { cabin: "Premium", fare: "Premium", seat: "5A" } };
+    const map = { "cabin-exec": { cabin: "Business", fare: "Executive", seat: "1A" }, "cabin-prem": { cabin: "Premium", fare: "Premium", seat: "6A" } };
     const up = map[String(code).toLowerCase()];
     if (up) {
       let meta = {}; try { meta = JSON.parse(b.meta_json || "{}") || {}; } catch {}
@@ -1839,7 +1839,10 @@ app.get("/api/admin/personalization", async (req, res) => {
   surfaces.push({ surface: "Ancillary recommendations", items: ancItems });
   surfaces.push({ surface: "Segments & RT-CDP audiences", items: [
     ...audiences.map(a => ({ title: a, via: "Adobe RT-CDP", reason: "Live audience membership", signals: [`RT-CDP audience: ${a}`] })),
-    ...localSegMerged.map(s => ({ title: s.name, via: "Segment engine", reason: s.why, signals: [`segment ${s.id}: ${s.why}`] })),
+    // Once a segment is returned as live Adobe membership, don't also list it as "Segment engine" —
+    // show each segment once, attributed to Adobe when RT-CDP owns it, else the local engine.
+    ...localSegMerged.filter(s => !audiences.some(a => String(a).toLowerCase() === String(s.name).toLowerCase()))
+      .map(s => ({ title: s.name, via: "Segment engine", reason: s.why, signals: [`segment ${s.id}: ${s.why}`] })),
   ] });
   const activeHolds = holdRows.filter(h => h.status === "active");
   if (activeHolds.length) surfaces.push({ surface: "Fare holds → complete-your-hold offer", items: activeHolds.map(h => ({
