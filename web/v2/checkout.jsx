@@ -3,12 +3,12 @@
 // → Payment (card + secure banner + billing + grouped basket) → Confirmation.
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
 import React, { useState, useEffect } from "react";
-import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS } from "./lib.js";
+import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS, money, eurRef, getCurrency } from "./lib.js";
 import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
-const BRL = (eur) => "R$ " + (eur * 5.39).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const BRL = (eur) => eurRef(eur);   // A7 — secondary line now shows the EUR reference when a non-EUR currency is active
 const CAT_ORDER = ["Hotels", "Cars & transfers", "Insurance", "Lounge & services", "Onboard", "Experiences", "Seats & baggage", "Carbon offset", "Extras"];
 const CAT_ICON = { Hotels: "home", "Cars & transfers": "arrow", Insurance: "shield", "Lounge & services": "star", Onboard: "bag", Experiences: "star", "Seats & baggage": "seat", "Carbon offset": "leaf", Extras: "cart" };
 const CAT_SUB = (pax = 1, nights = 8) => ({ Hotels: `${nights} night${nights !== 1 ? "s" : ""} · ${pax} adult${pax > 1 ? "s" : ""}`, "Cars & transfers": "Private sedan · 1-way", Insurance: `${pax} traveler${pax > 1 ? "s" : ""}`, "Lounge & services": `Pre-flight · ${pax} adult${pax > 1 ? "s" : ""}`, Onboard: "Both flights", Experiences: `${pax} traveler${pax > 1 ? "s" : ""}`, "Seats & baggage": "Both flights", "Carbon offset": "This trip" });
@@ -41,8 +41,8 @@ function seedExtras() {
 
 /* ── stepper ── */
 const STEPS = ["Select flights", "View & customize cart", "My Trip Basket", "Passenger details", "Payment"];
-const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
-const eurC = (n) => `€${Number(n || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const eur2 = (n) => money(n, { dp: 2 });
+const eurC = (n) => money(n, { dp: 2 });
 // #9 — when no seat was explicitly chosen, the default follows the fare/cabin entitlement:
 // Executive → front business zone, Premium → premium cabin, Plus → extra-legroom row, else economy standard.
 const seatForFare = (fare) => /exec/i.test(fare || "") ? "1A" : /premium/i.test(fare || "") ? "6A" : /plus/i.test(fare || "") ? "22D" : "22C";
@@ -143,7 +143,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         </div>
 
         <Divider className="my-3.5" />
-        <div className="flex items-end justify-between"><div><div className="text-[13px] text-ink font-bold">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in EUR)</span></div><div className="text-[10px] text-ink-muted">{step === 2 ? "No charge yet" : "One-time charge · taxes included"}</div></div><div className="text-right"><div className="text-[24px] font-black v2-num text-ink">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">≈ {BRL(t.total)}</div></div></div>
+        <div className="flex items-end justify-between"><div><div className="text-[13px] text-ink font-bold">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right"><div className="text-[24px] font-black v2-num text-ink">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
         <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
         {breakdown && <div className="mt-3 rounded-lg bg-surface-soft border border-line px-3 py-2.5 flex items-center justify-between gap-2"><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-tap-greenDeep hover:border-tap-green">Save mix</button></div>}
 
@@ -192,7 +192,7 @@ function FlightSummary({ go }) {
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><span className="text-tap-green font-black">TAP</span><Pill tone="slate">{o.fare} · Economy</Pill><Pill tone="lime">Stopover included</Pill></div><button className="text-[12px] font-semibold text-tap-greenDeep" onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type })}>Change flight</button></div>
-      <Leg label="Outbound" c={o} date={trip.date} /><Divider /><Leg label="Inbound" c={i} date={trip.ret} />
+      <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} c={o} date={trip.date} /><Divider /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} c={i} date={trip.ret} />
       <div className="mt-3 pt-3 border-t border-line flex flex-wrap items-center gap-3 text-[11px] text-ink-muted"><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> 1× carry-on (8kg)</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> 1× checked bag (23kg)</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> Seat selection</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> Changes for fee</span><span className="ml-auto text-ink-faint">BOOKING REF · PENDING</span></div>
     </Card>
   );
@@ -769,8 +769,8 @@ export function Basket({ shared, go }) {
                   <button onClick={() => go("cart")} className="text-[12px] font-semibold text-tap-greenDeep inline-flex items-center gap-1 hover:underline"><Icon name="search" size={12} /> Change flight</button>
                 </div>
                 <div className="px-5 pt-1 pb-2">
-                  <Leg label="Outbound" f={obf} date={trip.date} />
-                  {ib && <><Divider className="my-1" /><Leg label="Inbound" f={ibf} date={trip.ret} /></>}
+                  <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} f={obf} date={trip.date} />
+                  {ib && <><Divider className="my-1" /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} f={ibf} date={trip.ret} /></>}
                 </div>
                 <div className="bg-surface-2 border-t border-line px-5 py-2.5 flex items-center justify-between flex-wrap gap-2 text-[11px] text-ink-muted">
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -883,7 +883,7 @@ export function Basket({ shared, go }) {
               <Divider className="my-3" />
               <div className="flex items-end justify-between">
                 <div><div className="text-[14px] font-bold">Total <span className="text-ink-muted font-medium">(in EUR)</span></div><div className="text-[11px] text-ink-muted">No charge yet</div></div>
-                <div className="text-right"><div className="text-[26px] font-black v2-num">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">≈ {BRL(t.total)}</div></div>
+                <div className="text-right"><div className="text-[26px] font-black v2-num">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div>
               </div>
               <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
               <div className="text-[11px] text-ink-faint mt-3 flex items-center gap-1.5"><Icon name="lock" size={12} /> Secure checkout · Payments by Stripe · Encrypted card data</div>
@@ -1165,6 +1165,48 @@ export function Passenger({ shared, go }) {
 
 /* ═══════════ PAYMENT ═══════════ */
 const METHODS = ["Card", "Digital Wallet", "Miles & Go", "Bank transfer", "Split Payment", "Mix Method"];
+
+/* H2 · Real-time availability / price change during booking. Revalidation runs when the
+   passenger reaches payment (before confirmation). It fires once per selected outbound so
+   a fresh selection re-arms it; the passenger can accept the new price or return to the
+   basket — their seat, extras and details are preserved either way. Presenter can silence
+   it from the Demo Console (window.__tapNoRevalidate). */
+let _h2ArmedFor = null;
+function computeRevalidation(t) {
+  const o = trip.outbound;
+  const delta = Math.max(12, Math.round((o?.price || 130) * 0.08));   // ~8% of the outbound fare, min €12
+  const fno = String(o?.flight?.flight_no || "your flight").replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2");
+  return {
+    oldTotal: t.total, newTotal: t.total + delta, delta, flight: fno,
+    reason: `The fare class you selected on ${fno} just sold its last seat at that price. The next available fare in the same cabin is €${delta} higher.`,
+  };
+}
+function PriceChangeModal({ info, onAccept, onExit }) {
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onExit}>
+      <div className="bg-white rounded-2xl max-w-md w-full shadow-pop overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-line flex items-center gap-2.5">
+          <span className="w-8 h-8 rounded-full bg-[#fff4d6] text-[#9a6b00] inline-flex items-center justify-center shrink-0"><Icon name="clock" size={16} /></span>
+          <div><div className="text-[10px] font-bold uppercase tracking-wide text-[#9a6b00]">Availability updated</div><div className="font-bold text-[16px] leading-tight">Price changed while you were booking</div></div>
+        </div>
+        <div className="p-5">
+          <p className="text-[13px] text-ink-muted">{info.reason}</p>
+          <div className="mt-4 rounded-xl border border-line bg-surface-soft p-4 flex items-center justify-between">
+            <div><div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Previous total</div><div className="text-[18px] font-bold v2-num text-ink-faint line-through">{EUR(info.oldTotal)}</div></div>
+            <Icon name="arrow" size={16} className="text-ink-faint" />
+            <div className="text-right"><div className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">New total</div><div className="text-[22px] font-black v2-num text-ink">{EUR(info.newTotal)}</div><div className="text-[10px] text-tap-red font-semibold">+{EUR(info.delta)}</div></div>
+          </div>
+          <div className="mt-3 rounded-xl bg-lime-tint/50 border border-tap-green/30 px-3 py-2 flex items-center gap-2 text-[12px] text-tap-greenDark"><Icon name="check" size={14} className="text-tap-green shrink-0" /> Your seat, extras and passenger details are saved — nothing was lost.</div>
+          <div className="flex flex-col gap-2 mt-4">
+            <Btn variant="primary" className="w-full" onClick={onAccept}>Continue at {EUR(info.newTotal)} <Icon name="arrow" size={14} /></Btn>
+            <Btn variant="outline" className="w-full" onClick={onExit}>Go back to my basket</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Payment({ shared, go }) {
   if (!trip.outbound) return noTrip(go);
   seedExtras();
@@ -1186,6 +1228,14 @@ export function Payment({ shared, go }) {
   const [editMiles, setEditMiles] = useState(false); // #7: Edit reveals an exact-amount field
   const [editVoucher, setEditVoucher] = useState(false), [editCash, setEditCash] = useState(false); // #21: Edit reveals partial-amount fields
   useEffect(() => { api.get("/seat-recommendation").then(setSeat).catch(() => {}); }, []);
+  // H2 — revalidate availability/price on reaching payment; fire once per selected outbound.
+  const [reval, setReval] = useState(null);
+  useEffect(() => {
+    const fno = trip.outbound?.flight?.flight_no || null;
+    if (typeof window !== "undefined" && window.__tapNoRevalidate) return;   // presenter silenced it
+    if (trip.pnr || _h2ArmedFor === fno) return;                             // already booked / already shown for this flight
+    setReval(computeRevalidation(tripTotals()));
+  }, []);
   const cashbackBal = 38;
   let voucher_amt = 0, miles_used = 0, miles_amt = 0, cashback_amt = 0;
   if (method === "Miles & Go") { miles_used = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE)); miles_amt = Math.round(miles_used * MILES_RATE); voucher_amt = Math.min(voucher, Math.max(0, t.total - miles_amt)); }
@@ -1244,6 +1294,9 @@ export function Payment({ shared, go }) {
 
   return (
     <div className="bg-surface-soft min-h-screen">
+      {reval && <PriceChangeModal info={reval}
+        onAccept={() => { trip.repriceDelta = (trip.repriceDelta || 0) + reval.delta; _h2ArmedFor = trip.outbound?.flight?.flight_no || null; pingBasket(); setReval(null); }}
+        onExit={() => { _h2ArmedFor = trip.outbound?.flight?.flight_no || null; setReval(null); go("cart"); }} />}
       <Stepper active={4} />
       <div className="mx-auto max-w-page px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Payment</h1><Pill tone="slate"><Icon name="lock" size={11} /> Secure checkout · powered by Stripe</Pill></div>
@@ -1357,9 +1410,258 @@ export function Payment({ shared, go }) {
 }
 
 /* ═══════════ CONFIRMATION ═══════════ */
+// D1 · Portugal Stopover builder — a personalized Lisbon stopover (boutique vs budget
+// hotels + curated experiences) with fully transparent per-component pricing, added to
+// the itinerary as individual line items. Hotel tier is personalized to the member.
+// B3 · Miles & Go redemption shopping — a dedicated space to spend miles: cash+miles
+// combinations on a fare, a miles-price calendar (off-peak vs peak), and miles-for-
+// ancillaries. Uses the same MILES_RATE as the server so values reconcile at checkout.
+export function MilesShop({ shared, go }) {
+  const u = shared.profile?.user || {};
+  const balance = u.miles || 42000;
+  const route = { o: u.home_airport || "LIS", d: "GRU", cash: 489, label: `${u.home_airport || "LIS"} → São Paulo` };
+  const [pct, setPct] = useState(40);
+  const [dayIdx, setDayIdx] = useState(2);
+  const [ancRedeemed, setAncRedeemed] = useState(() => new Set());
+  const [done, setDone] = useState(false);
+  const milesToEur = (m) => m * MILES_RATE;
+  const eurToMiles = (e) => Math.round(e / MILES_RATE);
+  // Cash + miles split on the fare, capped by the member's balance.
+  const wantMilesEur = route.cash * (pct / 100);
+  const milesUsed = Math.min(balance, eurToMiles(wantMilesEur));
+  const cashPart = Math.max(0, route.cash - milesToEur(milesUsed));
+  // Miles-price calendar — a week of dates, off-peak cheaper in miles.
+  const days = useMemo(() => {
+    const base = new Date("2026-07-10T00:00:00");
+    return Array.from({ length: 7 }, (_, i) => {
+      const dt = new Date(base); dt.setDate(base.getDate() + i);
+      const wd = dt.getDay(); const peak = wd === 5 || wd === 0; // Fri/Sun peak
+      return { iso: dt.toISOString().slice(0, 10), label: dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric" }), miles: peak ? 58000 : 41500, peak };
+    });
+  }, []);
+  const ANC = [
+    { k: "bag", name: "Extra checked bag", miles: 6000 },
+    { k: "seat", name: "Extra-legroom seat", miles: 4500 },
+    { k: "lounge", name: "Lisbon lounge access", miles: 7500 },
+    { k: "wifi", name: "Full-flight Wi-Fi", miles: 3000 },
+  ];
+  const toggleAnc = (k) => setAncRedeemed(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const ancMiles = ANC.filter(a => ancRedeemed.has(a.k)).reduce((s, a) => s + a.miles, 0);
+  if (done) return (
+    <div className="mx-auto max-w-content px-6 py-10">
+      <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center"><Icon name="spark" size={22} /></span><div><h1 className="text-[26px] font-black">Redemption confirmed</h1><div className="text-[13px] text-ink-muted">{route.label} · paid with Miles & Go</div></div></div>
+      <Card className="p-5 mt-6">
+        <div className="space-y-1.5 text-[13px]">
+          <Row label={`Fare · ${miles(milesUsed)} miles + cash`} v={eurC(cashPart)} />
+          {ANC.filter(a => ancRedeemed.has(a.k)).map(a => <Row key={a.k} label={`${a.name} · ${miles(a.miles)} miles`} v={"—"} />)}
+        </div>
+        <Divider className="my-3" />
+        <div className="flex justify-between text-[14px] font-black"><span>Miles redeemed</span><span className="v2-num">{miles(milesUsed + ancMiles)}</span></div>
+        <div className="flex justify-between text-[13px] mt-1"><span className="text-ink-muted">Remaining balance</span><span className="v2-num font-semibold">{miles(Math.max(0, balance - milesUsed - ancMiles))}</span></div>
+      </Card>
+      <div className="flex gap-3 mt-5"><Btn onClick={() => go("home")}>Done</Btn><Btn variant="outline" onClick={() => setDone(false)}>Redeem more</Btn></div>
+    </div>
+  );
+  return (
+    <div className="mx-auto max-w-page px-6 py-8">
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <Eyebrow>Miles &amp; Go · redemption</Eyebrow>
+          <h1 className="text-[30px] font-black mt-1">Shop with your miles</h1>
+          <p className="text-[13px] text-ink-muted mt-1">Combine cash and miles, find the cheapest dates in miles, or spend miles on extras.</p>
+        </div>
+        <div className="rounded-2xl bg-surface-dark text-white px-5 py-3 text-right"><div className="text-[10px] uppercase tracking-widest text-white/50">Your balance</div><div className="text-[24px] font-black v2-num text-lime">{miles(balance)}</div><div className="text-[10px] text-white/60">≈ {EUR(milesToEur(balance))} value</div></div>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-5 mt-6 items-start">
+        <Card className="p-5">
+          <div className="text-[13px] font-bold">Cash + Miles · {route.label}</div>
+          <div className="text-[11px] text-ink-faint mb-3">Slide to choose how much of the {EUR(route.cash)} fare to cover with miles.</div>
+          <input type="range" min="0" max="100" value={pct} onChange={e => setPct(+e.target.value)} className="w-full accent-tap-green" />
+          <div className="flex justify-between text-[10px] text-ink-faint"><span>All cash</span><span>{pct}% miles</span><span>Max miles</span></div>
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="rounded-xl bg-lime-tint/50 p-3 text-center"><div className="text-[10px] font-bold uppercase text-tap-greenDeep">Miles used</div><div className="text-[20px] font-black v2-num">{miles(milesUsed)}</div></div>
+            <div className="rounded-xl bg-surface-soft p-3 text-center"><div className="text-[10px] font-bold uppercase text-ink-muted">Cash to pay</div><div className="text-[20px] font-black v2-num">{EUR(cashPart)}</div></div>
+          </div>
+          {milesUsed >= balance && pct > 0 && <div className="text-[11px] text-[#9a6b00] mt-2">Capped at your available balance.</div>}
+          <Btn className="w-full mt-4" onClick={() => setDone(true)}>Redeem {miles(milesUsed)} miles + {EUR(cashPart)}</Btn>
+        </Card>
+        <div className="space-y-5">
+          <Card className="p-5">
+            <div className="text-[13px] font-bold">Miles calendar</div>
+            <div className="text-[11px] text-ink-faint mb-3">Miles price per departure date — off-peak is cheaper.</div>
+            <div className="grid grid-cols-7 gap-1.5">
+              {days.map((d, i) => (
+                <button key={d.iso} onClick={() => setDayIdx(i)} className={cx("rounded-lg border p-1.5 text-center transition-colors", dayIdx === i ? "border-tap-green bg-lime-tint ring-1 ring-tap-green" : d.peak ? "border-line bg-surface-soft" : "border-line")}>
+                  <div className="text-[10px] font-semibold">{d.label}</div>
+                  <div className="text-[10px] font-black v2-num mt-0.5">{Math.round(d.miles / 1000)}k</div>
+                  {!d.peak && <div className="text-[8px] font-bold text-tap-greenDeep uppercase">off-peak</div>}
+                  {d.peak && <div className="text-[8px] font-bold text-ink-faint uppercase">peak</div>}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] text-ink-muted mt-2.5">Selected: <span className="font-semibold text-ink">{days[dayIdx].label}</span> · {miles(days[dayIdx].miles)} miles one-way</div>
+          </Card>
+          <Card className="p-5">
+            <div className="text-[13px] font-bold">Spend miles on extras</div>
+            <div className="text-[11px] text-ink-faint mb-3">Redeem miles for ancillaries instead of cash.</div>
+            <div className="space-y-2">
+              {ANC.map(a => {
+                const on = ancRedeemed.has(a.k);
+                return (
+                  <button key={a.k} onClick={() => toggleAnc(a.k)} className={cx("w-full flex items-center justify-between gap-2 rounded-xl border px-3.5 py-2.5 text-left transition-colors", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-line-strong")}>
+                    <span className="text-[13px] font-semibold">{a.name}</span>
+                    <span className="text-[12px] font-black v2-num inline-flex items-center gap-1">{miles(a.miles)} mi {on && <Icon name="check" size={13} className="text-tap-green" />}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {ancMiles > 0 && <div className="flex justify-between text-[13px] font-bold mt-3 pt-3 border-t border-line"><span>Extras total</span><span className="v2-num">{miles(ancMiles)} miles</span></div>}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function StopoverBuilder({ shared, go }) {
+  const u = shared.profile?.user || {};
+  const premium = /gold|platin|business|executive/i.test(`${u.tier || ""} ${trip.outbound?.fare || ""}`);
+  const [nights, setNights] = useState(2);
+  const [hotel, setHotel] = useState(premium ? "boutique" : "smart");
+  const [exps, setExps] = useState(() => new Set(["sintra"]));
+  const [transfer, setTransfer] = useState(true);
+  const [added, setAdded] = useState(false);
+  const HOTELS = [
+    { k: "boutique", name: "Boutique · Chiado heritage", area: "Chiado", rate: 145, tag: premium ? "Recommended for you" : "Premium", note: "Design hotel in the historic centre" },
+    { k: "smart", name: "Smart · Baixa central", area: "Baixa", rate: 95, tag: premium ? "Great value" : "Recommended for you", note: "Modern rooms steps from the river" },
+    { k: "budget", name: "Budget · Alfama guesthouse", area: "Alfama", rate: 62, tag: "Lowest price", note: "Simple, characterful, central" },
+  ];
+  const EXPS = [
+    { k: "sintra", name: "Sintra & Pena Palace", dur: "Full day", price: 89 },
+    { k: "tram", name: "Tram 28 & Alfama walk", dur: "3 hours", price: 35 },
+    { k: "fado", name: "Fado dinner in Bairro Alto", dur: "Evening", price: 68 },
+    { k: "food", name: "Time Out Market food tour", dur: "3 hours", price: 55 },
+  ];
+  const hotelObj = HOTELS.find(h => h.k === hotel) || HOTELS[1];
+  const hotelCost = hotelObj.rate * nights;
+  const expList = EXPS.filter(e => exps.has(e.k));
+  const expCost = expList.reduce((s, e) => s + e.price, 0);
+  const transferCost = transfer ? 28 : 0;
+  const total = hotelCost + expCost + transferCost;
+  const toggleExp = (k) => setExps(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const addToTrip = () => {
+    if (trip.outbound) {
+      trip.extras = (trip.extras || []).filter(x => !/^stopover-/.test(x.code));
+      toggleExtra({ code: "stopover-hotel", name: `Lisbon stopover · ${hotelObj.name} × ${nights}n`, price: hotelCost, cat: "Stopover" });
+      expList.forEach(e => toggleExtra({ code: "stopover-exp-" + e.k, name: `Stopover · ${e.name}`, price: e.price, cat: "Stopover" }));
+      if (transfer) toggleExtra({ code: "stopover-transfer", name: "Stopover · airport transfer", price: transferCost, cat: "Stopover" });
+      trip.stopover = { nights, hotel: hotelObj.name, experiences: expList.map(e => e.name), total };
+      pingBasket();
+    }
+    setAdded(true); window.scrollTo({ top: 0 });
+  };
+  if (added) return (
+    <div className="mx-auto max-w-content px-6 py-10">
+      <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center"><Icon name="check" size={22} /></span><div><h1 className="text-[26px] font-black">Stopover added</h1><div className="text-[13px] text-ink-muted">{nights} nights in Lisbon · {hotelObj.name}</div></div></div>
+      <Card className="p-5 mt-6">
+        <div className="text-[13px] font-bold mb-2">Your Lisbon stopover</div>
+        <div className="space-y-1.5 text-[13px]">
+          <Row label={`${hotelObj.name} × ${nights} nights`} v={eurC(hotelCost)} />
+          {expList.map(e => <Row key={e.k} label={e.name} v={eurC(e.price)} />)}
+          {transfer && <Row label="Airport transfer" v={eurC(transferCost)} />}
+        </div>
+        <Divider className="my-3" />
+        <div className="flex justify-between text-[15px] font-black"><span>Stopover total</span><span className="v2-num">{eurC(total)}</span></div>
+      </Card>
+      <div className="flex gap-3 mt-5">{trip.outbound ? <Btn onClick={() => go("cart")}>Review in cart →</Btn> : <Btn onClick={() => go("home")}>Book a flight via Lisbon →</Btn>}<Btn variant="outline" onClick={() => setAdded(false)}>Edit stopover</Btn></div>
+    </div>
+  );
+  return (
+    <div className="mx-auto max-w-page px-6 py-8">
+      <Eyebrow>Portugal Stopover · free on TAP long-haul via Lisbon</Eyebrow>
+      <h1 className="text-[30px] font-black mt-1">Break your trip in Lisbon</h1>
+      <p className="text-[13px] text-ink-muted mt-1 max-w-2xl">Stop over for up to a few nights at no extra airfare. We've tailored the picks to your profile{premium ? " — boutique stays first, as a " + (u.tier || "premium") + " member." : "."} Every component is priced separately — add only what you want.</p>
+      <div className="grid lg:grid-cols-[1fr_330px] gap-6 mt-6 items-start">
+        <div className="space-y-5">
+          <Card className="p-5">
+            <div className="text-[13px] font-bold mb-2.5">How many nights?</div>
+            <div className="flex gap-2">{[1, 2, 3].map(n => <button key={n} onClick={() => setNights(n)} className={cx("flex-1 rounded-xl border py-2.5 text-[14px] font-bold transition-colors", nights === n ? "border-tap-green bg-lime-tint text-tap-greenDeep ring-1 ring-tap-green" : "border-line hover:border-line-strong")}>{n} night{n > 1 ? "s" : ""}</button>)}</div>
+          </Card>
+          <Card className="p-5">
+            <div className="text-[13px] font-bold mb-2.5">Where to stay</div>
+            <div className="space-y-2.5">
+              {HOTELS.map(h => {
+                const on = hotel === h.k;
+                return (
+                  <button key={h.k} onClick={() => setHotel(h.k)} className={cx("w-full text-left rounded-xl border p-3.5 transition-colors flex items-center justify-between gap-3", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-line-strong")}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2"><span className="text-[14px] font-bold">{h.name}</span><span className={cx("text-[9px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5", h.tag.includes("you") ? "bg-tap-green text-white" : "bg-surface-mute text-ink-muted")}>{h.tag}</span></div>
+                      <div className="text-[11px] text-ink-faint mt-0.5">{h.note}</div>
+                    </div>
+                    <div className="text-right shrink-0"><div className="text-[15px] font-black v2-num">{eurC(h.rate)}</div><div className="text-[10px] text-ink-faint">/ night</div></div>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+          <Card className="p-5">
+            <div className="text-[13px] font-bold mb-2.5">Add experiences</div>
+            <div className="grid sm:grid-cols-2 gap-2.5">
+              {EXPS.map(e => {
+                const on = exps.has(e.k);
+                return (
+                  <button key={e.k} onClick={() => toggleExp(e.k)} className={cx("text-left rounded-xl border p-3 transition-colors", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-line-strong")}>
+                    <div className="flex items-center justify-between"><span className="text-[13px] font-bold">{e.name}</span><span className={cx("w-4 h-4 rounded inline-flex items-center justify-center shrink-0", on ? "bg-tap-green text-white" : "border border-line-strong")}>{on && <Icon name="check" size={10} />}</span></div>
+                    <div className="text-[11px] text-ink-faint mt-0.5">{e.dur}</div>
+                    <div className="text-[13px] font-black v2-num mt-1">{eurC(e.price)}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+        <aside className="lg:sticky lg:top-24 space-y-3">
+          <Card className="p-5">
+            <div className="text-[13px] font-bold mb-3">Stopover summary</div>
+            <div className="space-y-1.5 text-[12.5px]">
+              <div className="flex justify-between"><span className="text-ink-muted">{hotelObj.name.split(" · ")[0]} × {nights}n</span><span className="font-semibold v2-num">{eurC(hotelCost)}</span></div>
+              {expList.map(e => <div key={e.k} className="flex justify-between"><span className="text-ink-muted truncate pr-2">{e.name}</span><span className="font-semibold v2-num">{eurC(e.price)}</span></div>)}
+              <label className="flex justify-between items-center cursor-pointer"><span className="text-ink-muted inline-flex items-center gap-1.5"><input type="checkbox" checked={transfer} onChange={() => setTransfer(v => !v)} className="accent-tap-green" /> Airport transfer</span><span className="font-semibold v2-num">{eurC(28)}</span></label>
+            </div>
+            <Divider className="my-3" />
+            <div className="flex justify-between text-[16px] font-black"><span>Total</span><span className="v2-num">{eurC(total)}</span></div>
+            <div className="text-[10px] text-ink-faint mt-1">Airfare unchanged · stopover billed as add-ons</div>
+            <Btn className="w-full mt-3" onClick={addToTrip}>{trip.outbound ? "Add to my trip" : "Build stopover"}</Btn>
+            {!trip.outbound && <div className="text-[11px] text-ink-faint mt-2 text-center">Tip: search a long-haul via Lisbon to attach this to a booking.</div>}
+          </Card>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 export function Confirmation({ shared, go }) {
   const [recs, setRecs] = useState([]);
   useEffect(() => { api.get("/destinations").then(d => setRecs((d || []).slice(0, 4))).catch(() => {}); }, []);
+  // A14 · contextual ancillary recommendations for THIS booking — derived from route,
+  // trip length, party size and what was NOT already purchased. Limited to 3, added to the PNR.
+  const [addedRecs, setAddedRecs] = useState(() => new Set());
+  const ancRecs = (() => {
+    const ob = trip.outbound; const dst = ob?.flight?.dest;
+    const hasBag = (trip.extras || []).some(e => /bag/i.test(e.code || "") || /bag|luggage/i.test(e.name || ""));
+    const days = (trip.date && trip.ret) ? Math.max(1, Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5)) : null;
+    const px = trip.pax || 1;
+    const CITY = { JFK: "New York", EWR: "New York", BOS: "Boston", GRU: "São Paulo", GIG: "Rio de Janeiro", FCO: "Rome", CDG: "Paris", BCN: "Barcelona", FNC: "Funchal", LIS: "Lisbon", OPO: "Porto", MAD: "Madrid", LHR: "London" };
+    const city = CITY[dst] || dst || "your destination";
+    const out = [];
+    if (!hasBag) out.push({ code: "bag", name: "Add a checked bag", sub: `You booked with cabin bag only${days && days >= 7 ? ` — handy for a ${days}-day trip` : ""}.`, price: 30, tag: "Most added after booking" });
+    if (days && days <= 2) out.push({ code: "transfer", name: `Airport parking at ${ob?.flight?.origin || "departure"}`, sub: `A quick ${days}-day trip — park & fly, skip transfers.`, price: 24, tag: "For short trips" });
+    else out.push({ code: "transfer", name: `Airport transfer in ${city}`, sub: "Private car, airport → your hotel.", price: 28, tag: "Skip the taxi queue" });
+    if (px >= 3) out.push({ code: "lounge", name: "Family lounge access", sub: `${px} travellers · relax together before boarding.`, price: 22, tag: "For your group" });
+    else out.push({ code: "xsell-sintra", name: `A day out near ${city}`, sub: "Hand-picked local experience · small group.", price: 89, tag: "Make the most of it" });
+    return out.slice(0, 3);
+  })();
+  const addRec = async (code) => { setAddedRecs(s => new Set(s).add(code)); try { await api.post("/bookings/ancillary", { pnr: trip.pnr, code }); } catch { } };
   if (!trip.pnr) return noTrip(go);
   const pay = trip.payment || {}, o = trip.outbound, i = trip.inbound, u = shared.profile?.user || {}, t = tripTotals();
   const pax = trip.passengers.filter(p => p && p.first).length ? trip.passengers.filter(p => p && p.first) : [{ first: u.first_name, last: "" }];
@@ -1395,26 +1697,46 @@ export function Confirmation({ shared, go }) {
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
             <section>
-              <h2 className="text-[20px] font-bold">Useful for your trip</h2>
-              <p className="text-[12px] text-ink-faint mb-3">Limited · helpful · not pushy. Max 3 cards.</p>
-              <div className="grid sm:grid-cols-2 gap-4">
-                {recs.slice(0, 4).map(d => (
-                  <Card key={d.code} className="overflow-hidden flex flex-col">
-                    <div className="relative">
-                      <Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-32 w-full object-cover" />
-                      <span className="absolute top-3 left-3 text-[10px] font-bold uppercase tracking-wide bg-white/90 text-ink rounded-md px-2 py-1 shadow-sm">{d.tag || "Experience"}</span>
-                    </div>
-                    <div className="p-4 flex flex-col flex-1">
-                      <div className="font-bold text-[15px]">{d.city}</div>
-                      <div className="text-[12px] text-ink-muted mt-1 flex-1">{d.reason || d.tag}</div>
+              <h2 className="text-[20px] font-bold">Recommended for this trip</h2>
+              <p className="text-[12px] text-ink-faint mb-3">Tailored to your route, trip length and party · added straight to PNR {trip.pnr} · max 3.</p>
+              <div className="grid sm:grid-cols-3 gap-4">
+                {ancRecs.map(r => {
+                  const on = addedRecs.has(r.code);
+                  return (
+                    <Card key={r.code} className={cx("p-4 flex flex-col", on && "ring-1 ring-tap-green bg-lime-tint/30")}>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5 w-fit">{r.tag}</span>
+                      <div className="font-bold text-[14px] mt-2">{r.name}</div>
+                      <div className="text-[11px] text-ink-muted mt-1 flex-1">{r.sub}</div>
                       <div className="flex items-center justify-between mt-3">
-                        <div><div className="text-[18px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div>
-                        <Btn size="sm" variant="outline" className="rounded-full" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn>
+                        <div className="text-[16px] font-bold v2-num">{EUR(r.price)}</div>
+                        <Btn size="sm" variant={on ? "primary" : "outline"} className="rounded-full" disabled={on} onClick={() => addRec(r.code)}>{on ? "Added ✓" : "+ Add to trip"}</Btn>
                       </div>
-                    </div>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
+              {recs.length > 0 && <>
+                <h2 className="text-[16px] font-bold mt-6">Where to next</h2>
+                <p className="text-[12px] text-ink-faint mb-3">Ideas for your next trip based on where you go.</p>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {recs.slice(0, 2).map(d => (
+                    <Card key={d.code} className="overflow-hidden flex flex-col">
+                      <div className="relative">
+                        <Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-32 w-full object-cover" />
+                        <span className="absolute top-3 left-3 text-[10px] font-bold uppercase tracking-wide bg-white/90 text-ink rounded-md px-2 py-1 shadow-sm">{d.tag || "Experience"}</span>
+                      </div>
+                      <div className="p-4 flex flex-col flex-1">
+                        <div className="font-bold text-[15px]">{d.city}</div>
+                        <div className="text-[12px] text-ink-muted mt-1 flex-1">{d.reason || d.tag}</div>
+                        <div className="flex items-center justify-between mt-3">
+                          <div><div className="text-[18px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div>
+                          <Btn size="sm" variant="outline" className="rounded-full" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </>}
             </section>
           </div>
           <aside className="space-y-4">

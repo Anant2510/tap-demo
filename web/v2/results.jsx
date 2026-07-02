@@ -53,15 +53,33 @@ function meta(f) {
 
 // outbound/inbound selection lives in the shared trip state (web/v2/trip.js)
 
+// C3 · Configurable retailing display modes — airline-level default, persisted, and
+// adaptive to booking complexity. Two axes: bundle presentation (inline vs expand/
+// collapse) and round-trip layout (single page vs one screen per bound).
+const DISPLAY_KEY = "tap.displayCfg";
+function loadDisplayCfg(pax, type) {
+  try { const s = JSON.parse(localStorage.getItem(DISPLAY_KEY) || "null"); if (s && s.bundles) return s; } catch { }
+  // No saved preference → default adapts to complexity: a simple solo one-way gets the
+  // faster inline layout; a multi-passenger / round trip gets expand/collapse to reduce clutter.
+  const simple = (pax || 1) === 1 && type === "oneway";
+  return { bundles: simple ? "inline" : "expand", layout: "perBound" };
+}
+function saveDisplayCfg(c) { try { localStorage.setItem(DISPLAY_KEY, JSON.stringify(c)); } catch { } }
+
 export function Results({ shared, params, go }) {
   const type = params.type || "round";
-  const leg = params.leg === "inbound" ? "inbound" : "outbound";
-  // resolve this leg's route + date
-  const origin = (leg === "inbound" ? params.dest : params.origin) || (leg === "inbound" ? "LIS" : "OPO");
-  const dest = (leg === "inbound" ? params.origin : params.dest) || (leg === "inbound" ? "OPO" : "LIS");
   const _isoPlus = (n) => { const x = new Date("2026-06-15T00:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
   const shiftISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-  const date = (leg === "inbound" ? params.ret : params.date) || _isoPlus(leg === "inbound" ? 5 : 3);
+  // B1 · multi-city — an ordered list of legs stepped through one at a time (Flight N of M).
+  const isMulti = type === "multi" && Array.isArray(params.legs) && params.legs.length > 0;
+  const mLegs = isMulti ? params.legs : [];
+  const legIndex = isMulti ? Math.min(+params.legIndex || 0, mLegs.length - 1) : 0;
+  const mLeg = isMulti ? (mLegs[legIndex] || mLegs[0]) : null;
+  const leg = isMulti ? ("leg" + legIndex) : (params.leg === "inbound" ? "inbound" : "outbound");
+  // resolve this leg's route + date
+  const origin = isMulti ? (mLeg.origin || "LIS") : ((leg === "inbound" ? params.dest : params.origin) || (leg === "inbound" ? "LIS" : "OPO"));
+  const dest = isMulti ? (mLeg.dest || "OPO") : ((leg === "inbound" ? params.origin : params.dest) || (leg === "inbound" ? "OPO" : "LIS"));
+  const date = isMulti ? (mLeg.date || _isoPlus(3 + legIndex * 3)) : ((leg === "inbound" ? params.ret : params.date) || _isoPlus(leg === "inbound" ? 5 : 3));
   const retDate = params.ret || _isoPlus(5);
   const pax = +params.pax || 1, cabin = params.cabin || "Economy";
 
@@ -72,6 +90,10 @@ export function Results({ shared, params, go }) {
   // this only happened on fare-pick, so screens reached before/around that showed stale
   // defaults. Keyed on the actual values so it re-syncs whenever the search changes.
   useEffect(() => {
+    if (isMulti) {
+      Object.assign(trip, { type: "multi", pax, cabin, origin: mLegs[0]?.origin, dest: mLegs[mLegs.length - 1]?.dest, outbound: (trip.legs || [])[0] || null, inbound: (trip.legs || [])[1] || null, date: mLegs[0]?.date || date, ret: mLegs[1]?.date || null });
+      pingBasket(); return;
+    }
     const out = leg === "inbound" ? (params.date || trip.date) : (params.date || date);
     const back = params.ret || (type === "round" ? retDate : null);
     Object.assign(trip, {
@@ -88,10 +110,16 @@ export function Results({ shared, params, go }) {
   const [week, setWeek] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [sort, setSort] = useState("Best");
-  const [sel, setSel] = useState(trip[leg]);
+  const [sel, setSel] = useState(isMulti ? (trip.legs || [])[legIndex] : trip[leg]);
   const [showAll, setShowAll] = useState(false);
   const [held, setHeld] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
+  // C3 — display-mode config (persisted; adapts to complexity on first load).
+  const [disp, setDisp] = useState(() => loadDisplayCfg(params.pax, type));
+  const [dispOpen, setDispOpen] = useState(false);
+  const setBundles = (b) => { const c = { ...disp, bundles: b }; setDisp(c); saveDisplayCfg(c); };
+  const setLayoutMode = (l) => { const c = { ...disp, layout: l }; setDisp(c); saveDisplayCfg(c); };
+  const inlineFares = disp.bundles === "inline" || disp.layout === "single";
   const [F, setF] = useState({ direct: false, oneStop: false, twoStop: false, brands: new Set(CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false });
 
   useEffect(() => {
@@ -146,6 +174,13 @@ export function Results({ shared, params, go }) {
     else if (sort === "Fastest") v = [...v].sort((a, b) => durMins(a.duration) - durMins(b.duration));
     else if (sort === "Earliest") v = [...v].sort((a, b) => depMins(a.dep) - depMins(b.dep));
     else if (sort === "Eco") v = [...v].sort((a, b) => (a._m.partner ? 1 : 0) - (b._m.partner ? 1 : 0) || a.price - b.price);
+    else if ((leg === "inbound" && trip.outbound) || (isMulti && legIndex > 0 && (trip.legs || [])[legIndex - 1])) {
+      // A6 · contextual ranking from the cart — rank this leg by the price IN the fare brand
+      // already chosen on the previous leg, so a change to that selection re-ranks these results.
+      const prevFare = (isMulti ? (trip.legs || [])[legIndex - 1]?.fare : trip.outbound?.fare) || "Classic";
+      const brandPrice = f => f._fares.find(x => x.key === prevFare)?.price ?? f.price;
+      v = [...v].sort((a, b) => brandPrice(a) - brandPrice(b) || (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
+    }
     else v = [...v].sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0) || a.price - b.price); // Best
     return v;
   }, [flights, F, sort]);
@@ -161,15 +196,32 @@ export function Results({ shared, params, go }) {
   }, [flights, leg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function pickFare(f, fare) {
-    if (!fare) { setLeg(leg, null); setSel(null); return; }   // #17 — re-clicking the selected fare deselects (toggle)
+    if (!fare) {                                                // #17 — re-clicking the selected fare deselects (toggle)
+      if (isMulti) { const L = [...(trip.legs || [])]; L[legIndex] = null; trip.legs = L; pingBasket(); }
+      else setLeg(leg, null);
+      setSel(null); return;
+    }
     if (trip.pnr) resetTrip();                                 // #18 — picking a flight after a completed booking starts a clean cart
     const choice = { flight: f, fare: fare.key, price: fare.price, leg, origin, dest, date };
-    setLeg(leg, choice); setSel(choice);
-    Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret || retDate });
+    if (isMulti) {
+      const L = [...(trip.legs || [])]; L[legIndex] = choice; trip.legs = L;
+      // Map the leg list onto outbound/inbound so the existing cart / passenger / payment
+      // spine books every leg without a parallel code path (UI supports up to 2 legs).
+      Object.assign(trip, { type: "multi", pax, cabin, origin: mLegs[0].origin, dest: mLegs[mLegs.length - 1].dest, outbound: L[0] || null, inbound: L[1] || null, date: mLegs[0].date || date, ret: mLegs[1]?.date || null });
+      pingBasket();
+    } else {
+      setLeg(leg, choice);
+      Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret || retDate });
+    }
+    setSel(choice);
     api.post("/journey", { origin, dest, date, stage: "seat", flight_no: f.flight_no, cabin: fare.cabin || "Economy", device: "Web app" }).catch(() => {});
   }
   function advance() {
     if (!sel) return;                                                   // #28 — current leg must have a selected flight + fare
+    if (isMulti) {
+      if (legIndex < mLegs.length - 1) { go("results", { ...params, legIndex: legIndex + 1 }); return; }
+      go("cart", { ...params }); return;
+    }
     if (type === "round" && leg === "outbound") { go("results", { ...params, leg: "inbound" }); return; }
     if (type === "round" && !trip.outbound) { go("results", { ...params, leg: "outbound" }); return; }   // outbound missing → send back to pick it
     go("cart", { ...params });
@@ -196,6 +248,21 @@ export function Results({ shared, params, go }) {
           <Btn variant="outline" size="sm" className="ml-auto text-ink border-line-strong" onClick={() => go("home")}>Edit search</Btn>
         </div>
       </div>
+
+      {isMulti && (
+        <div className="bg-surface-dark">
+          <div className="mx-auto max-w-page px-6 py-2.5 flex items-center gap-2 overflow-x-auto v2-track">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-lime shrink-0 mr-1">Multi-city itinerary</span>
+            {mLegs.map((L, i) => {
+              const picked = (trip.legs || [])[i];
+              const state = i === legIndex ? "current" : picked ? "done" : "todo";
+              return <span key={i} className={cx("shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold", state === "current" ? "bg-lime text-ink" : state === "done" ? "bg-white/15 text-white" : "bg-white/5 text-white/50")}>
+                {state === "done" && <Icon name="check" size={11} />} Flight {i + 1} · {L.origin}→{L.dest}{picked && <span className={state === "current" ? "text-ink/60" : "text-lime"}> · {EUR(picked.price)}</span>}
+              </span>;
+            })}
+          </div>
+        </div>
+      )}
 
       {/* stepper — full booking journey */}
       <div className="bg-surface border-b border-line">
@@ -280,7 +347,7 @@ export function Results({ shared, params, go }) {
                 <div className="rounded-2xl bg-surface-dark text-white px-5 py-4 flex flex-wrap items-center gap-4">
                   <div className="flex-1 min-w-[260px]">
                     <div className="text-[11px] font-bold uppercase tracking-wide text-lime">Smart re-rank · paired with your outbound</div>
-                    <div className="text-[14px] font-semibold mt-1">Re-ordered for the cheapest pairing, best gate-to-gate time, and full Gold benefits on both legs.</div>
+                    <div className="text-[14px] font-semibold mt-1">Re-ranked for your <span className="text-lime">{ob.fare}</span> outbound — cheapest <span className="text-lime">{ob.fare}</span> pairings first, best gate-to-gate time, full benefits on both legs.</div>
                     <div className="flex flex-wrap gap-2 mt-2.5">
                       {["+ Bundle bag −€15", "+ Same-day return", "+ Earn 2× miles"].map(t => <span key={t} className="text-[11px] font-semibold rounded-full border border-white/25 px-2.5 py-1 text-lime">{t}</span>)}
                     </div>
@@ -319,18 +386,50 @@ export function Results({ shared, params, go }) {
                 {label}
               </button>;
             })}
-            <div className="ml-auto shrink-0 pr-1">
+            <div className="ml-auto shrink-0 pr-1 flex items-center gap-2">
+              <div className="relative">
+                <button onClick={() => setDispOpen(o => !o)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-line text-[12px] font-semibold text-ink-muted hover:bg-surface-mute" title="Display settings (airline-configurable)">
+                  <Icon name="grid" size={13} /> Display
+                </button>
+                {dispOpen && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setDispOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl border border-line shadow-pop z-30 p-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-2">Display mode · airline config</div>
+                      <div className="text-[11px] font-semibold text-ink mb-1">Fare bundles</div>
+                      <div className="grid grid-cols-2 gap-1.5 mb-3">
+                        {[["inline", "Inline"], ["expand", "Expand/collapse"]].map(([k, l]) => (
+                          <button key={k} onClick={() => setBundles(k)} className={cx("px-2 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors", disp.bundles === k ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-line text-ink-muted hover:bg-surface-mute")}>{l}</button>
+                        ))}
+                      </div>
+                      <div className="text-[11px] font-semibold text-ink mb-1">Round-trip layout</div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {[["perBound", "Per bound"], ["single", "Single page"]].map(([k, l]) => (
+                          <button key={k} onClick={() => setLayoutMode(k)} className={cx("px-2 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors", disp.layout === k ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-line text-ink-muted hover:bg-surface-mute")}>{l}</button>
+                        ))}
+                      </div>
+                      <div className="text-[10px] text-ink-faint mt-2.5 leading-snug">Defaults adapt to booking complexity. Configurable per market & channel.</div>
+                    </div>
+                  </>
+                )}
+              </div>
               <button onClick={() => setHoldOpen(true)} className={cx("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-[12px] font-semibold transition-colors", held ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-tap-green/50 bg-lime-tint/40 text-tap-greenDeep hover:bg-lime-tint")}>
                 <Icon name={held ? "check" : "lock"} size={13} /> {held ? "Fare held · 72h" : "Hold your fare"}
               </button>
             </div>
           </div>
 
+          {disp.layout === "single" && type === "round" && (
+            <div className="rounded-xl border border-tap-green/30 bg-lime-tint/40 px-4 py-2.5 flex items-center gap-2 text-[12px] font-semibold text-tap-greenDark">
+              <Icon name="grid" size={14} className="shrink-0" /> Single-page round trip — outbound and return shown in one continuous flow, all fares inline.
+            </div>
+          )}
+
           {flights === null && <div className="py-16 text-center text-ink-faint">Searching {cityOf(origin)} → {cityOf(dest)}…</div>}
           {flights && view.length === 0 && <Card className="p-8 text-center text-ink-muted">No flights match these filters. Try widening them.</Card>}
 
           {(showAll ? view : view.slice(0, 5)).map((f, i) => (
-            <FlightCard key={f.flight_no} f={f} expanded={expanded === f.flight_no} sel={sel} lowest={lowest} cabin={cabin}
+            <FlightCard key={f.flight_no} f={f} expanded={expanded === f.flight_no} sel={sel} lowest={lowest} cabin={cabin} inline={inlineFares}
               pairing={leg === "inbound" && i === 0 && !sel} originCity={cityOf(f.origin)} destCity={cityOf(f.dest)}
               onToggle={() => setExpanded(expanded === f.flight_no ? null : f.flight_no)} onPick={pickFare} />
           ))}
@@ -347,18 +446,20 @@ export function Results({ shared, params, go }) {
           <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
             <div className="min-w-0">
               {sel ? <>
-                <div className="text-[10px] font-bold tracking-widest text-lime uppercase">{leg === "inbound" ? "Inbound selected · ✓ Outbound" : "Outbound selected"}</div>
-                {leg === "inbound" && trip.outbound
+                <div className="text-[10px] font-bold tracking-widest text-lime uppercase">{isMulti ? `Flight ${legIndex + 1} of ${mLegs.length} selected` : (leg === "inbound" ? "Inbound selected · ✓ Outbound" : "Outbound selected")}</div>
+                {isMulti
+                  ? <div className="text-[13px] font-semibold truncate">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} · {EUR(sel.price)}{(trip.legs || []).filter(Boolean).length > 1 && <> &nbsp;·&nbsp; itinerary <span className="text-lime">{EUR((trip.legs || []).filter(Boolean).reduce((s, l) => s + l.price, 0))}</span></>}</div>
+                  : leg === "inbound" && trip.outbound
                   ? <div className="text-[13px] font-semibold truncate">{String(trip.outbound.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {trip.outbound.flight.origin}→{trip.outbound.flight.dest} {EUR(trip.outbound.price)} &nbsp;+&nbsp; {String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} {EUR(sel.price)} &nbsp;=&nbsp; <span className="text-lime">{EUR(trip.outbound.price + sel.price - 15)}</span> <span className="text-white/60 font-normal">(bundle saved €15)</span></div>
                   : <div className="text-[13px] font-semibold">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} · {sel.flight.dep} → {sel.flight.arr} · {EUR(sel.price)}</div>}
               </> : <>
-                <div className="text-[10px] font-bold tracking-widest text-white/50 uppercase">{leg === "inbound" ? "Select your inbound flight" : "Select your outbound flight"}</div>
+                <div className="text-[10px] font-bold tracking-widest text-white/50 uppercase">{isMulti ? `Select flight ${legIndex + 1} of ${mLegs.length}` : (leg === "inbound" ? "Select your inbound flight" : "Select your outbound flight")}</div>
                 <div className="text-[13px] font-semibold text-white/80">Choose a flight and fare above to continue.</div>
               </>}
             </div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
-              <button onClick={() => go("express")} className="rounded-full border border-white/40 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-white/10 transition-colors shrink-0">Express Checkout</button>
-              <Btn variant="lime" disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{type === "round" && leg === "outbound" ? "Pick inbound" : "Continue to cart"} <Icon name="arrow" size={14} /></Btn>
+              {!isMulti && <button onClick={() => go("express")} className="rounded-full border border-white/40 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-white/10 transition-colors shrink-0">Express Checkout</button>}
+              <Btn variant="lime" disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Continue to cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Continue to cart")} <Icon name="arrow" size={14} /></Btn>
             </div>
           </div>
         </div>
@@ -529,6 +630,32 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
       <div className="bg-surface rounded-3xl shadow-2xl w-full max-w-[1080px] my-6 p-7" onClick={e => e.stopPropagation()}>
         <h2 className="text-[30px] font-black leading-tight">{sel.key} bundle — {EUR(f.price)}</h2>
         <p className="text-[13px] text-ink-muted mt-1">{originCity}–{destCity} · {f.flight_no} · Single brand price · full per-component disclosure below.</p>
+        {(() => {
+          // H1 · this single brand is a hybrid of an ATPCO-filed fare + layered ancillaries.
+          const atpcoPart = Math.round(basic);
+          const ancPart = Math.max(0, Math.round((sel.price ?? f.price) - basic));
+          return (
+            <div className="mt-4 rounded-2xl border border-tap-green/25 bg-lime-tint/30 p-4">
+              <div className="flex items-center gap-2 mb-1"><Icon name="spark" size={14} className="text-tap-greenDeep" /><div className="text-[12px] font-bold text-tap-greenDark">How the {sel.key} bundle is built</div></div>
+              <div className="text-[11px] text-ink-muted mb-3">You buy one fare brand. Behind the scenes it's an ATPCO-filed fare plus layered ancillaries, combined into a single price — invisible at checkout.</div>
+              <div className="grid sm:grid-cols-2 gap-2.5">
+                <div className="rounded-xl bg-surface border border-line p-3">
+                  <div className="text-[9px] font-bold uppercase tracking-wide text-ink-faint">Component 1 · ATPCO fare</div>
+                  <div className="text-[13px] font-semibold mt-0.5">{sel.key} flight fare</div>
+                  <div className="text-[11px] text-ink-faint">Filed fare + fare rules (changes, refundability, baggage allowance)</div>
+                  <div className="text-[13px] font-bold v2-num mt-1">{EUR(atpcoPart)}</div>
+                </div>
+                <div className="rounded-xl bg-surface border border-line p-3">
+                  <div className="text-[9px] font-bold uppercase tracking-wide text-ink-faint">Component 2 · Ancillaries</div>
+                  <div className="text-[13px] font-semibold mt-0.5">{sel.key === "Basic" ? "None — flight only" : "Seat selection + included extras"}</div>
+                  <div className="text-[11px] text-ink-faint">Layered on top of the ATPCO fare, delivered as part of the brand</div>
+                  <div className="text-[13px] font-bold v2-num mt-1">{ancPart > 0 ? EUR(ancPart) : "—"}</div>
+                </div>
+              </div>
+              <div className="text-[10px] text-ink-faint mt-2">Presented to you as one brand at <span className="font-semibold text-ink">{EUR(sel.price ?? f.price)}</span> = ATPCO fare {EUR(atpcoPart)}{ancPart > 0 ? ` + ancillaries ${EUR(ancPart)}` : ""}.</div>
+            </div>
+          );
+        })()}
         <div className="mt-5 rounded-2xl border border-line overflow-hidden">
           <div className="grid grid-cols-[1.4fr_repeat(5,1fr)] bg-surface-soft">
             <div className="p-4"><div className="text-[12px] font-bold">Fare</div><div className="text-[11px] text-ink-faint">Per passenger, one-way</div></div>
@@ -561,7 +688,7 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
   );
 }
 
-function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, onToggle, onPick, cabin }) {
+function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, onToggle, onPick, cabin, inline }) {
   const [compare, setCompare] = useState(false);
   const cab = cabin || "Economy";
   const m = f._m, classic = f._fares.find(x => x.key === "Classic");
@@ -611,16 +738,20 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
           <div className="text-[24px] font-bold v2-num leading-tight">{EUR(selFare.price)}</div>
           <div className="text-[10px] text-ink-faint">1 adult · {isSelected ? sel.fare : `${CABIN_LABEL[cab] || "Economy"} ${headline.key}`}</div>
           <div className="mt-2">
-            {isSelected
-              ? <Btn size="sm" variant="primary" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
-              : <Btn size="sm" variant="outline" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : `See ${cabinFares.length} fare${cabinFares.length !== 1 ? "s" : ""} ↓`}</Btn>}
+            {inline
+              ? (isSelected
+                  ? <Btn size="sm" variant="primary" className="w-full" onClick={() => onPick(f, sel.fare)}>Selected ✓</Btn>
+                  : <div className="text-[10px] text-ink-faint text-center py-1">Choose a fare below ↓</div>)
+              : isSelected
+                ? <Btn size="sm" variant="primary" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
+                : <Btn size="sm" variant="outline" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : `See ${cabinFares.length} fare${cabinFares.length !== 1 ? "s" : ""} ↓`}</Btn>}
           </div>
         </div>
       </div>
 
       {/* expanded fare grid — shown whenever the card is expanded, including when a fare is
           already selected, so the user can re-open and switch fares (Outbound #62 / Inbound #15,#33) */}
-      {expanded && (
+      {(expanded || inline) && (
         <div className="border-t border-line bg-surface-soft px-5 py-5">
           <div className="flex items-center justify-between mb-3">
             <div><div className="font-bold text-[15px]">Choose your fare</div><div className="text-[11px] text-ink-muted">All fares earn miles · 24h free cancel · Gold benefits applied</div></div>

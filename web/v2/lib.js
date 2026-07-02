@@ -38,8 +38,74 @@ export const api = {
   post: (p, body, opts) => _send(p, { method: "POST", headers: hdrs({ "Content-Type": "application/json" }), body: JSON.stringify(body || {}) }, opts),
 };
 
-export const EUR = (n) => n == null ? "—" : `€${Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 2)}`;
+// ── A7 · Multi-currency (merchant-controlled pricing) ───────────────────────
+// One source of truth for the active display currency. money() converts a EUR
+// base amount into the active currency and formats it; the EUR base stays the
+// billing/source-of-truth on the server. Selecting a currency re-prices the
+// whole UI (components subscribe via onCurrencyChange).
+export const CURRENCIES = {
+  EUR: { code: "EUR", symbol: "€", rate: 1, locale: "en-IE", label: "EUR" },
+  USD: { code: "USD", symbol: "$", rate: 1.08, locale: "en-US", label: "USD" },
+  GBP: { code: "GBP", symbol: "£", rate: 0.85, locale: "en-GB", label: "GBP" },
+  BRL: { code: "BRL", symbol: "R$ ", rate: 5.39, locale: "pt-BR", label: "BRL" },
+};
+let _cur = (() => { try { return CURRENCIES[localStorage.getItem("flytap_cur")] ? localStorage.getItem("flytap_cur") : "EUR"; } catch { return "EUR"; } })();
+const _curListeners = new Set();
+export function onCurrencyChange(fn) { _curListeners.add(fn); return () => _curListeners.delete(fn); }
+export function setCurrency(code) { if (!CURRENCIES[code]) return; _cur = code; try { localStorage.setItem("flytap_cur", code); } catch {} _curListeners.forEach(f => { try { f(); } catch {} }); }
+export const getCurrency = () => CURRENCIES[_cur] || CURRENCIES.EUR;
+export function money(eurAmount, opts = {}) {
+  if (eurAmount == null || Number.isNaN(Number(eurAmount))) return "—";
+  const c = getCurrency();
+  const v = Number(eurAmount) * c.rate;
+  const dp = opts.dp != null ? opts.dp : (v % 1 === 0 ? 0 : 2);
+  return c.symbol + v.toLocaleString(c.locale, { minimumFractionDigits: dp, maximumFractionDigits: 2 });
+}
+// EUR() now honours the active currency so every existing call site re-prices.
+export const EUR = (n) => money(n);
+// Show the EUR reference alongside a non-EUR primary (e.g. "≈ €212"). Empty when EUR is active.
+export const eurRef = (n) => getCurrency().code === "EUR" ? "" : `≈ €${Number(n || 0).toLocaleString("en-IE", { minimumFractionDigits: Number(n) % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`;
 export const miles = (n) => Number(n || 0).toLocaleString("en-GB");
+
+// ── B2 · Regional localization (European vs Brazilian Portuguese) ────────────
+// A real language layer. The dictionary is curated to surface genuine pt-PT vs
+// pt-BR terminology differences (not just accents) so a Brazilian member sees
+// Brazilian wording, not European. t(key) resolves against the active language.
+export const LANGS = { "en": "English", "pt-PT": "Português (Portugal)", "pt-BR": "Português (Brasil)" };
+let _lang = (() => { try { return LANGS[localStorage.getItem("flytap_lang")] ? localStorage.getItem("flytap_lang") : "en"; } catch { return "en"; } })();
+const _langListeners = new Set();
+export function onLangChange(fn) { _langListeners.add(fn); return () => _langListeners.delete(fn); }
+export function setLang(code) { if (!LANGS[code]) return; _lang = code; try { localStorage.setItem("flytap_lang", code); } catch { } _langListeners.forEach(f => { try { f(); } catch { } }); }
+export const getLang = () => _lang;
+// key: [en, pt-PT, pt-BR]. Bolded entries below differ between PT and BR.
+const I18N = {
+  book: ["Book", "Reservar", "Reservar"],
+  myTrips: ["My Trips", "As minhas viagens", "Minhas viagens"],
+  extras: ["Extras", "Extras", "Adicionais"],
+  checkIn: ["Check-in", "Check-in", "Check-in"],
+  manage: ["Manage booking", "Gerir reserva", "Gerenciar reserva"],
+  carryOn: ["Carry-on bag", "Bagagem de mão", "Bagagem de mão"],
+  checkedBag: ["Checked bag", "Bagagem de porão", "Bagagem despachada"],
+  seat: ["Seat", "Lugar", "Assento"],
+  boardingPass: ["Boarding pass", "Cartão de embarque", "Cartão de embarque"],
+  gate: ["Gate", "Porta de embarque", "Portão de embarque"],
+  breakfast: ["Breakfast", "Pequeno-almoço", "Café da manhã"],
+  bus: ["Bus", "Autocarro", "Ônibus"],
+  train: ["Train", "Comboio", "Trem"],
+  oneWay: ["One way", "Só ida", "Somente ida"],
+  roundTrip: ["Round trip", "Ida e volta", "Ida e volta"],
+  passenger: ["Passenger", "Passageiro", "Passageiro"],
+  payment: ["Payment", "Pagamento", "Pagamento"],
+  refund: ["Refund", "Reembolso", "Reembolso"],
+  legroom: ["Extra legroom", "Mais espaço para as pernas", "Mais espaço para as pernas"],
+  lounge: ["Lounge access", "Acesso ao lounge", "Acesso à sala VIP"],
+  window: ["Window seat", "Lugar à janela", "Assento na janela"],
+  aisle: ["Aisle seat", "Lugar de coxia", "Assento no corredor"],
+  economy: ["Economy", "Económica", "Econômica"],
+  wifi: ["Wi-Fi on board", "Wi-Fi a bordo", "Wi-Fi a bordo"],
+};
+export function t(key) { const e = I18N[key]; if (!e) return key; const idx = _lang === "pt-PT" ? 1 : _lang === "pt-BR" ? 2 : 0; return e[idx] || e[0]; }
+export const I18N_TABLE = I18N;
 export const MILES_RATE = 0.003; // ~1,000 mi ≈ €3 (matches server)
 
 // Trigger a real client-side file download from in-memory content (used by the booking-

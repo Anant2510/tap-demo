@@ -6,9 +6,9 @@ import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
-import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout } from "./checkout.jsx";
+import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout, StopoverBuilder, MilesShop } from "./checkout.jsx";
 import { AIConcierge } from "./ai.jsx";
-import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddExtras, Refund, Retrieve } from "./mmb.jsx";
+import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddExtras, Refund, Retrieve, SplitBooking, DisruptionCenter } from "./mmb.jsx";
 import { DemoConsole } from "./demo.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
@@ -151,7 +151,15 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
   const [payMiles, setPayMiles] = useState(false);
   const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
   const swap = () => { setFrom(to); setTo(from); };
-  const go2 = () => go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
+  const go2 = () => {
+    if (type === "multi") {
+      // B1 — build the leg list; step through them one at a time in Results.
+      const legs = [{ origin: from, dest: to, date }];
+      if (leg2.to) legs.push({ origin: leg2.from, dest: leg2.to, date: leg2.date });
+      return go("results", { type: "multi", legs, legIndex: 0, pax, cabin, payMiles, origin: from, dest: legs[legs.length - 1].dest, date });
+    }
+    return go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
+  };
   const cell = "p-3 min-w-0";
   const lbl = "text-[9px] font-bold uppercase tracking-wide text-ink-faint";
   const bare = "w-full min-w-0 bg-transparent text-[15px] font-bold outline-none";
@@ -522,13 +530,14 @@ export const ROUTES = {
   checkin: { title: "Online check-in", comp: CheckInIndirect },
   addextras: { title: "Add extras", comp: AddExtras },
   refund: { title: "Cancel & refund", comp: Refund },
+  split: { title: "Change / split travellers", comp: SplitBooking },
   retrieve: { title: "Retrieve booking", comp: Retrieve },
   express: { title: "Express checkout", comp: ExpressCheckout },
   hold: { title: "Hold My Fare", phase: 2, plan: "Free 48h fare hold for tier members (A8).", reuses: "/api/fare-lock, /api/hold" },
-  disruption: { title: "Disruption / IROPS", comp: Rebook },
-  stopover: { title: "Portugal Stopover", phase: 3, plan: "Free Lisbon/Porto stopover builder.", reuses: "/api/search (new)" },
+  disruption: { title: "Disruption / IROPS", comp: DisruptionCenter },
+  stopover: { title: "Portugal Stopover", comp: StopoverBuilder },
   extras: { title: "Trip Extras", comp: AddExtras },
-  miles: { title: "TAP Miles & Go", phase: 3, plan: "Tier progress, miles redemption, partner earn.", reuses: "/api/profile, /api/recommendation" },
+  miles: { title: "TAP Miles & Go", comp: MilesShop },
   wishlist: { title: "Wishlist", phase: 3, plan: "Saved routes & destinations.", reuses: "(new)" },
   ai: { title: "TAP AI · Travel concierge", comp: AIConcierge },
   console: { title: "Demo Console", comp: DemoConsole },

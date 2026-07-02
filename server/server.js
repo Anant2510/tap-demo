@@ -820,6 +820,94 @@ app.post("/api/bookings/cancel", async (req, res) => {
   res.json({ ok: true, pnr: b.pnr, email });
 });
 
+// C1 · Flight change / cancellation that splits a PNR into two records (heterogeneous order).
+// Moves selected travellers to a new PNR (changed flight or cancelled), carries their
+// per-traveller ancillaries across, recalculates fares, and returns a clear before/after.
+app.post("/api/bookings/split", async (req, res) => {
+  const { pnr, splitIdx, action, newDate } = req.body || {};
+  const b = pnr ? db.prepare("SELECT * FROM bookings WHERE user_id=? AND pnr=?").get(req.uid, pnr) : null;
+  if (!b) return res.json({ ok: false, error: "Booking not found" });
+  let meta = {}; try { meta = JSON.parse(b.meta_json || "{}"); } catch { }
+  const pax = Array.isArray(meta.passengers) ? meta.passengers : [];
+  if (pax.length < 2) return res.json({ ok: false, error: "This booking has a single traveller — nothing to split." });
+  const idx = (Array.isArray(splitIdx) ? splitIdx : []).filter(i => Number.isInteger(i) && i >= 0 && i < pax.length);
+  if (!idx.length || idx.length >= pax.length) return res.json({ ok: false, error: "Select at least one traveller to move, leaving at least one on the original booking." });
+
+  const flight = db.prepare("SELECT * FROM flights WHERE flight_no=?").get(b.flight_no) || {};
+  const farePer = Math.round(flight.price || 180);
+  const items = (() => { try { return JSON.parse(b.items_json || "[]"); } catch { return []; } })();
+  const nm = p => [p.first || p.firstName, p.last || p.lastName].filter(Boolean).join(" ") || p.name || "Passenger";
+  const movedPax = idx.map(i => pax[i]);
+  const stayPax = pax.filter((_, i) => !idx.includes(i));
+
+  // Per-traveller ancillaries carry to the split record; a shared/party item stays on the original.
+  const PER_TRAVELLER = ["seat", "bag", "meal", "wifi", "priority", "insurance", "ins-plus"];
+  const movedItems = items.filter(c => PER_TRAVELLER.includes(c));
+  const notTransferable = items.filter(c => !PER_TRAVELLER.includes(c));
+
+  const isCancel = action === "cancel";
+  const changeFee = isCancel ? 0 : 45;                                   // per split record
+  const fareDiff = isCancel ? 0 : 30;                                    // new-flight fare difference (demo)
+  const refund = isCancel ? Math.round(farePer * movedPax.length * 0.5) : 0;   // 50% refundable fare on cancel
+  const newStatus = isCancel ? "cancelled" : "confirmed";
+  const newDateVal = (!isCancel && newDate) ? newDate : b.flight_date;
+  const newPnr = (b.pnr || "TP") + "-S";
+  const newMeta = { ...meta, passengers: movedPax, pax: movedPax.length, splitFrom: b.pnr };
+  const newFare = isCancel ? 0 : farePer * movedPax.length + fareDiff + changeFee;
+  const createdAt = now();
+  const r = db.prepare("INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,meta_json,source,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+    .run(newPnr, req.uid, b.flight_no, newDateVal, b.seat, newStatus, 0, JSON.stringify(movedItems), JSON.stringify(newMeta), b.source || "web", createdAt);
+  db.prepare("INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)")
+    .run(Number(r.lastInsertRowid), newFare, 0, 0, 0, newFare, createdAt);
+
+  // Original booking keeps only the remaining travellers (heterogeneous order: two records).
+  db.prepare("UPDATE bookings SET meta_json=? WHERE id=?").run(JSON.stringify({ ...meta, passengers: stayPax, pax: stayPax.length }), b.id);
+
+  log("booking_split", { from: b.pnr, to: newPnr, moved: movedPax.length, action: isCancel ? "cancel" : "change" });
+  res.json({
+    ok: true, action: isCancel ? "cancel" : "change",
+    original: { pnr: b.pnr, passengers: stayPax.map(nm), pax: stayPax.length, flight_no: b.flight_no, origin: flight.origin, dest: flight.dest, date: b.flight_date, seat: b.seat, items, price: farePer * stayPax.length },
+    split: { pnr: newPnr, passengers: movedPax.map(nm), pax: movedPax.length, flight_no: b.flight_no, origin: flight.origin, dest: flight.dest, date: newDateVal, status: newStatus, items: movedItems, price: newFare },
+    summary: { changeFee, fareDiff, refund, retained: movedItems, notTransferable },
+  });
+});
+
+// C5 · per-passenger disruption resolution — on a disrupted multi-pax booking, each
+// traveller can independently take a rebook, a full refund, or a travel voucher (+20%
+// bonus), all within the one booking. Followed by proactive multi-channel comms.
+app.post("/api/bookings/disruption-resolve", (req, res) => {
+  const { pnr, resolutions } = req.body;
+  const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=?").get(pnr, req.uid) : null) || currentBooking(req.uid);
+  if (!b) return res.json({ ok: false, error: "Booking not found" });
+  if (!Array.isArray(resolutions) || !resolutions.length) return res.json({ ok: false, error: "No resolutions supplied" });
+  let meta = {}; try { meta = JSON.parse(b.meta_json || "{}") || {}; } catch { }
+  const pax = meta.passengers || [];
+  const flight = flightByNo(b.flight_no) || {};
+  const farePer = Math.round(flight.price || 180);
+  const rebookFlight = (resolutions.find(r => r.type === "rebook" && r.flight_no) || {}).flight_no || null;
+  const nm = (i) => (pax[i] ? `${pax[i].first} ${pax[i].last || ""}`.trim() : `Passenger ${i + 1}`);
+  const summary = [], stayPax = [];
+  resolutions.forEach(r => {
+    const name = nm(r.paxIndex);
+    if (r.type === "refund") {
+      db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)`).run(b.id, -farePer, 0, 0, 0, -farePer, now());
+      summary.push({ name, type: "refund", amount: farePer, note: "Full refund to the original card" });
+    } else if (r.type === "voucher") {
+      const amt = Math.round(farePer * 1.2), code = "TPV" + Math.random().toString(36).slice(2, 7).toUpperCase();
+      db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry,status) VALUES (?,?,?,?,?, 'active')`).run(req.uid, code, amt, "Disruption resolution — " + b.pnr, "2027-12-31");
+      summary.push({ name, type: "voucher", amount: amt, code, note: "Travel credit incl. 20% goodwill bonus" });
+    } else {
+      stayPax.push(pax[r.paxIndex] || { first: name });
+      summary.push({ name, type: "rebook", flight_no: rebookFlight || b.flight_no, note: "Rebooked on the next available flight" });
+    }
+  });
+  meta.passengers = stayPax; meta.pax = stayPax.length; meta.disruptionResolved = summary;
+  if (stayPax.length === 0) db.prepare("UPDATE bookings SET status='cancelled', meta_json=? WHERE id=?").run(JSON.stringify(meta), b.id);
+  else db.prepare("UPDATE bookings SET flight_no=?, status='rebooked', meta_json=? WHERE id=?").run(rebookFlight || b.flight_no, JSON.stringify(meta), b.id);
+  log("disruption_resolved", { pnr: b.pnr, count: summary.length, types: summary.map(s => s.type) });
+  res.json({ ok: true, pnr: b.pnr, summary, channels: ["push", "sms", "email"], comms: `Proactively notified ${pax.length || summary.length} traveller${(pax.length || summary.length) > 1 ? "s" : ""} via push, SMS and email` });
+});
+
 /* ── WhatsApp webhook (Twilio Sandbox) ───────────────────────────
    Twilio POSTs application/x-www-form-urlencoded with fields incl.
    From="whatsapp:+91...", Body="1". We ack immediately with empty
@@ -2066,7 +2154,7 @@ const uidForPersona = (p) => PERSONA_UID[p] || null;   // null for an unknown pe
 const personaForUid = (uid) => UID_PERSONA[uid] || null;   // null for registered users 6–15 (no CDP persona)
 
 /* ── Auth / registration (§4) — built on the step-1 session seam ──────────────
-   login binds an existing known user; register allocates a fresh slot (uid 6–15) for
+   login binds an existing known user; register allocates a fresh slot (uid 12–21) for
    an anonymous visitor who then accrues their own history; logout unbinds; me reports
    who the session is bound to. resolveUid still defaults to 1 (cutover is step 11). */
 const sidOf = (req) => (req.headers["x-session-id"] || (req.body && req.body.sessionId) || (req.query && req.query.sessionId)) || null;
@@ -2074,12 +2162,12 @@ const sidOf = (req) => (req.headers["x-session-id"] || (req.body && req.body.ses
 // Allocate the next free registration slot in 6–15 (rows persist until reset; logout
 // only unbinds the session). Returns null when all 10 slots are occupied.
 function nextFreeUid() {
-  const taken = new Set(db.prepare("SELECT id FROM users WHERE id BETWEEN 6 AND 15").all().map(r => r.id));
-  for (let u = 6; u <= 15; u++) if (!taken.has(u)) return u;
+  const taken = new Set(db.prepare("SELECT id FROM users WHERE id BETWEEN 12 AND 21").all().map(r => r.id));
+  for (let u = 12; u <= 21; u++) if (!taken.has(u)) return u;
   return null;
 }
 
-// Look up one of the 5 known users by persona id, email, or member_no.
+// Look up one of the 11 known personas by persona id, email, or member_no.
 function findKnownUser({ persona, email, member_no }) {
   if (persona && PERSONAS[persona]) return db.prepare("SELECT * FROM users WHERE id=?").get(uidForPersona(persona));
   if (member_no) { const u = db.prepare("SELECT * FROM users WHERE member_no=?").get(member_no); if (u) return u; }

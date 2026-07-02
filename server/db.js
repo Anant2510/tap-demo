@@ -440,39 +440,267 @@ const PERSONAS = {
       ["LHR","OPO","2026-07-20",1,2,"iPad",4],
     ],
   },
+
+  // ── Doc persona: Luís — Comfort seeker (Chapters 2 & 4) ──────────────
+  luis: {
+    id: "luis", label: "Luís Carvalho", blurb: "Gold · transatlantic Business", archetype: "Comfort Seeker",
+    user: { member_no: "PT-990006", first_name: "Luís", full_name: "Luís Carvalho", email: "anant.direct2links+luis@gmail.com", phone: "+351 91 776 5540", tier: "Gold", miles: 96540, nationality: "Portuguese", dob: "18 Feb 1971", gender: "Male", passport_exp: "22 Nov 2030", doc_id: "PT •••• 8841", home_airport: "LIS", card_brand: "Amex", card_last4: "1007", card_exp: "11/29", card_product: "TAP | Miles&Go Amex Platinum", card_categories: JSON.stringify([{ name: "Fine Dining", share: 31 }, { name: "Luxury Hotels", share: 24 }, { name: "Business Travel", share: 19 }, { name: "Wine & Spirits", share: 12 }]), affinity: "wine", affinity_label: "Fine dining & wine" },
+    prefs: { seat: "1A — Business, lie-flat window", seat_note: "Business window on 9 of your last 10 flights", bag: "2 checked bags · 32kg", meal: "Premium dining + wine pairing", auto_checkin: 1 },
+    voucher: { code: "6120", amount: 120, reason: "Business service recovery", expiry: "31 Dec 2026" },
+    synced: { origin: "LIS", dest: "JFK", date: "2026-06-18", device: "iPad Pro", stage: "seat", flight_no: "TP205", seat: "1A", items: ["seat", "lounge"], cabin: "Business" },
+    ancillaries: [
+      ["seat", "Seat 1A — Business suite", "Lie-flat window. Included in Business.", 0, null, 1, "seat"],
+      ["lounge", "TAP Premium Lounge — LIS", "Complimentary — Gold + Business.", 0, null, 1, "lounge"],
+      ["bag", "2 checked bags · 32kg", "Included in Business fare.", 0, null, 1, "bag"],
+      ["meal", "Premium dining + wine pairing", "Chef menu, pre-ordered to your seat.", 0, null, 1, "meal"],
+      ["transfer", "Chauffeur to LIS airport", "Door-to-door — Business benefit.", 0, null, 0, "car"],
+      ["wifi", "Wi-Fi Full Pass", "Full internet, whole flight.", 0, null, 0, "wifi"],
+    ],
+    destinations: [
+      ["New York", "JFK", "Your quarterly board meeting", 449, null, "🗽"],
+      ["São Paulo", "GRU", "Family + business", 529, null, "🌆"],
+      ["London", "LHR", "Weekend with your wife", 134, null, "🎩"],
+      ["Funchal", "FNC", "Anniversary escape · miles eligible", 89, 20000, "🌴"],
+    ],
+    history: [
+      ["TP205", "LIS→JFK", "2026-02-14", "10:30", "Business"], ["TP206", "JFK→LIS", "2026-02-20", "19:45", "Business"],
+      ["TP205", "LIS→JFK", "2026-03-18", "10:30", "Business"], ["TP206", "JFK→LIS", "2026-03-24", "19:45", "Business"],
+      ["TP1360", "LIS→LHR", "2026-04-05", "08:40", "Business"], ["TP1361", "LHR→LIS", "2026-04-08", "20:10", "Business"],
+      ["TP205", "LIS→JFK", "2026-05-12", "10:30", "Business"], ["TP206", "JFK→LIS", "2026-05-18", "19:45", "Business"],
+    ],
+    bookings: [
+      ["TPLUI01", "TP205", "LIS", "JFK", "10:30", "13:50", 1180, "2026-02-14", "1A", "completed", 1, ["seat", "bag", "meal", "lounge"], "Business", "Executive Flex"],
+      ["TPLUI02", "TP1360", "LIS", "LHR", "08:40", "11:20", 640, "2026-04-05", "2A", "completed", 1, ["seat", "bag", "meal", "lounge"], "Business", "Executive Flex"],
+      ["TPLUI03", "TP205", "LIS", "JFK", "10:30", "13:50", 1240, "2026-06-18", "1A", "confirmed", 0, ["seat", "bag", "meal", "lounge"], "Business", "Executive Flex", "web", [{ first: "Luís", last: "Carvalho" }, { first: "Inês", last: "Carvalho" }]],
+      ["TPLUI04", "TP1690", "LIS", "FNC", "09:15", "10:45", 320, "2026-07-12", "6A", "confirmed", 0, ["seat", "bag", "meal"], "Premium", "Premium Flex"],
+    ],
+    searches: [
+      ["LIS", "JFK", "2026-06-18", 2, 4, "iPad Pro", 2],
+      ["LIS", "GRU", "2026-09-02", 2, 4, "iPad Pro", 5],
+      ["LIS", "LHR", "2026-08-15", 2, 4, "iPad Pro", 8],
+    ],
+  },
+
+  // ── Doc persona: Marcela — Travelling mom (Chapter 8) ────────────────
+  marcela: {
+    id: "marcela", label: "Marcela Rocha", blurb: "Economy · travelling with 2 children", archetype: "Travelling Mom",
+    user: { member_no: "BR-990007", first_name: "Marcela", full_name: "Marcela Rocha", email: "anant.direct2links+marcela@gmail.com", phone: "+55 11 98422 6610", tier: "Member", miles: 4120, nationality: "Brazilian", dob: "03 Sep 1989", gender: "Female", passport_exp: "09 Jul 2029", doc_id: "BR •••• 2245", home_airport: "GRU", card_brand: "Visa", card_last4: "3390", card_exp: "04/27", card_product: "Visa Crédito", card_categories: JSON.stringify([{ name: "Family Dining", share: 33 }, { name: "Supermarkets", share: 26 }, { name: "Kids & Toys", share: 18 }, { name: "Pharmacy", share: 11 }]), affinity: "family", affinity_label: "Family traveller" },
+    prefs: { seat: "22A — window, seated together", seat_note: "Window for the kids on your last 3 trips", bag: "2 checked bags", meal: "Kids meals + vegetarian", auto_checkin: 0 },
+    voucher: { code: "3080", amount: 40, reason: "Schedule change goodwill", expiry: "31 Oct 2026" },
+    synced: { origin: "GRU", dest: "LIS", date: "2026-07-05", device: "Android phone", stage: "review", flight_no: "TP073", seat: "22A", items: ["seat", "bag", "meal"], cabin: "Economy" },
+    ancillaries: [
+      ["seat", "Seats 22A/22B/22C — together", "Family block, one row.", 24, null, 1, "seat"],
+      ["bag", "2 checked bags · 23kg", "For the family's luggage.", 25, null, 1, "bag"],
+      ["meal", "2 kids meals + 1 vegetarian", "Pre-ordered for the children.", 18, null, 1, "meal"],
+      ["assist", "Family boarding + stroller", "Priority boarding with children.", 0, null, 0, "user"],
+      ["wifi", "Wi-Fi messaging pass", "Keep the kids entertained.", 5, null, 0, "wifi"],
+      ["insurance", "Family travel insurance", "Covers all 3 travellers.", 29, null, 0, "shield"],
+    ],
+    destinations: [
+      ["Lisbon", "LIS", "Visiting the grandparents", 529, null, "👵"],
+      ["Porto", "OPO", "Family holiday", 545, null, "🌉"],
+      ["Faro", "FAO", "Beach with the kids", 560, null, "🏖️"],
+      ["Madrid", "MAD", "Short family break", 118, null, "🏛️"],
+    ],
+    history: [
+      ["TP073", "GRU→LIS", "2025-12-20", "22:10", "Leisure"], ["TP074", "LIS→GRU", "2026-01-08", "12:30", "Leisure"],
+      ["TP073", "GRU→LIS", "2026-06-28", "22:10", "Leisure"],
+    ],
+    bookings: [
+      ["TPMAR01", "TP073", "GRU", "LIS", "22:10", "13:05", 1587, "2025-12-20", "22A", "completed", 1, ["seat", "bag", "meal"], "Economy", "Classic", "web", [{ first: "Marcela", last: "Rocha" }, { first: "Beatriz", last: "Rocha" }, { first: "Tomás", last: "Rocha" }]],
+      ["TPMAR02", "TP073", "GRU", "LIS", "22:10", "13:05", 1629, "2026-07-05", "22A", "confirmed", 0, ["seat", "bag", "meal"], "Economy", "Classic", "web", [{ first: "Marcela", last: "Rocha" }, { first: "Beatriz", last: "Rocha" }, { first: "Tomás", last: "Rocha" }]],
+    ],
+    searches: [
+      ["GRU", "LIS", "2026-07-05", 3, 2, "Android phone", 3],
+      ["GRU", "OPO", "2026-12-18", 3, 2, "Android phone", 9],
+    ],
+  },
+
+  // ── Doc persona: Peter — Penny saver (Chapter 7) ─────────────────────
+  peter: {
+    id: "peter", label: "Peter Nowak", blurb: "Economy · budget student backpacker", archetype: "Penny Saver",
+    user: { member_no: "US-990008", first_name: "Peter", full_name: "Peter Nowak", email: "anant.direct2links+peter@gmail.com", phone: "+1 617 555 0142", tier: "Member", miles: 1850, nationality: "American", dob: "14 Jan 2003", gender: "Male", passport_exp: "28 Feb 2032", doc_id: "US •••• 7013", home_airport: "BOS", card_brand: "Visa", card_last4: "5521", card_exp: "09/28", card_product: "Student Debit", card_categories: JSON.stringify([{ name: "Fast Food", share: 34 }, { name: "Transit & Rideshare", share: 22 }, { name: "Streaming", share: 16 }, { name: "Hostels", share: 12 }]), affinity: "backpacking", affinity_label: "Budget backpacker" },
+    prefs: { seat: "Any available — cheapest", seat_note: "You skip paid seats to save", bag: "Cabin bag only", meal: "No meal — bring own", auto_checkin: 0 },
+    voucher: { code: "1015", amount: 15, reason: "Cashback promo", expiry: "31 Dec 2026" },
+    synced: { origin: "BOS", dest: "LIS", date: "2026-08-22", device: "Android phone", stage: "results", flight_no: "TP217", seat: null, items: [], cabin: "Economy" },
+    ancillaries: [
+      ["seat", "Any available seat", "Free auto-assign — saves €.", 0, null, 1, "seat"],
+      ["bag", "Cabin bag 10kg", "Included — no checked bag.", 0, null, 1, "bag"],
+      ["meal", "Skip meal", "No meal — you bring your own.", 0, null, 1, "meal"],
+      ["wifi", "Wi-Fi messaging pass", "Cheapest connectivity option.", 3, null, 0, "wifi"],
+      ["transfer", "Hostel shuttle — Lisbon", "Shared budget transfer.", 9, null, 0, "car"],
+      ["insurance", "Basic travel insurance", "Low-cost student cover.", 12, null, 0, "shield"],
+    ],
+    destinations: [
+      ["Lisbon", "LIS", "Backpacking Europe", 429, null, "🎒"],
+      ["Barcelona", "BCN", "Cheap onward hop", 84, null, "🏖️"],
+      ["Porto", "OPO", "Hostels + port wine", 445, null, "🍷"],
+      ["Madrid", "MAD", "Budget city break", 74, null, "🏛️"],
+    ],
+    history: [
+      ["TP217", "BOS→LIS", "2026-01-05", "21:30", "Leisure"], ["TP1030", "LIS→BCN", "2026-01-09", "11:15", "Leisure"],
+      ["TP218", "LIS→BOS", "2026-01-22", "10:40", "Leisure"],
+    ],
+    bookings: [
+      ["TPPET01", "TP217", "BOS", "LIS", "21:30", "08:45", 452, "2026-01-05", "27B", "completed", 1, ["seat", "bag"], "Economy", "Basic"],
+      ["TPPET02", "TP1030", "LIS", "BCN", "11:15", "13:35", 84, "2026-01-09", "29C", "completed", 1, ["seat", "bag"], "Economy", "Basic"],
+      ["TPPET03", "TP217", "BOS", "LIS", "21:30", "08:45", 469, "2026-08-22", "28E", "confirmed", 0, ["seat", "bag"], "Economy", "Basic"],
+    ],
+    searches: [
+      ["BOS", "LIS", "2026-08-22", 1, 5, "Android phone", 1],
+      ["LIS", "BCN", "2026-08-29", 1, 4, "Android phone", 1],
+      ["LIS", "MAD", "2026-09-02", 1, 5, "Android phone", 4],
+    ],
+  },
+
+  // ── Doc persona: Mr. & Mrs. Pinto — Passport pensioners (Chapter 13, indirect) ──
+  pinto: {
+    id: "pinto", label: "Mr. & Mrs. Pinto", blurb: "Economy · agency-booked, reduced mobility", archetype: "Passport Pensioners",
+    user: { member_no: "BR-990009", first_name: "António", full_name: "António Pinto", email: "anant.direct2links+pinto@gmail.com", phone: "+55 21 99655 4120", tier: "Member", miles: 620, nationality: "Brazilian", dob: "11 Apr 1957", gender: "Male", passport_exp: "30 Aug 2028", doc_id: "BR •••• 9930", home_airport: "GRU", card_brand: "Mastercard", card_last4: "7742", card_exp: "06/27", card_product: "Mastercard Crédito", card_categories: JSON.stringify([{ name: "Pharmacy & Health", share: 37 }, { name: "Supermarkets", share: 24 }, { name: "Travel Agency", share: 18 }, { name: "Utilities", share: 10 }]), affinity: "heritage", affinity_label: "Heritage traveller" },
+    prefs: { seat: "20A/20B — front, step-free", seat_note: "Front row for step-free access", bag: "2 checked bags", meal: "Low-sodium", auto_checkin: 0 },
+    voucher: null,
+    synced: { origin: "GRU", dest: "LIS", date: "2026-07-28", device: "iPad", stage: "search", flight_no: null, seat: null, items: [], cabin: "Economy" },
+    ancillaries: [
+      ["assist", "Wheelchair assistance (WCHR)", "Airport + boarding assistance.", 0, null, 1, "user"],
+      ["seat", "Seats 20A/20B — front, step-free", "Front row, easy access.", 30, null, 1, "seat"],
+      ["bag", "2 checked bags · 23kg", "Booked via agency.", 0, null, 1, "bag"],
+      ["meal", "2 low-sodium meals", "Dietary — pre-ordered.", 0, null, 1, "meal"],
+      ["lounge", "Assistance waiting area", "Quiet area before boarding.", 0, null, 0, "lounge"],
+    ],
+    destinations: [
+      ["Lisbon", "LIS", "Visiting the grandchildren", 529, null, "👴"],
+      ["Porto", "OPO", "Family reunion", 545, null, "🌉"],
+    ],
+    history: [
+      ["TP073", "GRU→LIS", "2025-11-10", "22:10", "Leisure"], ["TP074", "LIS→GRU", "2025-11-30", "12:30", "Leisure"],
+    ],
+    bookings: [
+      ["TPPIN01", "TP073", "GRU", "LIS", "22:10", "13:05", 1710, "2025-11-10", "20A", "completed", 1, ["seat", "bag", "meal", "assist"], "Economy", "Classic", "agency", [{ first: "António", last: "Pinto" }, { first: "Fernanda", last: "Pinto" }]],
+      ["TPPIN02", "TP073", "GRU", "LIS", "22:10", "13:05", 1745, "2026-07-28", "20A", "confirmed", 0, ["seat", "bag", "meal", "assist"], "Economy", "Classic", "agency", [{ first: "António", last: "Pinto" }, { first: "Fernanda", last: "Pinto" }]],
+    ],
+    searches: [
+      ["GRU", "LIS", "2026-07-28", 2, 3, "iPad", 6],
+    ],
+  },
+
+  // ── Doc persona: Arthur — Anxious honeymooner (Chapters 3, 9, 14) ────
+  arthur: {
+    id: "arthur", label: "Arthur Hayes", blurb: "Business · honeymoon, checked in", archetype: "Anxious Honeymooner",
+    user: { member_no: "US-990010", first_name: "Arthur", full_name: "Arthur Hayes", email: "anant.direct2links+arthur@gmail.com", phone: "+1 415 555 0193", tier: "Gold", miles: 58230, nationality: "American", dob: "27 Jun 1993", gender: "Male", passport_exp: "15 May 2031", doc_id: "US •••• 4471", home_airport: "JFK", card_brand: "Amex", card_last4: "2208", card_exp: "03/29", card_product: "Amex Gold", card_categories: JSON.stringify([{ name: "Restaurants", share: 29 }, { name: "Hotels & Resorts", share: 27 }, { name: "Experiences", share: 19 }, { name: "Flights", share: 14 }]), affinity: "honeymoon", affinity_label: "Special-occasion traveller" },
+    prefs: { seat: "2A — Business, seated together", seat_note: "Seated with your fiancée every flight", bag: "2 checked bags", meal: "Premium dining", auto_checkin: 1 },
+    voucher: { code: "8090", amount: 90, reason: "Anniversary goodwill", expiry: "31 Dec 2026" },
+    synced: { origin: "JFK", dest: "LIS", date: "2026-06-19", device: "iPhone", stage: "extras", flight_no: "TP206", seat: "2A", items: ["seat", "lounge", "stopover"], cabin: "Business" },
+    ancillaries: [
+      ["seat", "Seats 2A/2D — Business, together", "Lie-flat, side by side.", 0, null, 1, "seat"],
+      ["lounge", "TAP Premium Lounge — JFK", "Complimentary — Gold + Business.", 0, null, 1, "lounge"],
+      ["meal", "Premium dining · celebration", "Champagne toast on board.", 0, null, 1, "meal"],
+      ["bag", "2 checked bags · 32kg", "Included in Business.", 0, null, 1, "bag"],
+      ["stopover", "Lisbon stopover · boutique hotel", "2 nights before Rome.", 240, null, 0, "lounge"],
+      ["wifi", "Wi-Fi Full Pass", "Stay reachable — eases nerves.", 0, null, 0, "wifi"],
+    ],
+    destinations: [
+      ["Lisbon", "LIS", "Honeymoon stopover", 449, null, "💍"],
+      ["Rome", "FCO", "Honeymoon — main leg", 165, null, "🏛️"],
+      ["Paris", "CDG", "City of love", 121, null, "🗼"],
+      ["Athens", "ATH", "Island hopping", 189, null, "🏖️"],
+    ],
+    history: [
+      ["TP206", "JFK→LIS", "2026-03-02", "22:20", "Business"], ["TP205", "LIS→JFK", "2026-03-14", "10:30", "Business"],
+      ["TP206", "JFK→LIS", "2026-05-06", "22:20", "Business"], ["TP205", "LIS→JFK", "2026-05-16", "10:30", "Business"],
+    ],
+    bookings: [
+      ["TPART01", "TP206", "JFK", "LIS", "22:20", "09:40", 1210, "2026-03-02", "2A", "completed", 1, ["seat", "bag", "meal", "lounge"], "Business", "Executive Flex", "web", [{ first: "Arthur", last: "Hayes" }, { first: "Sophie", last: "Bennett" }]],
+      ["TPART02", "TP206", "JFK", "LIS", "22:20", "09:40", 1290, "2026-06-19", "2A", "confirmed", 1, ["seat", "bag", "meal", "lounge"], "Business", "Executive Flex", "web", [{ first: "Arthur", last: "Hayes" }, { first: "Sophie", last: "Bennett" }]],
+      ["TPART03", "TP840", "LIS", "FCO", "13:20", "17:05", 320, "2026-06-24", "6A", "confirmed", 0, ["seat", "bag", "meal"], "Premium", "Premium Flex", "web", [{ first: "Arthur", last: "Hayes" }, { first: "Sophie", last: "Bennett" }]],
+    ],
+    searches: [
+      ["JFK", "LIS", "2026-06-19", 2, 3, "iPhone", 2],
+      ["LIS", "FCO", "2026-06-24", 2, 2, "iPhone", 2],
+      ["LIS", "CDG", "2026-06-26", 2, 3, "iPhone", 5],
+    ],
+  },
+
+  // ── Doc persona: Eliane — Homesick emigrant (Chapters 6, 10, 12) ─────
+  eliane: {
+    id: "eliane", label: "Eliane Moreira", blurb: "Silver · high-frequency BR–PT", archetype: "Homesick Emigrant",
+    user: { member_no: "BR-990011", first_name: "Eliane", full_name: "Eliane Moreira", email: "anant.direct2links+eliane@gmail.com", phone: "+55 11 97733 8820", tier: "Silver", miles: 71240, nationality: "Brazilian", dob: "22 Oct 1979", gender: "Female", passport_exp: "04 Mar 2030", doc_id: "BR •••• 6650", home_airport: "GRU", card_brand: "Visa", card_last4: "9914", card_exp: "12/28", card_product: "TAP | Miles&Go Visa", card_categories: JSON.stringify([{ name: "Money Transfer", share: 30 }, { name: "Groceries", share: 23 }, { name: "Telecoms", share: 17 }, { name: "Flights", share: 15 }]), affinity: "family", affinity_label: "Keeping family close" },
+    prefs: { seat: "22F — window", seat_note: "Window on 8 of your last 10 flights", bag: "2 checked bags · gifts", meal: "Vegetarian", auto_checkin: 1 },
+    voucher: { code: "5044", amount: 60, reason: "Loyalty goodwill", expiry: "31 Dec 2026" },
+    synced: { origin: "GRU", dest: "LIS", date: "2026-07-02", device: "Android phone", stage: "seat", flight_no: "TP073", seat: "22F", items: ["seat", "bag"], cabin: "Economy" },
+    ancillaries: [
+      ["seat", "Seat 22F — window", "Your usual window.", 12, null, 1, "seat"],
+      ["bag", "2 checked bags · 23kg", "Gifts for the family.", 25, null, 1, "bag"],
+      ["meal", "Vegetarian meal", "Pre-ordered to your seat.", 8, null, 1, "meal"],
+      ["wifi", "Wi-Fi Full Pass", "Video-call the kids at home.", 6, null, 0, "wifi"],
+      ["transfer", "Airport transfer — Lisbon", "To your mother's home.", 18, null, 0, "car"],
+      ["lounge", "TAP Lounge — GRU", "Silver rate.", 24, null, 0, "lounge"],
+    ],
+    destinations: [
+      ["Lisbon", "LIS", "Home — visiting family", 529, 90000, "❤️"],
+      ["Porto", "OPO", "Your sister lives here", 545, null, "🌉"],
+      ["Rio de Janeiro", "GIG", "Where you grew up", 179, null, "🏖️"],
+      ["Madrid", "MAD", "Layover shopping", 118, null, "🏛️"],
+    ],
+    history: [
+      ["TP073", "GRU→LIS", "2026-01-14", "22:10", "Leisure"], ["TP074", "LIS→GRU", "2026-02-02", "12:30", "Leisure"],
+      ["TP073", "GRU→LIS", "2026-03-20", "22:10", "Leisure"], ["TP074", "LIS→GRU", "2026-04-06", "12:30", "Leisure"],
+      ["TP083", "LIS→GIG", "2026-05-01", "23:40", "Leisure"], ["TP084", "GIG→LIS", "2026-05-20", "18:10", "Leisure"],
+    ],
+    bookings: [
+      ["TPELI01", "TP073", "GRU", "LIS", "22:10", "13:05", 548, "2026-01-14", "22F", "completed", 1, ["seat", "bag", "meal"], "Economy", "Classic"],
+      ["TPELI02", "TP074", "LIS", "GRU", "12:30", "20:55", 542, "2026-02-02", "22F", "completed", 1, ["seat", "bag", "meal"], "Economy", "Classic"],
+      ["TPELI03", "TP073", "GRU", "LIS", "22:10", "13:05", 561, "2026-07-02", "22F", "confirmed", 0, ["seat", "bag", "meal"], "Economy", "Classic", "web", [{ first: "Eliane", last: "Moreira" }, { first: "Rafael", last: "Moreira" }, { first: "Clara", last: "Moreira" }]],
+      ["TPELI04", "TP083", "LIS", "GIG", "23:40", "07:20", 189, "2026-08-10", "24D", "confirmed", 0, ["seat", "bag"], "Economy", "Classic"],
+    ],
+    searches: [
+      ["GRU", "LIS", "2026-07-02", 3, 3, "Android phone", 1],
+      ["LIS", "GRU", "2026-07-24", 3, 3, "Android phone", 1],
+      ["GIG", "OPO", "2026-09-15", 1, 4, "Android phone", 7],
+    ],
+  },
 };
 const DEFAULT_PERSONA = "daniel";
 
 function seedBookings(uid, persona) {
   const P = (persona && PERSONAS[persona]) || PERSONAS[DEFAULT_PERSONA];
   const B = P.bookings;
+  // Route-accurate duration/aircraft so long-haul personas (Luís, Arthur, Eliane) display correctly.
+  const routeDur = {}; for (const [o, d, dur] of ROUTES) { routeDur[o + "-" + d] = dur; routeDur[d + "-" + o] = dur; }
+  const fmtDur = (min) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, "0")}`;
   // Seed ONE flights row per unique flight_no (personalization joins bookings→flights;
   // duplicate flight_no rows would inflate counts). Booking carries its own date/seat.
   const seenFlights = new Set(db.prepare("SELECT flight_no FROM flights").all().map(r => r.flight_no));
   const insF = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,status)
     VALUES (?,?,?,?,?,?,?,?,?,?,?, 'scheduled')`);
-  const insB = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?)`);
+  const insB = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,meta_json,source,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
   const insP = db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`);
   const shift = personaShift(P);
-  B.forEach(([pnr,fno,o,d,dep,arr,price,date,seat,status,ci,items]) => {
+  // Rows: [pnr,fno,o,d,dep,arr,price,date,seat,status,ci,items, cabin?, fare?, source?, passengers?]
+  B.forEach(([pnr, fno, o, d, dep, arr, price, date, seat, status, ci, items, cabin, fare, source, passengers]) => {
     // Upcoming (confirmed) trips roll forward so the soonest is ~tomorrow; past trips stay put.
     const bdate = status === "confirmed" ? isoAdd(date, shift) : date;
     if (!seenFlights.has(fno)) {
-      const dur = d === "FNC" ? "1h30" : (d === "MAD" ? "2h15" : "0h55");
-      insF.run(fno, o, d, dep, arr, dur, "A320neo", price, 9, bdate, fno === "TP1927" ? 1 : 0);
+      const dm = routeDur[o + "-" + d];
+      const dur = dm ? fmtDur(dm) : (d === "FNC" ? "1h30" : (d === "MAD" ? "2h15" : "0h55"));
+      const aircraft = (dm || 0) >= 360 ? "A330neo" : "A320neo";   // wide-body on long-haul
+      insF.run(fno, o, d, dep, arr, dur, aircraft, price, 9, bdate, fno === "TP1927" ? 1 : 0);
       seenFlights.add(fno);
     }
     const createdAt = date + " 08:30:00";
-    const r = insB.run(pnr, uid, fno, bdate, seat, status, ci, JSON.stringify(items), createdAt);
+    // meta_json carries cabin/fare (so the migration keeps cabin-correct seats) and any extra passengers.
+    const meta = (cabin || fare || passengers)
+      ? JSON.stringify({ cabin: cabin || "Economy", fare: fare || "Classic", ...(passengers ? { passengers } : {}) })
+      : null;
+    const r = insB.run(pnr, uid, fno, bdate, seat, status, ci, JSON.stringify(items), meta, source || "web", createdAt);
     insP.run(Number(r.lastInsertRowid), price, 0, 0, 0, +price.toFixed(2), createdAt);
   });
 }
 
-// The 5 known/pre-seeded users — fixed uid↔persona mapping (§3.3). uids 6–15 are the
-// anonymous registration slots, created on demand in step 8 (NOT seeded here).
-const KNOWN_USERS = [[1, "daniel"], [2, "sofia"], [3, "lars"], [4, "maria"], [5, "james"]];
+// The 11 known/pre-seeded personas — fixed uid↔persona mapping. uids 12–21 are the
+// anonymous registration slots, created on demand at register time (NOT seeded here).
+const KNOWN_USERS = [[1, "daniel"], [2, "sofia"], [3, "lars"], [4, "maria"], [5, "james"], [6, "luis"], [7, "marcela"], [8, "peter"], [9, "pinto"], [10, "arthur"], [11, "eliane"]];
 
 function seed() {
   seedMembersDirectory();                       // all 5 personas → members directory (idempotent)
@@ -595,6 +823,26 @@ function seedUser(uid, personaId) {
   console.log(`✓ Seeded user ${uid} ← persona '${personaId}' (${u.member_no}) → ` + DB_PATH);
 }
 seed();
+
+// The 5 original personas seed only on a fresh DB (seed() is count-gated). The 6 doc
+// personas (uids 6–11) must ALSO appear on an already-seeded VM DB without a wipe, so
+// seed them here idempotently: add each missing persona (matched by member_no) at its
+// designated uid, but only if that uid is free (never clobber an anonymous registration).
+(function ensureDocPersonas() {
+  try {
+    const NEW = [[6, "luis"], [7, "marcela"], [8, "peter"], [9, "pinto"], [10, "arthur"], [11, "eliane"]];
+    let added = 0, blocked = 0;
+    for (const [uid, pid] of NEW) {
+      const P = PERSONAS[pid]; if (!P) continue;
+      if (db.prepare("SELECT id FROM users WHERE member_no=?").get(P.user.member_no)) continue;   // already present
+      if (db.prepare("SELECT id FROM users WHERE id=?").get(uid)) { blocked++; continue; }          // uid taken (e.g. anon reg) — skip
+      seedUser(uid, pid);
+      added++;
+    }
+    if (added) console.log(`[seed] added ${added} doc persona(s) to existing DB`);
+    if (blocked) console.warn(`[seed] ${blocked} doc persona uid(s) occupied by other users — reset the DB to seat all 11 personas cleanly`);
+  } catch (e) { console.warn("[seed] ensureDocPersonas skipped:", e.message); }
+})();
 
 // Unconditional, idempotent route-network sync — runs on EVERY boot, independent of the
 // initial seed (which is gated on a fresh DB). Ensures new/reverse routes added to

@@ -1,7 +1,7 @@
 // FlyTAP v2 — shell: top navigation + footer + page layout.
 import React, { useState, useEffect } from "react";
 import { Avatar, Btn, Icon, TierBadge, cx } from "./ui.jsx";
-import { miles, api } from "./lib.js";
+import { miles, api, setCurrency, setLang, t } from "./lib.js";
 import { trip, onTripChange } from "./trip.js";
 
 export const TapLogo = ({ onDark = false }) => (
@@ -14,9 +14,9 @@ export const TapLogo = ({ onDark = false }) => (
 );
 
 const NAV = [
-  { key: "home", label: "Book" },
+  { key: "home", label: "Book", tk: "book" },
   { key: "stopover", label: "Portugal Stopover" },
-  { key: "extras", label: "Trip Extras" },
+  { key: "extras", label: "Trip Extras", tk: "extras" },
   { key: "miles", label: "TAP Miles & Go" },
   { key: "ai", label: "TAP AI" },
 ];
@@ -109,7 +109,8 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
     : `${upcomingTrips.length} upcoming${nextRoute ? " · " + nextRoute : ""}`;
   const [mobileMenu, setMobileMenu] = useState(false);
   const [curMenu, setCurMenu] = useState(false);
-  const [cur, setCur] = useState("PT · EUR");
+  const [cur, setCur] = useState(() => { try { return localStorage.getItem("flytap_curlabel") || "PT · EUR"; } catch { return "PT · EUR"; } });
+  const pickCur = (label, code, lang) => { setCur(label); try { localStorage.setItem("flytap_curlabel", label); } catch { } setCurrency(code); setLang(lang); setCurMenu(false); };
   const [, _basketTick] = useState(0);
   useEffect(() => onTripChange(() => _basketTick(n => n + 1)), []); // re-render the badge the moment the basket changes
   const basketCount = trip.pnr ? 0 : (trip.outbound ? 1 + (trip.extras?.length || 0) : 0);   // 0 once booked or with no chosen flight; otherwise flight + add-ons (matches the basket page)
@@ -124,7 +125,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
             <button key={n.key} onClick={() => go(n.key)}
               className={cx("px-3 py-2 text-[13px] transition-colors border-b-2 inline-flex items-center gap-1",
                 on ? "text-ink font-semibold border-tap-green" : "text-ink font-medium hover:text-ink border-transparent")}>
-              {n.label}{n.key === "extras" && <Icon name="chevron" size={13} />}
+              {n.tk ? t(n.tk) : n.label}{n.key === "extras" && <Icon name="chevron" size={13} />}
             </button>
           ); })}
         </nav>
@@ -133,7 +134,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
           <div className="relative hidden lg:block">
             <button onClick={() => setCurMenu(m => !m)} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink hover:bg-surface-mute"><Icon name="globe" size={15} /> {cur} <Icon name="chevron" size={13} /></button>
             {curMenu && <div className="absolute right-0 mt-2 w-44 bg-surface rounded-xl border border-line shadow-pop py-1 text-[13px] z-50">
-              {["PT · EUR", "EN · EUR", "EN · USD", "EN · GBP", "BR · BRL"].map(c => <button key={c} onClick={() => { setCur(c); setCurMenu(false); }} className={cx("w-full text-left px-3 py-2 hover:bg-surface-mute flex items-center justify-between", c === cur && "font-semibold text-tap-greenDeep")}>{c}{c === cur && <Icon name="check" size={13} />}</button>)}
+              {[["PT · EUR", "EUR", "pt-PT"], ["EN · EUR", "EUR", "en"], ["EN · USD", "USD", "en"], ["EN · GBP", "GBP", "en"], ["BR · BRL", "BRL", "pt-BR"]].map(([c, code, lang]) => <button key={c} onClick={() => pickCur(c, code, lang)} className={cx("w-full text-left px-3 py-2 hover:bg-surface-mute flex items-center justify-between", c === cur && "font-semibold text-tap-greenDeep")}>{c}{c === cur && <Icon name="check" size={13} />}</button>)}
             </div>}
           </div>
           <button onClick={() => go("wishlist")} className="hidden lg:inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-ink-muted hover:text-ink hover:bg-surface-mute" title="Wishlist"><Icon name="heart" size={16} /> Wishlist</button>

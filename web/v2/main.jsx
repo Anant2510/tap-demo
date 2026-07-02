@@ -3,7 +3,7 @@
 // user logs in via the top-right dialog, then re-renders as the personalized Home.
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import { api, setSessionId, authReady } from "./lib.js";
+import { api, setSessionId, authReady, onCurrencyChange, onLangChange } from "./lib.js";
 import { resetTrip, restoreFromSaved, loadTrip, saveTrip } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
@@ -21,6 +21,9 @@ function App() {
   const [shared, setShared] = useState({ profile: null, destinations: [], airports: [], journey: null, suggested: null, loading: true });
   const [loggedIn, setLoggedIn] = useState(() => { try { return localStorage.getItem("flytap_auth") === "1"; } catch { return false; } });
   const [showLogin, setShowLogin] = useState(false);
+  const [, _curTick] = useState(0);
+  useEffect(() => onCurrencyChange(() => _curTick(n => n + 1)), []);   // A7 — re-price the whole tree when the display currency changes
+  useEffect(() => onLangChange(() => _curTick(n => n + 1)), []);       // B2 — re-render strings when the language changes
 
   useEffect(() => {
     const on = () => { setLoc(parseHash()); window.scrollTo({ top: 0 }); };

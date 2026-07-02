@@ -3,8 +3,8 @@
 // disruption (C2), Online check-in (J3), Add extras (J4), Cancel & refund (C4).
 // Each screen reads the same "current booking" the server acts on (mirror of the
 // server's currentBooking()), so the card you see is the booking the action mutates.
-import React, { useState, useEffect } from "react";
-import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS } from "./lib.js";
+import React, { useState, useEffect, useMemo } from "react";
+import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS, money, t } from "./lib.js";
 import { trip } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
@@ -45,7 +45,7 @@ function useActiveBooking() {
 const notifyBookingChanged = () => { try { window.dispatchEvent(new Event("tap:booking-changed")); } catch { /* noop */ } };
 
 const cityOf = (airports, code) => (airports || []).find(a => a.code === code)?.city || code || "—";
-const eur2 = (n) => n == null ? "—" : `€${Number(n).toFixed(2)}`;
+const eur2 = (n) => money(n, { dp: 2 });
 const lastName = (u) => u.last_name || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : "");
 // Friendly labels for the seeded extra codes stored on a booking's items_json.
 const EXTRA_LABEL = { seat: "Seat", bag: "Checked bag", meal: "Meal", wifi: "Wi-Fi", transfer: "Transfer", car: "Transfer", lounge: "Lounge", upgrade: "Cabin upgrade", carbon: "Carbon offset", "checked-bag": "Checked bag", "bag-extra": "Extra checked bag", insurance: "Insurance", "ins-plus": "Insurance", priority: "Priority boarding", "xsell-sintra": "Sintra day trip", "xsell-douro": "Douro wine tour", "xsell-xfer-return": "Return transfer", "xsell-late-checkout": "Late checkout" };
@@ -115,6 +115,26 @@ const Crumb = ({ go, label = "Manage booking", trail }) => {
 };
 
 /* ═══════════ J1 · RETRIEVE + MANAGE HUB ═══════════ */
+// G1 · a purchased fare brand is a bundle; surface each service item with a granular
+// delivery status so the same bundle renders consistently in post-booking and at check-in.
+function bundleServices(b, meta) {
+  const fare = meta.fare || meta.cabin || "Classic";
+  const ci = b.checked_in;
+  const items = [...new Set(b.items || [])];
+  const svc = [{ label: `${(b.flight_no || "").replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}`, status: "Confirmed", tone: "green" }];
+  svc.push({ label: `${t("seat")} ${b.seat || "—"}`, status: b.seat && b.seat !== "—" ? "Assigned" : "Auto at check-in", tone: b.seat && b.seat !== "—" ? "green" : "slate" });
+  items.filter(c => c !== "seat").forEach(c => {
+    let status = "Confirmed", label = extraLabel(c);
+    if (c === "meal") status = "Pre-ordered";
+    else if (c === "lounge") { status = "Access ready"; label = t("lounge"); }
+    else if (c === "wifi") { status = "Voucher issued"; label = t("wifi"); }
+    else if (/bag/i.test(c)) { status = ci ? "Tagged" : "Confirmed"; label = t("checkedBag"); }
+    svc.push({ label, status, tone: "green" });
+  });
+  svc.push({ label: t("boardingPass"), status: ci ? "Issued" : "Available 24h before", tone: ci ? "green" : "slate" });
+  return { fare, svc };
+}
+
 export function ManageBooking({ shared, go }) {
   const { booking, all, loading, err } = useActiveBooking();
   const airports = shared.airports;
@@ -189,11 +209,28 @@ export function ManageBooking({ shared, go }) {
                   </>; })()}
                   {!(b.items || []).length && <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="bag" size={11} /> Carry-on</span>}
                 </div>
+                {(() => {
+                  const { fare: bf, svc } = bundleServices(b, meta);
+                  return (
+                    <div className="mt-3 rounded-xl border border-line bg-surface-soft/60 p-3">
+                      <div className="flex items-center gap-2 mb-2"><Icon name="spark" size={12} className="text-tap-greenDeep" /><span className="text-[11px] font-bold text-ink">{bf} bundle</span><span className="text-[10px] text-ink-faint">· {svc.length} services · granular delivery status</span></div>
+                      <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5">
+                        {svc.map((s, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2 text-[11.5px]">
+                            <span className="text-ink-muted truncate">{s.label}</span>
+                            <span className={cx("shrink-0 inline-flex items-center gap-1 font-semibold", s.tone === "green" ? "text-tap-greenDeep" : "text-ink-faint")}>{s.tone === "green" && <Icon name="check" size={11} />}{s.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
                   <button onClick={() => go("rebook", { pnr: b.pnr })} className="inline-flex items-center gap-1.5 rounded-full bg-tap-green text-white px-3.5 py-1.5 text-[12px] font-bold hover:bg-tap-greenDeep transition-colors"><Icon name="refresh" size={12} /> Update flight</button>
                   {ACTIONS.map(([lbl, page, ic]) => (
                     <button key={lbl} onClick={() => go(page, page === "addextras" ? { pnr: b.pnr } : undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name={ic} size={12} /> {lbl}</button>
                   ))}
+                  {paxN > 1 && <button onClick={() => go("split", { pnr: b.pnr })} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name="swap" size={12} /> Change / split travellers</button>}
                 </div>
               </Card>
             );
@@ -593,6 +630,162 @@ export function SeatChange({ shared, go }) {
 }
 
 /* ═══════════ C2 · REBOOK ON DISRUPTION ═══════════ */
+// C5 · Disruption center — a disrupted multi-passenger booking where each traveller
+// can independently rebook, take a full refund, or take a travel voucher (+20% bonus),
+// followed by proactive multi-channel comms (push · SMS · email).
+export function DisruptionCenter({ shared, go }) {
+  const [rows, setRows] = useState(null);
+  const [dis, setDis] = useState({ recovery: null, loading: true });
+  const [res, setRes] = useState({});
+  const [rebookFlight, setRebookFlight] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+  useEffect(() => { api.get("/bookings").then(setRows).catch(() => setRows([])); }, []);
+  const booking = useMemo(() => {
+    const list = rows || [];
+    return list.find(b => (b.status === "confirmed" || b.status === "rebooked") && (b.meta?.passengers?.length > 1))
+      || list.find(b => b.status === "confirmed") || list[0];
+  }, [rows]);
+  useEffect(() => {
+    if (!booking) return;
+    api.post("/disrupt", { flight_no: booking.flight_no }).then(r => setDis({ recovery: r.recovery, loading: false })).catch(() => setDis({ recovery: null, loading: false }));
+  }, [booking?.flight_no]);
+  const pax = booking?.meta?.passengers || [];
+  useEffect(() => { if (pax.length && !Object.keys(res).length) { const d = {}; pax.forEach((_, i) => d[i] = "rebook"); setRes(d); } }, [pax.length]); // eslint-disable-line
+  const alts = (dis.recovery?.options || []).filter(o => o.id !== booking?.flight_no && !/^keep/i.test(o.label || ""));
+  useEffect(() => { if (alts.length && !rebookFlight) setRebookFlight(alts[0].id); }, [dis]); // eslint-disable-line
+  if (rows === null || dis.loading) return <Loading label="Checking your group's flight status…" />;
+  if (!booking) return <Empty go={go} title="Nothing to resolve" msg="No active booking found." />;
+  const flight = booking.flight || {};
+  const farePer = Math.round(flight.price || 189);
+  const voucherAmt = Math.round(farePer * 1.2);
+  const anyRebook = pax.some((_, i) => (res[i] || "rebook") === "rebook");
+  const cityO = cityOf(shared.airports, flight.origin), cityD = cityOf(shared.airports, flight.dest);
+  const apply = async () => {
+    setBusy(true);
+    const resolutions = pax.map((_, i) => ({ paxIndex: i, type: res[i] || "rebook", ...(((res[i] || "rebook") === "rebook") ? { flight_no: rebookFlight } : {}) }));
+    const r = await api.post("/bookings/disruption-resolve", { pnr: booking.pnr, resolutions }).catch(() => ({ ok: false }));
+    setBusy(false);
+    if (r.ok) { setDone(r); notifyBookingChanged(); window.scrollTo({ top: 0 }); }
+  };
+
+  if (done) {
+    const ICON = { rebook: "plane", refund: "refresh", voucher: "spark" };
+    return (
+      <div className="mx-auto max-w-content px-6 py-8">
+        <SuccessHead title="Everyone's sorted" sub={`PNR ${booking.pnr} · each traveller resolved individually`} />
+        <Card className="p-5 mt-6 v2-in">
+          <div className="text-[13px] font-bold mb-3">Per-passenger resolution</div>
+          <div className="space-y-2.5">
+            {done.summary.map((s, i) => (
+              <div key={i} className="flex items-start justify-between gap-3 border border-line rounded-xl px-3.5 py-3">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <span className={cx("w-8 h-8 rounded-full inline-flex items-center justify-center shrink-0", s.type === "refund" ? "bg-[#fff4d6] text-[#9a6b00]" : s.type === "voucher" ? "bg-lime-tint text-tap-greenDeep" : "bg-surface-mute text-ink")}><Icon name={ICON[s.type]} size={15} /></span>
+                  <div className="min-w-0"><div className="text-[13px] font-semibold">{s.name}</div><div className="text-[11px] text-ink-faint">{s.note}{s.code ? ` · ${s.code}` : ""}{s.flight_no ? ` · ${s.flight_no}` : ""}</div></div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{s.type}</div>
+                  {s.amount ? <div className="text-[14px] font-black v2-num">{s.type === "refund" ? "−" : "+"}{eur2(s.amount)}</div> : <div className="text-[12px] font-semibold text-tap-greenDeep">Rebooked</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card className="p-5 mt-4">
+          <div className="flex items-center gap-2"><Icon name="send" size={14} className="text-tap-green" /><div className="text-[13px] font-bold">Proactive notifications sent</div></div>
+          <div className="text-[12px] text-ink-muted mt-1">{done.comms}.</div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {(done.channels || []).map(c => <span key={c} className="inline-flex items-center gap-1.5 rounded-full bg-lime-tint text-tap-greenDeep px-3 py-1 text-[11px] font-bold uppercase tracking-wide"><Icon name="check" size={11} /> {c}</span>)}
+          </div>
+        </Card>
+        <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn><Btn variant="outline" onClick={() => go("trips")}>My trips</Btn></div>
+      </div>
+    );
+  }
+
+  const OPTS = [
+    { k: "rebook", label: "Rebook", sub: "Next available flight", amt: null },
+    { k: "refund", label: "Refund", sub: "Back to original card", amt: -farePer },
+    { k: "voucher", label: "Voucher", sub: "+20% travel credit", amt: voucherAmt },
+  ];
+  return (
+    <div className="mx-auto max-w-page px-6 py-8">
+      <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: booking.pnr, page: "manage" }, { label: "Disruption" }]} />
+      <h1 className="text-[28px] font-black">Your flight was disrupted</h1>
+      <p className="text-[13px] text-ink-muted mt-1">{dis.recovery?.message || `Flight ${booking.flight_no} is affected.`} Choose how each traveller in this booking would like to be handled — they don't all have to do the same thing.</p>
+
+      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-tap-red/30 p-5" style={{ background: "#fff1f1" }}>
+            <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1 mb-3">Disrupted</span>
+            <div className="flex flex-wrap items-center gap-4 line-through decoration-ink/30 decoration-1">
+              <div><div className="text-[24px] font-black v2-num">{flight.dep || "—"}</div><div className="text-[11px] text-ink-faint no-underline">{cityO}</div></div>
+              <div className="flex-1 min-w-[150px] text-center text-[11px] text-ink-muted">{flight.duration || ""} · nonstop<div className="h-px bg-ink/25 my-1.5" /><div className="font-bold text-ink/70">{fmtDate(booking.flight_date)} · {booking.flight_no} · {flight.aircraft}</div></div>
+              <div className="text-right"><div className="text-[24px] font-black v2-num">{flight.arr || "—"}</div><div className="text-[11px] text-ink-faint no-underline">{cityD}</div></div>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[13px] font-bold mb-2">Resolve per traveller ({pax.length})</div>
+            <div className="space-y-3">
+              {pax.map((p, i) => (
+                <Card key={i} className="p-4">
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
+                    <div className="text-[14px] font-bold">{p.first} {p.last || ""}</div>
+                    <div className="text-[11px] text-ink-faint">Fare paid {eur2(farePer)}</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {OPTS.map(o => {
+                      const on = (res[i] || "rebook") === o.k;
+                      return (
+                        <button key={o.k} onClick={() => setRes(r => ({ ...r, [i]: o.k }))} className={cx("rounded-xl border p-2.5 text-left transition-colors", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line hover:border-line-strong")}>
+                          <div className="text-[12px] font-bold flex items-center gap-1">{o.label}{on && <Icon name="check" size={12} className="text-tap-green" />}</div>
+                          <div className="text-[10px] text-ink-faint mt-0.5">{o.sub}</div>
+                          <div className={cx("text-[12px] font-black v2-num mt-1", o.k === "refund" ? "text-[#9a6b00]" : o.k === "voucher" ? "text-tap-greenDeep" : "text-ink")}>{o.amt == null ? "No charge" : (o.amt < 0 ? "−" : "+") + eur2(Math.abs(o.amt))}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {anyRebook && alts.length > 0 && (
+            <Card className="p-4">
+              <div className="text-[13px] font-bold mb-2">Rebooked travellers move to</div>
+              <div className="space-y-2">
+                {alts.slice(0, 3).map(o => (
+                  <button key={o.id} onClick={() => setRebookFlight(o.id)} className={cx("w-full flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors", rebookFlight === o.id ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line")}>
+                    <div><div className="text-[13px] font-semibold">{o.label}</div><div className="text-[11px] text-ink-faint">{o.sub || o.detail || "Next available"}</div></div>
+                    {rebookFlight === o.id && <Icon name="check" size={16} className="text-tap-green" />}
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+
+        <aside className="lg:sticky lg:top-24 space-y-3">
+          <Card className="p-5">
+            <div className="text-[13px] font-bold mb-3">Summary</div>
+            <div className="space-y-1.5 text-[12px]">
+              {["rebook", "refund", "voucher"].map(t => {
+                const n = pax.filter((_, i) => (res[i] || "rebook") === t).length;
+                if (!n) return null;
+                return <div key={t} className="flex justify-between"><span className="text-ink-muted capitalize">{t} × {n}</span><span className="font-semibold">{t === "rebook" ? "no charge" : t === "refund" ? "−" + eur2(farePer * n) : "+" + eur2(voucherAmt * n)}</span></div>;
+              })}
+            </div>
+            <Divider className="my-3" />
+            <div className="rounded-xl bg-surface-soft p-2.5 text-[11px] text-ink-muted flex items-start gap-1.5"><Icon name="send" size={12} className="text-tap-green mt-0.5 shrink-0" /> We'll proactively confirm each outcome by push, SMS and email.</div>
+            <Btn className="w-full mt-3" disabled={busy || (anyRebook && !rebookFlight)} onClick={apply}>{busy ? "Applying…" : "Confirm resolutions"}</Btn>
+          </Card>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 export function Rebook({ shared, go }) {
   const [data, setData] = useState({ recovery: null, ai: null, loading: true, err: null });
   const [active, setActive] = useState(null);
@@ -621,17 +814,40 @@ export function Rebook({ shared, go }) {
     const r = await api.post("/rebook", { option: { id: opt.id } }).catch(() => ({ ok: false }));
     setBusy(false); setDone({ id: opt.id, label: opt.label, email: r?.email?.to }); window.scrollTo({ top: 0 });
   };
-  if (done) return (
-    <div className="mx-auto max-w-content px-6 py-8">
-      <SuccessHead title="You're rebooked" sub={`PNR ${active?.pnr || ""}${done.email ? " · confirmation sent to " + done.email : ""}`} />
-      <Card className="p-5 mt-6 v2-in">
-        <div className="text-[14px] font-bold">{done.label}</div>
-        <div className="text-[12px] text-ink-muted mt-1">Your booking now shows flight {done.id}. Your seat and extras carry over.</div>
-        <div className="flex flex-wrap gap-2 mt-3"><Pill tone="green">Rebooked</Pill><Pill tone="slate">Flight {done.id}</Pill><Pill tone="lime">No fare difference</Pill></div>
-      </Card>
-      <div className="flex gap-3 mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
-    </div>
-  );
+  if (done) {
+    // C2 · reassociate purchased ancillaries onto the new itinerary, with per-item status.
+    const raw = [...new Set(active?.items || [])];
+    const reassoc = [{ label: `Seat ${active?.seat || "—"}`, status: "retained", note: "Reassigned to the equivalent seat on the new flight — no charge." }];
+    raw.filter(c => c !== "seat").forEach(c => {
+      if (/nsf|window|seat-/i.test(c)) reassoc.push({ label: extraLabel(c), status: "repriced", note: "Seat product re-priced for the new aircraft.", delta: 6 });
+      else reassoc.push({ label: extraLabel(c), status: "retained", note: "Carried to the new flight." });
+    });
+    const repriceTotal = reassoc.reduce((s, r) => s + (r.delta || 0), 0);
+    return (
+      <div className="mx-auto max-w-content px-6 py-8">
+        <SuccessHead title="You're rebooked" sub={`PNR ${active?.pnr || ""}${done.email ? " · confirmation sent to " + done.email : ""}`} />
+        <Card className="p-5 mt-6 v2-in">
+          <div className="text-[14px] font-bold">{done.label}</div>
+          <div className="text-[12px] text-ink-muted mt-1">Your booking now shows flight {done.id}.</div>
+          <div className="flex flex-wrap gap-2 mt-3"><Pill tone="green">Rebooked</Pill><Pill tone="slate">Flight {done.id}</Pill>{repriceTotal > 0 ? <Pill tone="gold">Ancillary re-price +{eur2(repriceTotal)}</Pill> : <Pill tone="lime">No fare difference</Pill>}</div>
+        </Card>
+        <Card className="p-5 mt-4">
+          <div className="font-bold text-[15px] mb-1">Your extras on the new flight</div>
+          <div className="text-[12px] text-ink-muted mb-3">We automatically moved your purchased ancillaries to the new itinerary.</div>
+          <div className="space-y-2">
+            {reassoc.map((r, i) => (
+              <div key={i} className="flex items-start justify-between gap-3 border border-line rounded-xl px-3.5 py-2.5">
+                <div className="min-w-0"><div className="text-[13px] font-semibold">{r.label}</div><div className="text-[11px] text-ink-faint">{r.note}</div></div>
+                <span className={cx("shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-1", r.status === "retained" ? "bg-lime-tint text-tap-greenDeep" : r.status === "repriced" ? "bg-[#fff4d6] text-[#9a6b00]" : "bg-tap-red/10 text-tap-red")}>{r.status === "retained" ? "Retained" : r.status === "repriced" ? `Re-priced +${eur2(r.delta)}` : "Refunded"}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 rounded-xl bg-lime-tint/50 border border-tap-green/30 px-3 py-2 flex items-center gap-2 text-[12px] text-tap-greenDark"><Icon name="check" size={14} className="text-tap-green shrink-0" /> {repriceTotal > 0 ? `A small re-price of ${eur2(repriceTotal)} was applied to your card.` : "Everything transferred with no price change."} Anything that can't move is refunded to your original payment.</div>
+        </Card>
+        <div className="flex gap-3 mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
+      </div>
+    );
+  }
   const cur = active?.flight || {};
   const blob = `${rec.headline || ""} ${rec.message || ""}`;
   const status = /cancel/i.test(blob) ? "Cancelled" : /delay/i.test(blob) ? "Delayed" : "Schedule change";
@@ -1187,6 +1403,132 @@ const REFUND_DESTS = [
   { id: "miles", name: "TAP Miles", sub: "+8 800 miles · instant" },
   { id: "bank", name: "Bank Transfer", sub: "3–5 working days · no fee" },
 ];
+/* ═══════════ C1 · CHANGE / SPLIT TRAVELLERS (PNR / order split) ═══════════ */
+export function SplitBooking({ shared, params, go }) {
+  const { all, loading, err } = useActiveBooking();
+  const airports = shared?.airports || [];
+  const booking = (all || []).find(b => b.pnr === params?.pnr) || pickActive(all || [], params?.pnr);
+  const meta = booking?.meta || {};
+  const pax = Array.isArray(meta.passengers) ? meta.passengers : [];
+  const f = booking?.flight || {};
+  const [picked, setPicked] = useState(() => new Set());
+  const [mode, setMode] = useState("change");
+  const [newDate, setNewDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  if (loading) return <Loading label="Loading your booking…" />;
+  if (err || !booking) return <Empty go={go} title="Booking not found" msg={err || "We couldn't find that booking."} />;
+  if (pax.length < 2) return <Empty go={go} title="Single traveller" msg="This booking has one traveller — there's nothing to split. Use Update flight or Cancel & refund instead." />;
+
+  const nm = (p, i) => [p.title, p.first || p.firstName, p.last || p.lastName].filter(Boolean).join(" ").trim() || p.name || `Passenger ${i + 1}`;
+  const toggle = (i) => setPicked(s => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  const canSubmit = picked.size >= 1 && picked.size < pax.length;
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const r = await api.post("/bookings/split", { pnr: booking.pnr, splitIdx: [...picked], action: mode, newDate: mode === "change" ? (newDate || null) : null });
+      if (r.ok) { setResult(r); notifyBookingChanged(); } else alert(r.error || "Could not split the booking");
+    } catch (e) { alert("Split error: " + e.message); } finally { setBusy(false); }
+  }
+
+  if (result) {
+    const s = result.summary || {}, rec = result.original || {}, spl = result.split || {};
+    const cancelled = result.action === "cancel";
+    return (
+      <div className="mx-auto max-w-page px-6 py-8">
+        <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: "Change / split" }]} />
+        <SuccessHead title="Your booking was split into two records" sub={`${rec.pnr} stays as booked · ${spl.pnr} ${cancelled ? "cancelled with refund" : "moved to a new flight"}`} />
+        <div className="grid md:grid-cols-2 gap-4 mt-5">
+          <Card className="p-5">
+            <div className="flex items-center justify-between"><div className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">Record 1 · unchanged</div><Pill tone="green">{rec.pnr}</Pill></div>
+            <div className="text-[16px] font-black mt-2">{cityOf(airports, rec.origin)} <span className="text-ink-faint">→</span> {cityOf(airports, rec.dest)}</div>
+            <div className="text-[12px] text-ink-muted">{fmtDate(rec.date)} · {rec.flight_no} · {rec.pax} traveller{rec.pax !== 1 ? "s" : ""}</div>
+            <div className="mt-2 text-[12px] text-ink flex flex-wrap gap-1.5">{rec.passengers.map((n, i) => <span key={i} className="border border-line rounded-full px-2.5 py-1 font-medium">{n}</span>)}</div>
+            <div className="text-[13px] font-bold mt-3 v2-num">{eur2(rec.price)}</div>
+          </Card>
+          <Card className={cx("p-5", cancelled ? "border-tap-red/30" : "border-tap-green/30")}>
+            <div className="flex items-center justify-between"><div className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">Record 2 · {cancelled ? "cancelled" : "changed"}</div><Pill tone={cancelled ? "red" : "gold"}>{spl.pnr}</Pill></div>
+            <div className="text-[16px] font-black mt-2">{cityOf(airports, spl.origin)} <span className="text-ink-faint">→</span> {cityOf(airports, spl.dest)}</div>
+            <div className="text-[12px] text-ink-muted">{fmtDate(spl.date)} · {spl.flight_no} · {spl.pax} traveller{spl.pax !== 1 ? "s" : ""} · <span className={cancelled ? "text-tap-red font-semibold" : "text-tap-greenDeep font-semibold"}>{cancelled ? "Cancelled" : "Confirmed"}</span></div>
+            <div className="mt-2 text-[12px] text-ink flex flex-wrap gap-1.5">{spl.passengers.map((n, i) => <span key={i} className="border border-line rounded-full px-2.5 py-1 font-medium">{n}</span>)}</div>
+            <div className="text-[13px] font-bold mt-3 v2-num">{cancelled ? "Refunded" : eur2(spl.price)}</div>
+          </Card>
+        </div>
+        <Card className="p-5 mt-4">
+          <div className="font-bold text-[15px] mb-3">Ancillaries &amp; fare recalculation</div>
+          <div className="space-y-1.5 text-[13px]">
+            <div className="flex items-center justify-between"><span className="text-ink-muted">Ancillaries carried to {spl.pnr}</span><span className="font-semibold">{(s.retained || []).length ? (s.retained || []).map(extraLabel).join(" · ") : "—"}</span></div>
+            {(s.notTransferable || []).length > 0 && <div className="flex items-center justify-between"><span className="text-ink-muted">Stayed on {rec.pnr} (party item)</span><span className="font-semibold text-[#9a6b00]">{(s.notTransferable || []).map(extraLabel).join(" · ")}</span></div>}
+            {!cancelled && <div className="flex items-center justify-between"><span className="text-ink-muted">Change fee</span><span className="font-semibold v2-num">{eur2(s.changeFee)}</span></div>}
+            {!cancelled && s.fareDiff > 0 && <div className="flex items-center justify-between"><span className="text-ink-muted">Fare difference (new flight)</span><span className="font-semibold v2-num">+{eur2(s.fareDiff)}</span></div>}
+            {cancelled && <div className="flex items-center justify-between"><span className="text-ink-muted">Refund to original payment</span><span className="font-semibold v2-num text-tap-greenDeep">{eur2(s.refund)}</span></div>}
+          </div>
+          <div className="mt-3 rounded-xl bg-lime-tint/50 border border-tap-green/30 px-3 py-2 flex items-center gap-2 text-[12px] text-tap-greenDark"><Icon name="check" size={14} className="text-tap-green shrink-0" /> Summary emailed to you. Both records are now managed separately in My Trips.</div>
+        </Card>
+        <div className="flex gap-3 mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to My Trips</Btn></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-page px-6 py-8">
+      <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: "Change / split travellers" }]} />
+      <h1 className="text-[26px] font-black">Change or split travellers</h1>
+      <p className="text-[13px] text-ink-muted mt-1">Move one or more travellers to a different flight, or cancel just their seats — the rest of the party keeps their booking. This creates a second record (PNR split).</p>
+      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+        <div className="space-y-4">
+          <Card className="p-5">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Current booking · {booking.pnr}</div>
+            <div className="text-[16px] font-black mt-1">{cityOf(airports, f.origin)} <span className="text-ink-faint">→</span> {cityOf(airports, f.dest)}</div>
+            <div className="text-[12px] text-ink-muted">{fmtDate(booking.flight_date)} · {f.flight_no || booking.flight_no} · {pax.length} travellers · {meta.cabin || "Economy"}</div>
+          </Card>
+          <Card className="p-5">
+            <div className="font-bold text-[15px] mb-1">Who is changing?</div>
+            <div className="text-[12px] text-ink-muted mb-3">Select the traveller(s) to move onto a new record. At least one must stay on {booking.pnr}.</div>
+            <div className="space-y-2">
+              {pax.map((p, i) => {
+                const on = picked.has(i);
+                return (
+                  <button key={i} onClick={() => toggle(i)} className={cx("w-full flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line hover:border-line-strong")}>
+                    <span className={cx("w-5 h-5 rounded-md border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green bg-tap-green text-white" : "border-line-strong")}>{on && <Icon name="check" size={12} />}</span>
+                    <span className="flex-1"><span className="text-[14px] font-semibold">{nm(p, i)}</span><span className="block text-[11px] text-ink-faint">Seat {booking.seat || "—"} · {(booking.items || []).filter(c => c !== "seat").map(extraLabel).join(" · ") || "no extras"}</span></span>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+          <Card className="p-5">
+            <div className="font-bold text-[15px] mb-3">What should happen to them?</div>
+            <div className="grid sm:grid-cols-2 gap-2.5">
+              {[["change", "Move to a different flight", "Rebook the selected travellers"], ["cancel", "Cancel just their seats", "Refund per fare rules"]].map(([k, t, sub]) => (
+                <button key={k} onClick={() => setMode(k)} className={cx("rounded-xl border p-3.5 text-left transition-colors", mode === k ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line hover:border-line-strong")}>
+                  <div className="flex items-center gap-2"><span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", mode === k ? "border-tap-green" : "border-line-strong")}>{mode === k && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span><span className="text-[13px] font-bold">{t}</span></div>
+                  <div className="text-[11px] text-ink-faint mt-1 ml-6">{sub}</div>
+                </button>
+              ))}
+            </div>
+            {mode === "change" && <div className="mt-3"><div className="text-[11px] font-semibold text-ink mb-1">New flight date</div><input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="rounded-xl border border-line px-3 py-2 text-[13px] w-full sm:w-auto" /><div className="text-[10px] text-ink-faint mt-1">Leave blank to keep the same date on the new record (demo).</div></div>}
+          </Card>
+        </div>
+        <div className="lg:sticky lg:top-6">
+          <Card className="p-5">
+            <div className="font-bold text-[15px] mb-2">Split summary</div>
+            <div className="text-[12px] text-ink-muted space-y-1.5">
+              <div className="flex justify-between"><span>Staying on {booking.pnr}</span><span className="font-semibold text-ink">{pax.length - picked.size} traveller{pax.length - picked.size !== 1 ? "s" : ""}</span></div>
+              <div className="flex justify-between"><span>Moving to a new record</span><span className="font-semibold text-ink">{picked.size} traveller{picked.size !== 1 ? "s" : ""}</span></div>
+              <div className="flex justify-between"><span>Action</span><span className="font-semibold text-ink">{mode === "cancel" ? "Cancel + refund" : "Change flight"}</span></div>
+            </div>
+            <Btn className="w-full mt-4" disabled={!canSubmit || busy} onClick={submit}>{busy ? "Processing…" : mode === "cancel" ? "Split & cancel their seats" : "Split & rebook them"} <Icon name="arrow" size={14} /></Btn>
+            {!canSubmit && <div className="text-[11px] text-ink-faint mt-2 text-center">Select at least one traveller, leaving at least one on the original.</div>}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Refund({ shared, go }) {
   const { booking, loading, err } = useActiveBooking();
   const [confirming, setConfirming] = useState(false);

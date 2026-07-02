@@ -5,7 +5,7 @@
 // Read-only against the (unchanged) /api/admin/*, /api/datasource, /api/aem/status
 // endpoints — the same ones the v1 console uses, plus an explicit AEM indicator.
 import React, { useState, useEffect } from "react";
-import { api, EUR, miles, fmtDate } from "./lib.js";
+import { api, EUR, miles, fmtDate, LANGS, I18N_TABLE, getLang, setLang, onLangChange } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, Icon, Divider, cx } from "./ui.jsx";
 
 /* ── small helpers ────────────────────────────────────────────── */
@@ -507,6 +507,106 @@ function PersonalizationLedger() {
   );
 }
 
+// E1 · Experimentation & governance — A/B / multivariate testing, a no-code workflow
+// configurator/publisher, and AI governance (on/off + decision-log pointer).
+function ExperimentationPanel() {
+  const [experiments, setExperiments] = useState([
+    { id: "exp-fare-layout", name: "Fare card layout", metric: "Fare selection rate", status: "running", winner: "B · Inline bundles", active: null, variants: [{ k: "A · Expandable", split: 50, conv: 4.2 }, { k: "B · Inline bundles", split: 50, conv: 4.9 }] },
+    { id: "exp-bundle-rank", name: "Bundle ranking model", metric: "Ancillary attach", status: "running", winner: "C · Segment-weighted", active: null, variants: [{ k: "A · Price-first", split: 34, conv: 3.1 }, { k: "B · Loyalty-weighted", split: 33, conv: 3.8 }, { k: "C · Segment-weighted", split: 33, conv: 4.4 }] },
+    { id: "exp-conf-recs", name: "Confirmation recs count", metric: "Post-book add rate", status: "ready", winner: null, active: null, variants: [{ k: "A · 2 cards", split: 50, conv: 6.0 }, { k: "B · 3 cards", split: 50, conv: 6.7 }] },
+  ]);
+  const promote = (id, k) => setExperiments(xs => xs.map(x => x.id === id ? { ...x, status: "promoted", active: k } : x));
+  const [steps, setSteps] = useState([
+    { k: "Search", on: true, locked: true }, { k: "Results & fare brands", on: true, locked: true },
+    { k: "Seat selection", on: true }, { k: "Ancillary upsell", on: true }, { k: "Cross-sell (3rd-party)", on: true },
+    { k: "Passenger details", on: true, locked: true }, { k: "Payment", on: true, locked: true },
+  ]);
+  const [published, setPublished] = useState(false);
+  const toggleStep = (i) => { setSteps(s => s.map((x, j) => j === i && !x.locked ? { ...x, on: !x.on } : x)); setPublished(false); };
+  const [ai, setAi] = useState({ master: true, recs: true, ranking: true, offers: true });
+  const setAiFlag = (k) => setAi(a => k === "master" ? { master: !a.master, recs: !a.master, ranking: !a.master, offers: !a.master } : { ...a, [k]: !a[k] });
+  return (<>
+    <Section icon="star" title="A/B &amp; multivariate testing" sub="Live experiments comparing flows, layouts and offers against a success metric" accent>
+      <div className="space-y-3">
+        {experiments.map(x => (
+          <div key={x.id} className="rounded-xl border border-line p-3.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="text-[13px] font-bold">{x.name}</div>
+              <div className="flex items-center gap-2"><span className="text-[10px] text-ink-faint">Metric: {x.metric}</span><Pill tone={x.status === "promoted" ? "green" : x.status === "running" ? "gold" : "slate"}>{x.status === "promoted" ? "Promoted" : x.status === "running" ? "Running" : "Ready"}</Pill></div>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-2 mt-2.5">
+              {x.variants.map(v => {
+                const best = x.winner === v.k, isActive = x.active === v.k;
+                return <div key={v.k} className={cx("rounded-lg border p-2.5", isActive ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : best ? "border-tap-green/40" : "border-line")}>
+                  <div className="text-[11px] font-semibold flex items-center gap-1">{v.k}{best && <span className="text-[9px] font-bold uppercase bg-lime-tint text-tap-greenDeep rounded px-1">lead</span>}</div>
+                  <div className="text-[10px] text-ink-faint mt-0.5">{v.split}% traffic</div>
+                  <div className="text-[15px] font-black v2-num mt-1">{v.conv}%</div>
+                  {!isActive && x.status !== "promoted" && <button onClick={() => promote(x.id, v.k)} className="text-[10px] font-semibold text-tap-greenDeep hover:underline mt-1">Promote →</button>}
+                  {isActive && <div className="text-[10px] font-bold text-tap-greenDeep mt-1">✓ Live to 100%</div>}
+                </div>;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+    <Section icon="grid" title="Workflow configurator &amp; publisher" sub="Toggle booking-flow steps and publish a variant — no developer needed">
+      <div className="flex flex-wrap gap-2">
+        {steps.map((s, i) => (
+          <button key={s.k} onClick={() => toggleStep(i)} disabled={s.locked} className={cx("inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors", s.on ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-line text-ink-faint", s.locked && "opacity-60 cursor-not-allowed")}>
+            <span className={cx("w-3.5 h-3.5 rounded inline-flex items-center justify-center", s.on ? "bg-tap-green text-white" : "border border-line-strong")}>{s.on && <Icon name="check" size={9} />}</span>{s.k}{s.locked && <span className="text-[9px] text-ink-faint">· required</span>}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-3 mt-3">
+        <Btn size="sm" onClick={() => setPublished(true)} disabled={published}>{published ? "Published ✓" : "Publish flow variant"}</Btn>
+        <span className="text-[11px] text-ink-faint">{steps.filter(s => s.on).length} of {steps.length} steps active{published && " · live now"}</span>
+      </div>
+    </Section>
+    <Section icon="bolt" title="AI governance" sub="Switch AI-driven features on/off and review the decision log" accent>
+      <label className="flex items-center justify-between rounded-xl border border-line p-3.5">
+        <div><div className="text-[13px] font-bold">AI personalization</div><div className="text-[11px] text-ink-faint">Master switch for all AI-driven recommendations, ranking and offers</div></div>
+        <button onClick={() => setAiFlag("master")} className={cx("w-11 h-6 rounded-full relative transition-colors shrink-0", ai.master ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all", ai.master ? "right-0.5" : "left-0.5")} /></button>
+      </label>
+      <div className="grid sm:grid-cols-3 gap-2 mt-2">
+        {[["recs", "Recommendations"], ["ranking", "Offer ranking"], ["offers", "Contextual offers"]].map(([k, l]) => (
+          <button key={k} onClick={() => ai.master && setAiFlag(k)} disabled={!ai.master} className={cx("rounded-lg border p-2.5 text-left transition-colors", ai[k] && ai.master ? "border-tap-green bg-lime-tint/40" : "border-line", !ai.master && "opacity-50")}>
+            <div className="text-[11px] font-semibold flex items-center justify-between">{l}<span className={cx("text-[9px] font-bold uppercase", ai[k] && ai.master ? "text-tap-greenDeep" : "text-ink-faint")}>{ai[k] && ai.master ? "ON" : "OFF"}</span></div>
+          </button>
+        ))}
+      </div>
+      <div className="text-[11px] text-ink-muted mt-2.5 flex items-center gap-1.5"><Icon name="doc" size={12} className="text-ink-faint" /> Decision log: every AI recommendation is traced in the <span className="font-semibold">Personalization ledger</span> above, with the DB rows &amp; audiences that drove it.</div>
+    </Section>
+  </>);
+}
+
+// B2 · Regional language showcase — proves Portuguese is localized by region.
+function LocalizationPanel() {
+  const [, tick] = useState(0);
+  useEffect(() => onLangChange(() => tick(n => n + 1)), []);
+  const lang = getLang();
+  const rows = Object.entries(I18N_TABLE).filter(([, v]) => v[1] !== v[2]);
+  return (
+    <Section icon="globe" title="Regional language · pt-PT vs pt-BR" sub="Portuguese is localized by region — a Brazilian member sees Brazilian wording, not European" accent
+      right={<div className="flex gap-1">{Object.keys(LANGS).map(k => <button key={k} onClick={() => setLang(k)} className={cx("px-2.5 py-1 rounded-full text-[11px] font-semibold border", lang === k ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-line text-ink-muted")}>{k === "en" ? "EN" : k === "pt-PT" ? "PT" : "BR"}</button>)}</div>}>
+      <div className="text-[12px] text-ink-muted mb-3">Active: <span className="font-semibold text-ink">{LANGS[lang]}</span>. {rows.length} of the terms below differ between European and Brazilian Portuguese — the engine picks the right variant per member.</div>
+      <div className="overflow-hidden rounded-xl border border-line">
+        <div className="grid grid-cols-3 bg-surface-soft text-[10px] font-bold uppercase tracking-wide text-ink-faint">
+          <div className="p-2.5">English</div><div className="p-2.5">Portugal (pt-PT)</div><div className="p-2.5">Brasil (pt-BR)</div>
+        </div>
+        {rows.map(([k, v]) => (
+          <div key={k} className="grid grid-cols-3 border-t border-line text-[12px]">
+            <div className="p-2.5 text-ink-muted">{v[0]}</div>
+            <div className={cx("p-2.5 font-semibold", lang === "pt-PT" ? "bg-lime-tint/40 text-tap-greenDeep" : "text-ink")}>{v[1]}</div>
+            <div className={cx("p-2.5 font-semibold", lang === "pt-BR" ? "bg-lime-tint/40 text-tap-greenDeep" : "text-ink")}>{v[2]}</div>
+          </div>
+        ))}
+      </div>
+      <div className="text-[11px] text-ink-faint mt-2">Switch language in the top-right of the site (or here) — the nav and bundle/booking labels update live across the app.</div>
+    </Section>
+  );
+}
+
 export function DemoConsole({ shared, go }) {
   const [dbPath, setDbPath] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -541,6 +641,8 @@ export function DemoConsole({ shared, go }) {
         <Affinity />
         <SegmentsPanel shared={shared} />
         <PersonalizationLedger />
+        <LocalizationPanel />
+        <ExperimentationPanel />
         <div className="grid lg:grid-cols-[1.6fr_1fr] gap-5 items-start">
           <DbInspector />
           <EmailCenter />
