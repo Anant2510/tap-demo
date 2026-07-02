@@ -279,7 +279,7 @@ export function Home({ shared, go }) {
                   </div>
                   <div className="flex items-center justify-between mt-1.5"><div className="text-[15px] font-bold">{t.route}</div><div className="text-[12px] font-semibold text-ink-muted v2-num">{t.time}</div></div>
                   <div className="text-[11px] text-ink-muted mt-1 min-h-[28px]">{t.detail}</div>
-                  <Btn size="sm" variant={t.shuttle ? "outline" : "soft"} className="mt-2 w-full" onClick={() => t.shuttle ? null : go("express")}>{t.shuttle ? "Manage shuttle" : "One-tap book"}</Btn>
+                  <Btn size="sm" variant="soft" className="mt-2 w-full" onClick={() => go(t.shuttle ? "manage" : "express")}>{t.shuttle ? "Manage shuttle" : "One-tap book"}</Btn>
                 </div>
               </Card>
             ))}

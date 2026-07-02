@@ -1,7 +1,7 @@
 // FlyTAP v2 — shell: top navigation + footer + page layout.
 import React, { useState, useEffect } from "react";
 import { Avatar, Btn, Icon, TierBadge, cx } from "./ui.jsx";
-import { miles } from "./lib.js";
+import { miles, api } from "./lib.js";
 import { trip, onTripChange } from "./trip.js";
 
 export const TapLogo = ({ onDark = false }) => (
@@ -21,9 +21,92 @@ const NAV = [
   { key: "ai", label: "TAP AI" },
 ];
 
+const SEARCH_DESTS = [
+  { code: "BCN", city: "Barcelona", country: "Spain" }, { code: "MAD", city: "Madrid", country: "Spain" },
+  { code: "LHR", city: "London", country: "United Kingdom" }, { code: "CDG", city: "Paris", country: "France" },
+  { code: "FCO", city: "Rome", country: "Italy" }, { code: "AMS", city: "Amsterdam", country: "Netherlands" },
+  { code: "BRU", city: "Brussels", country: "Belgium" }, { code: "FNC", city: "Funchal", country: "Madeira" },
+  { code: "LIS", city: "Lisbon", country: "Portugal" }, { code: "OPO", city: "Porto", country: "Portugal" },
+  { code: "GRU", city: "São Paulo", country: "Brazil" }, { code: "GIG", city: "Rio de Janeiro", country: "Brazil" },
+  { code: "JFK", city: "New York", country: "United States" }, { code: "MXP", city: "Milan", country: "Italy" },
+  { code: "MUC", city: "Munich", country: "Germany" }, { code: "BER", city: "Berlin", country: "Germany" },
+];
+
+// #5 — inline smart-search overlay: replaces the redirect with a modal that has predictive
+// autocomplete, recent searches, a shortcut to the user's trips, and popular destinations.
+function SearchOverlay({ go, upcoming = [], onClose }) {
+  const [q, setQ] = useState("");
+  const [recent, setRecent] = useState([]);
+  useEffect(() => {
+    try { setRecent(JSON.parse(localStorage.getItem("tap.recentSearch") || "[]")); } catch { setRecent([]); }
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const pick = (d) => {
+    try { localStorage.setItem("tap.recentSearch", JSON.stringify([d, ...recent.filter(r => r.code !== d.code)].slice(0, 4))); } catch { /* noop */ }
+    onClose();
+    go("results", { dest: d.code });
+  };
+  const ql = q.trim().toLowerCase();
+  const matches = ql ? SEARCH_DESTS.filter(d => d.city.toLowerCase().includes(ql) || d.code.toLowerCase().includes(ql) || d.country.toLowerCase().includes(ql)).slice(0, 6) : [];
+  const popular = SEARCH_DESTS.filter(d => ["BCN", "LHR", "CDG", "FCO", "MAD", "AMS"].includes(d.code));
+  const Row = ({ d, sub }) => (
+    <button onClick={() => pick(d)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-mute text-left">
+      <span className="w-9 h-9 rounded-lg bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center shrink-0"><Icon name="plane" size={16} /></span>
+      <span className="flex-1 min-w-0"><span className="block font-semibold text-ink text-[14px] truncate">{d.city} <span className="text-ink-faint font-normal">· {d.code}</span></span><span className="block text-[11px] text-ink-faint truncate">{sub || d.country}</span></span>
+      <Icon name="arrow" size={14} className="text-ink-faint shrink-0" />
+    </button>
+  );
+  return (
+    <div className="fixed inset-0 z-[60]" onMouseDown={onClose}>
+      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" />
+      <div className="relative mx-auto mt-[8vh] w-[92%] max-w-[640px] bg-surface rounded-2xl shadow-pop border border-line overflow-hidden" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-line">
+          <Icon name="search" size={18} className="text-ink-muted shrink-0" />
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search destinations, e.g. Barcelona" className="flex-1 bg-transparent outline-none text-[15px] text-ink placeholder:text-ink-faint" />
+          <button onClick={onClose} className="text-[11px] font-semibold text-ink-muted border border-line rounded px-2 py-1 hover:bg-surface-mute shrink-0">Esc</button>
+        </div>
+        <div className="max-h-[62vh] overflow-y-auto p-2">
+          {ql
+            ? (matches.length
+                ? <><div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint">Destinations</div>{matches.map(d => <Row key={d.code} d={d} />)}</>
+                : <div className="px-3 py-8 text-center text-[13px] text-ink-faint">No destinations match “{q}”.</div>)
+            : <>
+                {recent.length > 0 && <><div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint">Recent searches</div>{recent.map(d => <Row key={d.code} d={d} sub="Recent" />)}</>}
+                {upcoming.length > 0 && <><div className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint">Your trips</div>
+                  <button onClick={() => { onClose(); go("manage"); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-mute text-left"><span className="w-9 h-9 rounded-lg bg-surface-mute text-ink inline-flex items-center justify-center shrink-0"><Icon name="check" size={16} /></span><span className="flex-1 min-w-0"><span className="block font-semibold text-ink text-[14px]">{upcoming.length} upcoming {upcoming.length === 1 ? "trip" : "trips"}</span><span className="block text-[11px] text-ink-faint">View, check in, or change your bookings</span></span><Icon name="arrow" size={14} className="text-ink-faint shrink-0" /></button></>}
+                <div className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint">Popular destinations</div>{popular.map(d => <Row key={d.code} d={d} />)}
+              </>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);   // #5 — inline smart-search overlay
+  // #6 — the "My trips" dropdown summary must reflect the user's real bookings, not a fixed string.
+  const [trips, setTrips] = useState(null);
+  useEffect(() => {
+    if (!loggedIn) { setTrips(null); return; }
+    let alive = true;
+    const load = () => api.get("/bookings").then(r => { if (alive) setTrips(r || []); }).catch(() => { if (alive) setTrips([]); });
+    load();
+    const onChange = () => load();
+    window.addEventListener("tap:booking-changed", onChange);
+    return () => { alive = false; window.removeEventListener("tap:booking-changed", onChange); };
+  }, [loggedIn]);
+  const CITY = { OPO: "Porto", LIS: "Lisbon", MAD: "Madrid", LHR: "London", CDG: "Paris", FNC: "Funchal", BCN: "Barcelona", FCO: "Rome", GIG: "Rio de Janeiro", GRU: "São Paulo", JFK: "New York", EWR: "Newark", BRU: "Brussels", AMS: "Amsterdam", ORY: "Paris" };
+  const cityOf = (c) => CITY[c] || c || "";
+  const upcomingTrips = (trips || []).filter(b => (b.days_to_go ?? 0) >= 0 && b.status !== "cancelled");
+  const nextTrip = upcomingTrips.slice().sort((a, b) => (a.days_to_go ?? 99) - (b.days_to_go ?? 99))[0];
+  const nextRoute = nextTrip?.flight ? `${cityOf(nextTrip.flight.origin)}–${cityOf(nextTrip.flight.dest)}` : "";
+  const tripsSummary = trips == null ? "View your bookings"
+    : upcomingTrips.length === 0 ? "No upcoming trips"
+    : `${upcomingTrips.length} upcoming${nextRoute ? " · " + nextRoute : ""}`;
   const [mobileMenu, setMobileMenu] = useState(false);
   const [curMenu, setCurMenu] = useState(false);
   const [cur, setCur] = useState("PT · EUR");
@@ -33,6 +116,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const bookActive = ["home", "results", "cart", "basket", "express", "passenger", "payment", "customize"].includes(route);
   return (
     <header className="sticky top-0 z-40 bg-surface-mute/85 backdrop-blur border-b border-line">
+      {searchOpen && <SearchOverlay go={go} upcoming={upcomingTrips} onClose={() => setSearchOpen(false)} />}
       <div className="mx-auto max-w-page px-6 h-16 flex items-center gap-6">
         <button onClick={() => go("home")} className="shrink-0"><TapLogo /></button>
         <nav className="hidden lg:flex items-center gap-1 ml-2">
@@ -45,7 +129,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
           ); })}
         </nav>
         <div className="ml-auto flex items-center gap-1">
-          <button onClick={() => go("results")} className="p-2 rounded-lg text-ink hover:bg-surface-mute" title="Search"><Icon name="search" /></button>
+          <button onClick={() => setSearchOpen(true)} className="p-2 rounded-lg text-ink hover:bg-surface-mute" title="Search"><Icon name="search" /></button>
           <div className="relative hidden lg:block">
             <button onClick={() => setCurMenu(m => !m)} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[12px] font-semibold text-ink hover:bg-surface-mute"><Icon name="globe" size={15} /> {cur} <Icon name="chevron" size={13} /></button>
             {curMenu && <div className="absolute right-0 mt-2 w-44 bg-surface rounded-xl border border-line shadow-pop py-1 text-[13px] z-50">
@@ -75,7 +159,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
                     </div>
                     <div className="max-h-[60vh] overflow-y-auto py-1">
                       {[["Account", [["user", "My profile", "Personal info, passport, contacts", "manage"], ["star", "TAP Miles&Go", `${miles(user.miles || 42180)} mi · ${user.tier || "Gold"} tier`, "miles"], ["doc", "Payment methods", "2 cards saved", "manage"]]],
-                        ["Travel", [["plane", "My trips", "2 upcoming · Lisbon–Porto", "manage"], ["check", "Check-in & boarding passes", "Opens 24h before departure", "manage"], ["seat", "Travel preferences", "Seat, meal, assistance", "manage"], ["globe", "Saved travelers", "3 companions", "manage"]]],
+                        ["Travel", [["plane", "My trips", tripsSummary, "manage"], ["check", "Check-in & boarding passes", "Opens 24h before departure", "manage"], ["seat", "Travel preferences", "Seat, meal, assistance", "manage"], ["globe", "Saved travelers", "3 companions", "manage"]]],
                         ["Settings", [["info", "Notifications", "Push, SMS, email", "manage"], ["globe", "Language & region", "EN · Portugal (EUR)", "manage"], ["info", "Help & support", "24/7 contact", "ai"]]]
                       ].map(([sec, items]) => (
                         <div key={sec}>
@@ -148,4 +232,4 @@ export function Footer() {
 }
 
 export const Page = ({ children, wide = false }) =>
-  <div className={cx("mx-auto px-6 py-8", wide ? "max-w-page" : "max-w-content")}>{children}</div>;
+  <div className={cx("mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full max-w-full overflow-x-hidden", wide ? "max-w-page" : "max-w-content")}>{children}</div>;

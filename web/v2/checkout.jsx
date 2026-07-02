@@ -55,7 +55,7 @@ const fareCabin = (fare) => /exec/i.test(fare || "") ? "Business" : /premium/i.t
 // An explicitly chosen seat from the seat-map ("Seats · 8A") always wins over the fare default / recommendation.
 const chosenSeat = () => { const sm = (trip.extras || []).find(e => e.code === "seat-map"); const m = sm && String(sm.name).match(/\b(\d{1,2}[A-K])\b/); return m ? m[1] : null; };
 const SEAT_LETTERS = ["A", "B", "C", "D", "E", "F"];
-const adjSeat = (lead, n = 0) => { const m = String(lead || "14A").match(/^(\d+)\s*([A-Fa-f])/); if (!m) return lead || "14A"; const li = SEAT_LETTERS.indexOf(m[2].toUpperCase()); return m[1] + SEAT_LETTERS[((li < 0 ? 0 : li) + n) % 6]; };
+const adjSeat = (lead, n = 0) => { const m = String(lead || "22A").match(/^(\d+)\s*([A-Fa-f])/); if (!m) return lead || "22A"; const li = SEAT_LETTERS.indexOf(m[2].toUpperCase()); return m[1] + SEAT_LETTERS[((li < 0 ? 0 : li) + n) % 6]; };
 function Stepper({ active }) {
   return (
     <div className="bg-surface border-b border-line">
@@ -1370,9 +1370,9 @@ export function Confirmation({ shared, go }) {
   // #13 — quick actions now produce real downloads (e-ticket / boarding pass text, .ics calendar).
   const ticketText = () => {
     const seg = (c, d, seat) => c ? `${c.flight.origin} -> ${c.flight.dest}  ${c.flight.flight_no}\n  ${fmtDate(d)} · dep ${c.flight.dep} · arr ${c.flight.arr} · seat ${seat}` : "";
-    return [`TAP AIR PORTUGAL — E-TICKET`, `PNR: ${trip.pnr}`, `Passenger(s): ${pax.map(p => `${p.first} ${p.last || ""}`.trim()).join(", ")}`, ``, seg(o, trip.date, leadSeat), i ? seg(i, trip.ret, inSeat || "14B") : "", ``, `Total paid: ${EUR(t.total)}`].filter(Boolean).join("\n");
+    return [`TAP AIR PORTUGAL — E-TICKET`, `PNR: ${trip.pnr}`, `Passenger(s): ${pax.map(p => `${p.first} ${p.last || ""}`.trim()).join(", ")}`, ``, seg(o, trip.date, leadSeat), i ? seg(i, trip.ret, inSeat || "22B") : "", ``, `Total paid: ${EUR(t.total)}`].filter(Boolean).join("\n");
   };
-  const addCalendar = () => { const ics = [o, i].filter(Boolean).map(c => buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? leadSeat : (inSeat || "14B")}` })).join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
+  const addCalendar = () => { const ics = [o, i].filter(Boolean).map(c => buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? leadSeat : (inSeat || "22B")}` })).join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
   const downloadTicket = () => downloadFile(`eticket-${trip.pnr}.txt`, ticketText(), "text/plain");
   const addWallet = () => downloadFile(`boarding-pass-${trip.pnr}.txt`, ticketText(), "text/plain");
   return (
@@ -1386,7 +1386,7 @@ export function Confirmation({ shared, go }) {
               {[o, i].filter(Boolean).map((c, idx) => (
                 <div key={idx} className="rounded-2xl p-5 mb-2 flex flex-wrap items-center gap-4" style={{ background: "#f2ffdb" }}>
                   <div><div className="text-[26px] font-bold v2-num leading-none">{c.flight.dep}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.origin} · Terminal 1</div></div>
-                  <div className="flex-1 min-w-[170px] text-center text-[11px] text-ink-muted">{c.flight.duration} · nonstop<div className="h-px bg-ink/80 my-2" /><div className="font-bold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="mt-0.5">Seat {idx === 0 ? leadSeat : (inSeat || "14B")} · Gate info 90 min before</div></div>
+                  <div className="flex-1 min-w-[170px] text-center text-[11px] text-ink-muted">{c.flight.duration} · nonstop<div className="h-px bg-ink/80 my-2" /><div className="font-bold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="mt-0.5">Seat {idx === 0 ? leadSeat : (inSeat || "22B")} · Gate info 90 min before</div></div>
                   <div className="text-right"><div className="text-[26px] font-bold v2-num leading-none">{c.flight.arr}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.dest} · Terminal 1</div></div>
                 </div>
               ))}

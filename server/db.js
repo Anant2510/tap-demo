@@ -237,14 +237,14 @@ const PERSONAS = {
       ["TP1690","OPO→FNC","2026-04-25","09:15","Leisure"],["TP1691","FNC→OPO","2026-04-27","17:00","Leisure"],
     ],
     bookings: [
-      ["TPQ4K2","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-02","4C","completed",1,["seat","bag","meal"]],
-      ["TPM8R1","TP1943","LIS","OPO","18:35","19:30",84,"2026-03-05","4C","completed",1,["seat","bag","meal","wifi"]],
-      ["TPW2N7","TP1080","OPO","MAD","07:40","09:55",97,"2026-03-11","4C","completed",1,["seat","bag","meal","lounge"]],
-      ["TPL9V3","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-23","4C","completed",1,["seat","bag","meal","wifi"]],
-      ["TPF5J8","TP1080","OPO","MAD","07:40","09:55",92,"2026-04-15","4C","completed",1,["seat","bag","meal","wifi","lounge"]],
+      ["TPQ4K2","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-02","22C","completed",1,["seat","bag","meal"]],
+      ["TPM8R1","TP1943","LIS","OPO","18:35","19:30",84,"2026-03-05","22C","completed",1,["seat","bag","meal","wifi"]],
+      ["TPW2N7","TP1080","OPO","MAD","07:40","09:55",97,"2026-03-11","22C","completed",1,["seat","bag","meal","lounge"]],
+      ["TPL9V3","TP1927","OPO","LIS","07:05","08:00",86,"2026-03-23","22C","completed",1,["seat","bag","meal","wifi"]],
+      ["TPF5J8","TP1080","OPO","MAD","07:40","09:55",92,"2026-04-15","22C","completed",1,["seat","bag","meal","wifi","lounge"]],
       ["TPB7H4","TP1690","OPO","FNC","09:15","10:45",54,"2026-04-25","11A","completed",1,["seat","bag","meal"]],
-      ["TPX1C9","TP1927","OPO","LIS","07:05","08:00",79,"2026-05-04","4C","completed",1,["seat","bag","meal","wifi","transfer"]],
-      ["TPK6D2","TP1080","OPO","MAD","07:40","09:55",95,"2026-05-20","4C","completed",1,["seat","bag","meal","wifi","lounge"]],
+      ["TPX1C9","TP1927","OPO","LIS","07:05","08:00",79,"2026-05-04","22C","completed",1,["seat","bag","meal","wifi","transfer"]],
+      ["TPK6D2","TP1080","OPO","MAD","07:40","09:55",95,"2026-05-20","22C","completed",1,["seat","bag","meal","wifi","lounge"]],
       ["TPN3T5","TP1927","OPO","LIS","07:05","08:00",86,"2026-06-15","22C","confirmed",0,["seat","bag","meal"]],
       ["TPG8Y1","TP1080","OPO","MAD","07:40","09:55",98,"2026-06-22","22C","confirmed",0,["seat","bag","meal"]],
     ],
@@ -665,27 +665,33 @@ function localProfile(personaId) {
    only when the value actually disagrees with the fare. Economy bookings are left untouched. */
 (function realignCabinSeats() {
   try {
+    // Canonical cabin layouts (must match SEAT_CABINS in checkout.jsx and CABINS in mmb.jsx).
+    const MAP = {
+      Business: { cols: ["A", "D"], rows: [1, 2, 3, 4, 5] },
+      Premium: { cols: ["A", "C", "D", "F"], rows: [6, 7, 8, 9, 10, 11] },
+      Economy: { cols: ["A", "B", "C", "D", "E", "F"], rows: Array.from({ length: 13 }, (_, i) => 20 + i) },
+    };
+    const DEFAULT_SEAT = { Business: "1A", Premium: "6A", Economy: "22C" };
+    const cabinOf = (fare, cabin) => /exec|business/i.test(String(cabin || fare || "")) ? "Business" : /premium/i.test(String(cabin || fare || "")) ? "Premium" : "Economy";
     const seatForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "1A" : /premium/i.test(f) ? "6A" : /plus/i.test(f) ? "22D" : null; };
-    const cabinForFare = (fare) => { const f = String(fare || ""); return /exec/i.test(f) ? "Business" : /premium/i.test(f) ? "Premium" : null; };
-    const GENERIC = new Set(["4C", "14F", "14B", "4A", "1C"]);   // seats that don't exist in the aligned maps — safe to overwrite
-    const ECON_DEFAULT = "22C";                                   // valid Economy seat (rows 20–32)
+    const seatValid = (seat, cab) => { const m = String(seat || "").match(/^(\d+)([A-Za-z])$/); const c = MAP[cab] || MAP.Economy; return !!(m && c.cols.includes(m[2].toUpperCase()) && c.rows.includes(+m[1])); };
     const rows = db.prepare("SELECT id, seat, meta_json FROM bookings").all();
     const upd = db.prepare("UPDATE bookings SET seat=?, meta_json=? WHERE id=?");
     const updSeat = db.prepare("UPDATE bookings SET seat=? WHERE id=?");
     let n = 0;
     for (const r of rows) {
-      let meta = null; try { meta = r.meta_json ? JSON.parse(r.meta_json) : null; } catch {}
+      let meta = null; try { meta = r.meta_json ? JSON.parse(r.meta_json) : null; } catch { /* keep null */ }
       const fare = meta ? (meta.fare || meta.cabin) : "";
-      const isGeneric = GENERIC.has(String(r.seat || "").toUpperCase());
-      // Business/Premium/Plus fares get their entitlement seat; anything else with a bad/generic seat → valid Economy seat.
-      const wantSeat = seatForFare(fare) || (isGeneric ? ECON_DEFAULT : null);
-      const wantCabin = cabinForFare(fare);
-      let seat = r.seat, changed = false;
-      if (wantSeat && (!r.seat || isGeneric) && r.seat !== wantSeat) { seat = wantSeat; changed = true; }
-      if (meta && wantCabin && meta.cabin !== wantCabin) { meta = { ...meta, cabin: wantCabin }; changed = true; }
-      if (changed) { meta ? upd.run(seat, JSON.stringify(meta), r.id) : updSeat.run(seat, r.id); n++; }
+      const cab = cabinOf(fare, meta && meta.cabin);
+      let seat = r.seat, m2 = meta, changed = false;
+      // Validate the ACTUAL seat against the cabin map; remap ANY seat that doesn't exist in that cabin.
+      if (!seatValid(seat, cab)) { const want = seatForFare(fare) || DEFAULT_SEAT[cab]; if (want !== r.seat) { seat = want; changed = true; } }
+      // Keep meta.cabin consistent with a Business/Premium fare.
+      const wantCabin = /exec/i.test(String(fare)) ? "Business" : /premium/i.test(String(fare)) ? "Premium" : null;
+      if (meta && wantCabin && meta.cabin !== wantCabin) { m2 = { ...meta, cabin: wantCabin }; changed = true; }
+      if (changed) { m2 ? upd.run(seat, JSON.stringify(m2), r.id) : updSeat.run(seat, r.id); n++; }
     }
-    if (n) console.log(`[migrate] realigned ${n} booking seat(s)/cabin to a valid seat for the cabin`);
+    if (n) console.log(`[migrate] realigned ${n} booking seat(s) to a valid seat for the cabin`);
   } catch (e) { console.warn("[migrate] cabin-seat realign skipped:", e.message); }
 })();
 

@@ -21,7 +21,7 @@ function pickActive(list, preferPnr) {
     .sort((a, b) => String(a.flight_date).localeCompare(String(b.flight_date)));
   if (upcoming[0]) return upcoming[0];
   const latest = [...confirmed].sort((a, b) => String(b.flight_date).localeCompare(String(a.flight_date)));
-  return latest[0] || (list && list[0]) || null;
+  return latest[0] || null;   // #10 — if only cancelled bookings remain, surface nothing (don't resurface a cancelled one)
 }
 
 function useActiveBooking() {
@@ -77,7 +77,7 @@ function BookingBand({ booking, airports, seatOverride }) {
         {(f.duration || "1h05") + " · nonstop"}
         <div className="font-semibold text-ink mt-0.5">{fmtDate(booking.flight_date)} · {f.flight_no || booking.flight_no} · {f.aircraft || "A320neo"}</div>
         <div className="h-px bg-tap-green/40 my-1.5" />
-        Seat {seatOverride || booking.seat || "4C"}{booking.checked_in ? " · checked in" : ""}
+        Seat {seatOverride || booking.seat || "—"}{booking.checked_in ? " · checked in" : ""}
       </div>
       <div className="text-right">
         <div className="text-[26px] font-black v2-num">{f.arr || "—"}</div>
@@ -182,7 +182,7 @@ export function ManageBooking({ shared, go }) {
                 </div>
                 <div className="flex items-center gap-2 mt-3 flex-wrap text-[12px] text-ink-muted">
                   <span>Includes:</span>
-                  <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="seat" size={11} /> Seat {b.seat || "4C"}</span>
+                  <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="seat" size={11} /> Seat {b.seat || "—"}</span>
                   {(() => { const xs = (b.items || []).filter(c => c !== "seat"); return <>
                     {xs.slice(0, 8).map((c, i) => <span key={i} className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink">{extraLabel(c)}</span>)}
                     {xs.length > 8 && <span className="inline-flex items-center border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink-muted">+{xs.length - 8} more</span>}
@@ -391,7 +391,7 @@ export function CabinUpgrade({ shared, go }) {
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
         <div>
           <div className="rounded-xl bg-surface-soft border border-line px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
-            <span className="text-ink-muted">Current:</span><span className="font-semibold">{curCabin} · Seat {booking.seat || "4C"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
+            <span className="text-ink-muted">Current:</span><span className="font-semibold">{curCabin} · Seat {booking.seat || "—"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
           </div>
           <div className="grid sm:grid-cols-2 gap-4 mt-4">
             {["prem", "exec"].map(k => { const o = OPTS[k]; const on = sel === k; return (
@@ -649,7 +649,7 @@ export function Rebook({ shared, go }) {
             <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1 mb-3">{status}</span>
             <div className="flex flex-wrap items-center gap-4 line-through decoration-ink/30 decoration-1">
               <div><div className="text-[24px] font-black v2-num">{cur.dep || "—"}</div><div className="text-[11px] text-ink-faint no-underline">{cityO} · Terminal 1</div></div>
-              <div className="flex-1 min-w-[160px] text-center text-[11px] text-ink-muted">{cur.duration || ""} · nonstop<div className="h-px bg-ink/25 my-1.5" /><div className="font-bold text-ink/70">{fmtDate(active?.flight_date)} · {curFlight} · {cur.aircraft}</div><div className="mt-0.5">Seat {active?.seat || "14A"} · Gate info 90 min before</div></div>
+              <div className="flex-1 min-w-[160px] text-center text-[11px] text-ink-muted">{cur.duration || ""} · nonstop<div className="h-px bg-ink/25 my-1.5" /><div className="font-bold text-ink/70">{fmtDate(active?.flight_date)} · {curFlight} · {cur.aircraft}</div><div className="mt-0.5">Seat {active?.seat || "—"} · Gate info 90 min before</div></div>
               <div className="text-right"><div className="text-[24px] font-black v2-num">{cur.arr || "—"}</div><div className="text-[11px] text-ink-faint no-underline">{cityD} · Terminal 1</div></div>
             </div>
           </div>
@@ -703,7 +703,7 @@ export function Rebook({ shared, go }) {
             <div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">Reassociate extras to new flight</div><button className="text-[12px] font-semibold text-tap-greenDeep hover:underline underline-offset-2">View Detail</button></div>
             <div className="divide-y divide-line">
               {[
-                ["seat", `Seats ${active?.seat || "14A"} · 14B · 14C`, `Available on ${sel || curFlight} — auto-assign equiv row`, "Transferred"],
+                ["seat", `Seats ${active?.seat || "22A"} · 22B · 22C`, `Available on ${sel || curFlight} — auto-assign equiv row`, "Transferred"],
                 ["bag", "Hot meal × 3", `${sel || curFlight} catering not loaded — refunded €42`, "Refunded"],
                 ["bag", "Carry-on × 3", "Auto-transferred", "Transferred"],
                 ["star", "1 240 status miles", "Recredited at original tier", "Transferred"],
@@ -921,7 +921,7 @@ export function AddExtras({ shared, go, params }) {
                     <div className="flex-1 text-center text-[11px] text-ink-faint"><Icon name="plane" size={14} className="text-tap-green" /><div className="h-px bg-line my-1" /></div>
                     <div className="text-right"><div className="text-[22px] font-black v2-num">{f.arr || "—"}</div><div className="text-[11px] text-ink-faint">{f.dest} · {cityOf(airports, f.dest)}</div></div>
                   </div>
-                  <div className="text-[12px] text-ink-muted mt-3">{fmtDate(b.flight_date)} · {f.flight_no || b.flight_no} · Seat {b.seat || "4C"}</div>
+                  <div className="text-[12px] text-ink-muted mt-3">{fmtDate(b.flight_date)} · {f.flight_no || b.flight_no} · Seat {b.seat || "—"}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {(() => { const xs = (b.items || []).filter(c => c !== "seat"); return <>
                       {xs.slice(0, 8).map((c, i) => <Pill key={i} tone="slate">{extraLabel(c)}</Pill>)}
@@ -1177,7 +1177,7 @@ const REFUND_ITEMS = [
   { id: "fl-d", name: "Outbound flight · Daniel", paid: 128, refund: 0, status: "non-refundable", kind: "fare", on: false },
   { id: "fl-m", name: "Outbound flight · Mariana", paid: 128, refund: 102.40, status: "80% policy", kind: "fare", on: true },
   { id: "meal", name: "Hot meal × 2", paid: 28, refund: 28, status: "full", kind: "extras", on: true },
-  { id: "seat", name: "Seat 14A · 14B", paid: 22, refund: 22, status: "unused", kind: "extras", on: true },
+  { id: "seat", name: "Seat 22A · 22B", paid: 22, refund: 22, status: "unused", kind: "extras", on: true },
   { id: "ins", name: "Travel insurance", paid: 18, refund: 0, status: "used", kind: "extras", on: false },
   { id: "tax", name: "Taxes & fees · refundable portion", paid: 42, refund: 36, status: "", kind: "taxes", on: true },
 ];
@@ -1198,9 +1198,9 @@ export function Refund({ shared, go }) {
   if (err || !booking) return <Empty go={go} title="No booking to cancel" msg="You don't have an active booking right now." />;
   const cancel = async () => {
     setBusy(true);
-    const r = await api.post("/bookings/cancel", {}).catch(() => ({ ok: false }));
+    const r = await api.post("/bookings/cancel", { pnr: booking.pnr }).catch(() => ({ ok: false }));   // #10 — cancel THIS booking
     setBusy(false);
-    if (r && r.ok) { setDone({ pnr: r.pnr, email: r.email?.to }); window.scrollTo({ top: 0 }); }
+    if (r && r.ok) { notifyBookingChanged(); setDone({ pnr: r.pnr || booking.pnr, email: r.email?.to, already: r.alreadyCancelled }); window.scrollTo({ top: 0 }); }
     else setDone({ failed: true });
   };
   if (done && !done.failed) return (
@@ -1227,9 +1227,13 @@ export function Refund({ shared, go }) {
     ? meta.passengers.map(p => ([p.first || p.firstName, p.last || p.lastName].filter(Boolean).join(" ") || p.name || "Passenger"))
     : [[u.first_name, lastName(u)].filter(Boolean).join(" ") || "Daniel Ferreira"];
   const bookedCodes = (() => { try { return booking.items || JSON.parse(booking.items_json || "[]"); } catch { return []; } })();
+  // #7 — refund eligibility follows the FARE purchased, not a flat 100%. Voluntary cancellation:
+  const fareLabel = meta.fare || meta.cabin || "Classic";
+  const REFUND_PCT = /exec|premium/i.test(fareLabel) ? 1 : /plus/i.test(fareLabel) ? 0.75 : /basic/i.test(fareLabel) ? 0 : 0.5;
+  const farePctLabel = REFUND_PCT === 0 ? `${fareLabel} fare · non-refundable` : `${fareLabel} fare · ${Math.round(REFUND_PCT * 100)}% refundable`;
   const EXTRA_REFUND = { meal: { name: "Hot meal", paid: 14 }, bag: { name: "Checked bag · 23kg", paid: 25 }, "bag-extra": { name: "Extra checked bag · 23kg", paid: 55 }, wifi: { name: "Wi-Fi Full Pass", paid: 6 }, lounge: { name: "Lounge access", paid: 24 }, transfer: { name: "Airport transfer", paid: 32 }, car: { name: "Airport transfer", paid: 32 } };
   const refundItems = [
-    ...paxNames.map((nm, i) => ({ id: "fl-" + i, name: `Outbound flight · ${nm}`, paid: farePrice, refund: farePrice, status: "airline cancel · full", kind: "fare", on: true })),
+    ...paxNames.map((nm, i) => ({ id: "fl-" + i, name: `Outbound flight · ${nm}`, paid: farePrice, refund: +(farePrice * REFUND_PCT).toFixed(2), status: farePctLabel, kind: "fare", on: REFUND_PCT > 0 })),
     { id: "seat", name: `Seat ${booking.seat || "—"}`, paid: 22, refund: 22, status: "unused", kind: "extras", on: true },
     ...bookedCodes.filter(c => EXTRA_REFUND[c]).map(c => ({ id: "x-" + c, name: EXTRA_REFUND[c].name, paid: EXTRA_REFUND[c].paid, refund: EXTRA_REFUND[c].paid, status: "unused", kind: "extras", on: true })),
     { id: "tax", name: "Taxes & fees · refundable portion", paid: 42, refund: 36, status: "", kind: "taxes", on: true },

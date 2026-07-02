@@ -197,7 +197,7 @@ function resolveChoice(to, text) {
 
 // Per-sender booking draft, carries flight + seat + extras through the WhatsApp flow
 const draft = {};   // { "<bareNumber>": { flight_no, seat, items:[] } }
-const getDraft = (to) => (draft[bareNumber(to)] = draft[bareNumber(to)] || { flight_no: null, seat: "4C", items: ["seat","bag","meal"] });
+const getDraft = (to) => (draft[bareNumber(to)] = draft[bareNumber(to)] || { flight_no: null, seat: "22C", items: ["seat","bag","meal"] });
 const clearDraft = (to) => { delete draft[bareNumber(to)]; };
 
 // Per-sender conversation history so the AI agent has context across turns
@@ -307,7 +307,7 @@ async function startSeatStep(to, f) {
   const rec = await apiCall("GET", "/seat-recommendation", null, to);
   const recSeat = rec?.seat || (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(waUid(to)) || {}).seat || "12A";
   // offer the recommended seat first, then a few sensible alternatives (de-duped)
-  const alts = [recSeat, "2A", "4C", "10F", "14F"].filter((s, i, arr) => arr.indexOf(s) === i);
+  const alts = [recSeat, "22A", "22C", "20F", "24D"].filter((s, i, arr) => arr.indexOf(s) === i);
   const map = { "0": "MENU" }; const lines = [];
   alts.slice(0, 4).forEach((s, i) => { const n = String(i + 1); map[n] = `SEAT_${s}`; lines.push(`${n}️⃣  Seat ${s}${s === recSeat ? "  ⭐ your usual" : ""}`); });
   setMenu(to, map);
@@ -607,7 +607,7 @@ _${cat ? "From your card: " + cat : "From your card spend"}_
   if (id === "SEATMAP_INFO") {
     const u = db.prepare("SELECT tier FROM users WHERE id=?").get(waUid(to));
     const b = db.prepare("SELECT seat FROM bookings WHERE user_id=? AND status='confirmed' ORDER BY flight_date LIMIT 1").get(waUid(to));
-    const cur = b?.seat || "4C";
+    const cur = b?.seat || "22C";
     const tier = u?.tier || "Gold";
     const biz = tier === "Platinum" ? "included" : "€90";
     const prem = (tier === "Platinum" || tier === "Gold") ? "included" : "€18";

@@ -501,7 +501,7 @@ app.get("/api/seat-recommendation", (req, res) => {
   const past = db.prepare("SELECT seat, COUNT(*) c FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY c DESC").all(req.uid);
   const top = past[0];
   res.json({
-    seat: top ? top.seat : "4C",
+    seat: top ? top.seat : "—",
     count: top ? top.c : 0,
     total: db.prepare("SELECT COUNT(*) c FROM bookings WHERE user_id=?").get(req.uid).c,
     reason: top ? `Your usual — seat ${top.seat} on ${top.c} of your trips` : "Front aisle, quick exit",
@@ -631,7 +631,7 @@ app.post("/api/pay", async (req, res) => {
     contact: contact || null,
   };
   const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,meta_json,created_at)
-    VALUES (?,?,?,?,?,?,?,?)`).run(pnr, req.uid, flight_no, bookDate, seat || "4C", JSON.stringify(items || []), JSON.stringify(meta), now());
+    VALUES (?,?,?,?,?,?,?,?)`).run(pnr, req.uid, flight_no, bookDate, seat || (/(exec|business)/i.test(meta.cabin || meta.fare || "") ? "1A" : /premium/i.test(meta.cabin || meta.fare || "") ? "6A" : "22C"), JSON.stringify(items || []), JSON.stringify(meta), now());
   db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
     VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), total, voucher_amt, miles_used, miles_amt, card_amt, now());
   if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=?").run(miles_used, req.uid);
@@ -645,7 +645,7 @@ app.post("/api/pay", async (req, res) => {
   log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
   cancelAllSearchFollowups(req.uid);   // converted — don't chase with abandonment emails
   const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
-  cdpEvents.emit("booked", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "4C", cabin: meta.cabin || "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
+  cdpEvents.emit("booked", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "—", cabin: meta.cabin || "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
   cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "booked", spend: Number(total) || 0,
     lounge: (items || []).some(i => /lounge/i.test(i.name || i.label || i)) });   // online booking → unified profile
   res.json({ ok: true, pnr, email });
@@ -803,8 +803,11 @@ app.post("/api/bookings/ancillary/remove", async (req, res) => {
 });
 
 app.post("/api/bookings/cancel", async (req, res) => {
-  const b = currentBooking(req.uid);
-  if (!b) return res.json({ ok: false });
+  // #10 — cancel the SPECIFIC booking (by pnr) the user is acting on, not just the soonest.
+  const pnr = req.body && req.body.pnr;
+  const b = pnr ? db.prepare("SELECT * FROM bookings WHERE user_id=? AND pnr=?").get(req.uid, pnr) : currentBooking(req.uid);
+  if (!b) return res.json({ ok: false, error: "Booking not found" });
+  if (b.status === "cancelled") return res.json({ ok: true, alreadyCancelled: true, pnr: b.pnr });   // #10 — graceful repeat: already cancelled is not an error
   db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
   // Instant refund: restore miles + voucher from the payment record
   const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(b.id);
@@ -864,8 +867,8 @@ app.post("/api/bookings/checkin", (req, res) => {
   db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
   db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('checkin',?,?,?)").run(JSON.stringify({ pnr: b.pnr, channel: "web", doc: req.body?.doc_id || null }), now(), currentApp());
   log("booking_checkin", { pnr: b.pnr });
-  cdpEvents.emit("checkin", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: b.flight_date, flightNumber: b.flight_no, seat: b.seat || "4C", cabin: "Economy", channel: "web" });
-  res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "4C", group: boardingGroup(userTier(req.uid)), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
+  cdpEvents.emit("checkin", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: b.flight_date, flightNumber: b.flight_no, seat: b.seat || "—", cabin: "Economy", channel: "web" });
+  res.json({ ok: true, state: "checked_in_now", pnr: b.pnr, seat: b.seat || "—", group: boardingGroup(userTier(req.uid)), route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date });
 });
 
 /* ── AI endpoints ────────────────────────────────────────────── */
@@ -960,7 +963,7 @@ const SEAT_CABINS = [
   { id: "premium", label: "Premium Economy", rows: [4, 5, 6, 7], cols: ["A", "B", "C", "D", "E", "F"], basePrice: 18, freeFor: ["Platinum", "Gold"] },
   { id: "economy", label: "Economy", rows: Array.from({ length: 23 }, (_, i) => i + 8), cols: ["A", "B", "C", "D", "E", "F"], basePrice: 0, frontRows: { min: 8, max: 10, price: 8 } },
 ];
-const OCCUPIED = ["1C","2D","3A","4F","5B","6C","7E","9A","10C","11F","12B","14A","16C","18D","20A","22F","24B","26C","28E"];
+const OCCUPIED = ["2D", "3A", "5D", "6C", "9A", "10D", "11F", "20A", "22F", "24B", "26C", "28E", "30A", "31C"];
 function cabinForRow(row) { return SEAT_CABINS.find(c => c.rows.includes(row)); }
 function seatExists(seat) {
   const m = (seat || "").toUpperCase().match(/^(\d{1,2})([A-F])$/); if (!m) return false;
@@ -974,7 +977,7 @@ function seatPrice(seat, tier) {
   return c.basePrice || 0;
 }
 function seatCabinLabel(seat) { const c = cabinForRow(parseInt(seat)); return c ? c.label : "Economy"; }
-function prefSeat(uid = SERVER_DEFAULT_UID) { return (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(uid) || {}).seat || "4C"; }
+function prefSeat(uid = SERVER_DEFAULT_UID) { return (db.prepare("SELECT seat FROM bookings WHERE user_id=? AND seat IS NOT NULL GROUP BY seat ORDER BY COUNT(*) DESC").get(uid) || {}).seat || "22C"; }
 // Compute a basket's live total: flight fare + sum of paid ancillaries currently in the basket.
 function basketTotal(sel) {
   const f = flightByNo(sel.flight_no) || {};
@@ -1283,7 +1286,7 @@ function agentRunTool(name, input, session) {
     db.prepare("UPDATE bookings SET checked_in=1 WHERE id=?").run(b.id);
     db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('agent_checkin',?,?,?)").run(JSON.stringify({ pnr: b.pnr }), now(), currentApp());
     log("agent_checkin", { pnr: b.pnr });
-    return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "4C", group: boardingGroup(userTier(uid)) };
+    return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "—", group: boardingGroup(userTier(uid)) };
   }
   if (name === "cancel_booking") {
     const b = currentBooking(uid);
@@ -2341,7 +2344,7 @@ app.post("/api/pss/test", async (req, res) => {
     loyalty_id: u.member_no, email: u.email, full_name: u.full_name,
     origin: b.origin || u.home_airport || "OPO", destination: b.destination || "LIS",
     travel_date: b.travel_date || searchToday(), flight_no: b.flight_no || "TP1927",
-    seat: b.seat || "4C", cabin: b.cabin || "Economy",
+    seat: b.seat || "—", cabin: b.cabin || "Economy",
     amount: b.amount != null ? b.amount : 540, currency: "EUR",
     miles_earned: b.miles_earned != null ? b.miles_earned : 1200,
     ancillaries: b.ancillaries || [{ name: "Lounge access" }, { name: "Hotel — partner" }],
@@ -2376,7 +2379,7 @@ app.post("/api/pss/book", async (req, res) => {
     loyalty_id: ident.member_no, email: ident.email, full_name: ident.full_name, phone: ident.phone,
     origin: b.origin || ident.home_airport || "OPO", destination: b.destination || "LIS",
     travel_date: b.travel_date || searchToday(), flight_no: b.flight_no || "TP1927",
-    seat: b.seat || "4C", cabin: b.cabin || "Economy",
+    seat: b.seat || "—", cabin: b.cabin || "Economy",
     amount: b.amount != null ? b.amount : 540, currency: "EUR",
     miles_earned: b.miles_earned != null ? b.miles_earned : 1200,
     ancillaries: Array.isArray(b.ancillaries) ? b.ancillaries : [{ name: "Lounge access" }, { name: "Hotel — partner" }],
