@@ -8,6 +8,7 @@ import { resetTrip, restoreFromSaved, loadTrip, saveTrip } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
 import { LoginModal } from "./auth.jsx";
+import { AdminConsole } from "./admin.jsx";
 
 function parseHash() {
   const h = (window.location.hash || "#/home").replace(/^#\/?/, "");
@@ -21,6 +22,7 @@ function App() {
   const [shared, setShared] = useState({ profile: null, destinations: [], airports: [], journey: null, suggested: null, loading: true });
   const [loggedIn, setLoggedIn] = useState(() => { try { return localStorage.getItem("flytap_auth") === "1"; } catch { return false; } });
   const [showLogin, setShowLogin] = useState(false);
+  const [admin, setAdmin] = useState(() => { try { return localStorage.getItem("flytap_admin") === "1"; } catch { return false; } });
   const [, _curTick] = useState(0);
   useEffect(() => onCurrencyChange(() => _curTick(n => n + 1)), []);   // A7 — re-price the whole tree when the display currency changes
   useEffect(() => onLangChange(() => _curTick(n => n + 1)), []);       // B2 — re-render strings when the language changes
@@ -119,6 +121,26 @@ function App() {
     setLoggedIn(true); setShowLogin(false); go("home"); window.scrollTo({ top: 0 });
   }, [loadShared, go]);
 
+  // Operator sign-in → dedicated Admin Console (full-page). Binds an admin session so the
+  // ops + all-users endpoints authorize; persona UI is bypassed entirely.
+  const handleAdminLogin = useCallback(async ({ password }) => {
+    const r = await api.post("/admin/login", { password }).catch(() => null);
+    if (!r || !r.ok || !r.sessionId) throw new Error((r && r.error) || "Admin sign-in failed.");
+    setSessionId(r.sessionId);
+    try { localStorage.setItem("flytap_admin", "1"); localStorage.setItem("flytap_adminsid", r.sessionId); localStorage.removeItem("flytap_auth"); localStorage.removeItem("flytap_login"); localStorage.removeItem("flytap_persona"); } catch {}
+    setShowLogin(false); setLoggedIn(false); setAdmin(true); window.scrollTo({ top: 0 });
+  }, []);
+  const adminLogout = useCallback(() => {
+    try { api.post("/auth/logout", {}); } catch {}
+    setSessionId(null);
+    try { localStorage.removeItem("flytap_admin"); localStorage.removeItem("flytap_adminsid"); } catch {}
+    setAdmin(false); go("home");
+  }, [go]);
+
+  // Re-bind a persisted admin session on reload so a refresh keeps the operator signed in.
+  useEffect(() => { if (admin) { try { const s = localStorage.getItem("flytap_adminsid"); if (s) setSessionId(s); } catch {} } }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (admin) return <AdminConsole onLogout={adminLogout} />;
   let Screen, entry = ROUTES[route] || ROUTES.home;
   if (route === "home") Screen = loggedIn ? Home : Homepage;
   else Screen = entry.comp;
@@ -134,7 +156,7 @@ function App() {
       </main>
       <Footer />
       {showLogin && <LoginModal profile={shared.profile} onClose={() => setShowLogin(false)}
-        onLogin={handleLogin} onRegister={handleRegister} />}
+        onLogin={handleLogin} onRegister={handleRegister} onAdminLogin={handleAdminLogin} />}
     </div>
   );
 }

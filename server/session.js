@@ -16,12 +16,20 @@ const sessions = new Map();
 function newSessionId() { return "s_" + crypto.randomBytes(12).toString("hex"); }
 
 // Bind a session to a user id (called at login / persona-pick / registration).
-function bindSession(sessionId, uid, source = "sqlite") {
-  sessions.set(sessionId, { uid, source });
+// `admin` marks an operator session (Admin Console) — gates the ops/all-users endpoints.
+function bindSession(sessionId, uid, source = "sqlite", admin = false) {
+  sessions.set(sessionId, { uid, source, admin: !!admin });
 }
 
 function getSession(sessionId) {
   return sessionId ? sessions.get(sessionId) || null : null;
+}
+
+// True when the request's session is an admin/operator session.
+function isAdmin(req, opts = {}) {
+  const sid = (req && (req.headers["x-session-id"] || (req.body && req.body.sessionId) || (req.query && req.query.sessionId))) || opts.sessionId;
+  const s = getSession(sid);
+  return !!(s && s.admin);
 }
 
 // Unbind a session (logout). Returns true if a binding was removed.
@@ -54,4 +62,4 @@ function sessionSource(req, opts = {}) {
   return (s && s.source) || require("./db").getDataSource(); // global default if unbound
 }
 
-module.exports = { newSessionId, bindSession, getSession, unbindSession, resolveUid, sessionSource, userByPhone, SERVER_DEFAULT_UID, SYSTEM_UID, _sessions: sessions };
+module.exports = { newSessionId, bindSession, getSession, unbindSession, resolveUid, sessionSource, isAdmin, userByPhone, SERVER_DEFAULT_UID, SYSTEM_UID, _sessions: sessions };

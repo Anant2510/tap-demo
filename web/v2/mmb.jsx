@@ -648,7 +648,7 @@ export function DisruptionCenter({ shared, go }) {
   }, [rows]);
   useEffect(() => {
     if (!booking) return;
-    api.post("/disrupt", { flight_no: booking.flight_no }).then(r => setDis({ recovery: r.recovery, loading: false })).catch(() => setDis({ recovery: null, loading: false }));
+    api.post("/disrupt", { flight_no: booking.flight_no, flight_date: booking.flight_date }).then(r => setDis({ recovery: r.recovery, loading: false })).catch(() => setDis({ recovery: null, loading: false }));
   }, [booking?.flight_no]);
   const pax = booking?.meta?.passengers || [];
   useEffect(() => { if (pax.length && !Object.keys(res).length) { const d = {}; pax.forEach((_, i) => d[i] = "rebook"); setRes(d); } }, [pax.length]); // eslint-disable-line
@@ -657,6 +657,9 @@ export function DisruptionCenter({ shared, go }) {
   if (rows === null || dis.loading) return <Loading label="Checking your group's flight status…" />;
   if (!booking) return <Empty go={go} title="Nothing to resolve" msg="No active booking found." />;
   const flight = booking.flight || {};
+  // Disruptions are now triggered only by the operator (Admin Console). If none is active on
+  // this flight, the traveller sees an all-clear rather than a self-triggered disruption.
+  if (!dis.recovery) return <Empty go={go} title="No active disruptions" msg={`${booking.flight_no}${flight.origin ? ` (${flight.origin}→${flight.dest})` : ""} is on schedule. If your flight is delayed or cancelled, your personalized rebooking options appear here automatically.`} />;
   const farePer = Math.round(flight.price || 189);
   const voucherAmt = Math.round(farePer * 1.2);
   const anyRebook = pax.some((_, i) => (res[i] || "rebook") === "rebook");

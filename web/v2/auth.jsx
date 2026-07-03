@@ -43,12 +43,13 @@ const DEMO = [
   { id: "james", name: "James Bennett", tier: "Gold", hub: "London · LHR", email: "anant.direct2links+james@gmail.com" },
 ];
 
-export function LoginModal({ profile, onClose, onLogin, onRegister }) {
+export function LoginModal({ profile, onClose, onLogin, onRegister, onAdminLogin }) {
   // Two modes: log in (one of the 5 known personas, OR a registrant by email) and register
   // (a brand-new anonymous slot 6–15). Start blank — never prefill from the active member.
-  const [mode, setMode] = useState("login");   // "login" | "register"
+  const [mode, setMode] = useState("login");   // "login" | "register" | "admin"
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("demo");
+  const [adminPw, setAdminPw] = useState("");
   // register fields
   const [firstName, setFirstName] = useState("");
   const [regEmail, setRegEmail] = useState("");
@@ -107,6 +108,11 @@ export function LoginModal({ profile, onClose, onLogin, onRegister }) {
     if (!fn || !em) { setErr("First name and email are required."); return; }
     run(() => onRegister({ first_name: fn, email: em, phone: (phone || "").trim() || undefined, home_airport: (home || "LIS").trim().toUpperCase() }));
   };
+  const submitAdmin = (e) => {
+    e?.preventDefault?.();
+    if (!adminPw.trim()) { setErr("Enter the admin password."); return; }
+    run(() => onAdminLogin({ password: adminPw }));
+  };
 
   const swap = (m) => { setMode(m); setErr(""); };
 
@@ -151,7 +157,19 @@ export function LoginModal({ profile, onClose, onLogin, onRegister }) {
               ))}
             </div>
           </div>
-          <div className="mt-4 text-[11px] text-ink-faint text-center">New to TAP? <button onClick={() => swap("register")} className="text-tap-greenDeep font-semibold">Create an account</button></div>
+          <div className="mt-4 text-[11px] text-ink-faint text-center">New to TAP? <button onClick={() => swap("register")} className="text-tap-greenDeep font-semibold">Create an account</button> · <button onClick={() => swap("admin")} className="text-ink-slate font-semibold hover:text-ink">Admin console</button></div>
+        </>) : mode === "admin" ? (<>
+          <h2 className="text-[20px] font-bold mt-4">Admin console</h2>
+          <p className="text-[12px] text-ink-muted mt-1">Operator sign-in — full DB visibility and disruption / pricing control.</p>
+          <form className="mt-5 space-y-3" onSubmit={submitAdmin}>
+            <label className="block">
+              <span className="block text-[10px] font-bold tracking-wide uppercase text-ink-slate mb-1">Admin password</span>
+              <input type="password" value={adminPw} onChange={e => { setAdminPw(e.target.value); if (err) setErr(""); }} autoFocus placeholder="••••••" className="w-full bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] focus:border-tap-green outline-none" />
+            </label>
+            {err && <div className="rounded-lg bg-tap-red/10 text-tap-red text-[12px] font-medium px-3 py-2">{err}</div>}
+            <Btn size="lg" className="w-full" type="submit" disabled={busy}>{busy ? "Signing in…" : <>Enter Admin Console <Icon name="arrow" size={14} /></>}</Btn>
+          </form>
+          <div className="mt-4 text-[11px] text-ink-faint text-center">Not an operator? <button onClick={() => swap("login")} className="text-tap-greenDeep font-semibold">Member log in</button></div>
         </>) : (<>
           <h2 className="text-[20px] font-bold mt-4">Create your account</h2>
           <p className="text-[12px] text-ink-muted mt-1">Start fresh — your trips, searches and Miles & Go build as you go.</p>

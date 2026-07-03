@@ -60,7 +60,7 @@ const session = require("./session");
 // constant — never a literal 1 (Risk B: keeps agent and request on the same default).
 const SERVER_DEFAULT_UID = session.SERVER_DEFAULT_UID;
 const SYSTEM_UID = session.SYSTEM_UID;
-app.use((req, _res, next) => { req.uid = session.resolveUid(req); req.profileSource = session.sessionSource(req); const s = appCtx.getStore(); if (s) s.uid = req.uid; next(); });
+app.use((req, _res, next) => { req.uid = session.resolveUid(req); req.profileSource = session.sessionSource(req); req.isAdmin = session.isAdmin(req); const s = appCtx.getStore(); if (s) s.uid = req.uid; next(); });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // Events that must NOT auto-forward to Adobe RT-CDP:
@@ -678,56 +678,213 @@ app.get("/api/bookings", (req, res) => {
   }));
 });
 
+/* ── Admin / operator identity ──────────────────────────────────────────────
+   The Admin Console is a separate operator surface: it can see every user's DB
+   records and is the ONLY place that triggers disruptions / price changes. */
+function requireAdmin(req, res) {
+  if (!req.isAdmin) { res.status(403).json({ ok: false, error: "Admin Console access required — sign in as operator." }); return false; }
+  return true;
+}
+app.post("/api/admin/login", (req, res) => {
+  const pw = String((req.body && req.body.password) || "");
+  const expected = process.env.ADMIN_PASSWORD || "admin";   // demo default; override via env in prod
+  if (pw !== expected) return res.status(401).json({ ok: false, error: "Incorrect admin password." });
+  let sid = (req.headers["x-session-id"] || (req.body && req.body.sessionId)) || null;
+  if (!sid) sid = session.newSessionId();
+  session.bindSession(sid, session.SYSTEM_UID, getDataSource(), true);   // operator session (admin flag)
+  res.json({ ok: true, sessionId: sid, admin: true });
+});
+
+/* ── Demo Operations: inject delay / cancel / per-cabin reprice ──────────────
+   A demo-mode ops console (see Demo Console → Operations) uses these to disrupt a
+   specific booked flight OR every flight on a route+day. Delay/cancel then drives
+   the SAME personalized disruption experience (email + WhatsApp + per-pax resolve)
+   the RfP scenarios use — with alternates ranked to the affected persona's profile
+   (usual cabin, tier, miles) and history (route, timing). */
+const toMin = (hhmm) => { const [h, m] = String(hhmm || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+const personaRow = (uid) => db.prepare("SELECT id, first_name, tier, home_airport, miles FROM users WHERE id=?").get(uid) || {};
+function prefCabinOf(uid) {
+  const b = db.prepare("SELECT meta_json FROM bookings WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
+  try { const m = JSON.parse(b?.meta_json || "{}"); if (m && m.cabin) return m.cabin; } catch {}
+  return null;
+}
+// Same-route alternates, ranked by fit to the persona (nearest departure to the original,
+// usual cabin, tier priority, miles earned). Cancelled flights are never offered.
+function rankedAlts(f, uid, exclude, date) {
+  const cab = prefCabinOf(uid), u = personaRow(uid);
+  const d = date || f.flight_date || searchToday();
+  let gen = (generateFlights(f.origin, f.dest, d) || []).filter(x => x.flight_no !== exclude);
+  gen = gen.filter(x => { const row = db.prepare("SELECT status FROM flights WHERE flight_no=? AND flight_date=?").get(x.flight_no, x.flight_date || d); return !row || row.status !== "cancelled"; });
+  const baseDep = toMin(f.new_dep || f.dep);
+  return gen.map(x => {
+    const gap = toMin(x.dep) - baseDep;
+    const reasons = [];
+    if (cab) reasons.push(`${cab} seat available — your usual cabin`);
+    if (u.tier && /gold|platinum|silver/i.test(u.tier)) reasons.push(`Priority rebooking · ${u.tier}`);
+    reasons.push(gap <= 0 ? "Departs earlier" : (gap <= 240 ? `Only ${gap} min later` : `Same day · +${Math.round(gap / 60)}h`));
+    reasons.push(`Earn ~${Math.round((x.price || 150) * 8).toLocaleString("en-GB")} miles`);
+    return { flight_no: x.flight_no, dep: x.dep, arr: x.arr, price: x.price, gapMin: gap, reasons };
+  }).sort((a, b) => Math.abs(a.gapMin) - Math.abs(b.gapMin)).slice(0, 3);
+}
+// Deterministic, persona-aware recovery for delay OR cancel (works offline; the /api/disrupt
+// path may still enrich the delay message via Claude when a key is configured).
+function buildRecoveryDet(f, u, action, alts) {
+  const routeStr = `${cityName(f.origin)}→${cityName(f.dest)}`;
+  if (action === "cancel") {
+    return {
+      headline: `${f.flight_no} is cancelled — you're covered`,
+      cause: "cancelled",
+      message: `We're sorry — ${f.flight_no} (${routeStr}) has been cancelled. As a ${u.tier || "valued"} member you can rebook free on the next available flight, take a full refund the way you paid, or a travel voucher with +20% bonus — each traveller can choose independently.`,
+      options: [
+        { id: "__refund", label: "Full refund", detail: "Back to your original payment method, instantly." },
+        ...alts.map(a => ({ id: a.flight_no, label: `Rebook ${a.flight_no} · departs ${a.dep}`, detail: a.reasons.join(" · ") })),
+        { id: "__voucher", label: "Travel voucher +20%", detail: "Bonus value toward a future TAP trip." },
+      ],
+      compensation: `${u.tier || "Gold"} + EU261: airport care, rebooking priority and cash compensation where eligible — applied automatically.`,
+      alts,
+    };
+  }
+  return {
+    headline: `${f.flight_no} delayed — new departure ${f.new_dep}`,
+    cause: "late inbound aircraft",
+    message: `Your aircraft is arriving late, so ${f.flight_no} (${routeStr}) now departs ${f.new_dep} and lands ${f.new_arr}. Here are options tailored to you — no queue needed.`,
+    options: [
+      { id: f.flight_no, label: `Keep ${f.flight_no} · lands ${f.new_arr}`, detail: `We'll fast-track you on arrival${u.tier ? " · " + u.tier : ""}.` },
+      ...alts.map(a => ({ id: a.flight_no, label: `Move to ${a.flight_no} · departs ${a.dep}`, detail: a.reasons.join(" · ") })),
+    ],
+    compensation: `${u.tier || "Gold"} + EU261: lounge access now, meal voucher added to your wallet automatically.`,
+    alts,
+  };
+}
+
+// Resolve the flight rows an ops action targets. scope "route" → all flights on origin→dest+date;
+// scope "booking" → the single flight_no (+date), synthesized from the booking snapshot if needed.
+function resolveOpsTargets({ scope, flight_no, date, origin, dest }) {
+  const today = searchToday();
+  if (scope === "route") {
+    if (!origin || !dest) return { error: "origin and dest are required for route scope" };
+    const d = date || today;
+    persistFlights(generateFlights(origin, dest, d));
+    return { targets: db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep").all(origin, dest, d) };
+  }
+  if (!flight_no) return { error: "flight_no is required" };
+  let d = date;
+  let row = d ? db.prepare("SELECT * FROM flights WHERE flight_no=? AND flight_date=?").get(flight_no, d) : flightByNo(flight_no);
+  if (!row) {
+    const bk = db.prepare("SELECT flight_date, meta_json FROM bookings WHERE flight_no=? ORDER BY id DESC LIMIT 1").get(flight_no);
+    let snap = {}; try { snap = JSON.parse(bk?.meta_json || "{}"); } catch {}
+    d = d || bk?.flight_date || today;
+    // Resolve the route: request → booking snapshot → any existing flights row with this number
+    // (seeded bookings reference numbers whose only row is on the original travel date), then generate.
+    const any = flightByNo(flight_no) || {};
+    const o = origin || snap.origin || any.origin, ds = dest || snap.dest || any.dest;
+    if (o && ds) { persistFlights(generateFlights(o, ds, d)); row = db.prepare("SELECT * FROM flights WHERE flight_no=? AND flight_date=?").get(flight_no, d) || db.prepare("SELECT * FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep LIMIT 1").get(o, ds, d); }
+  }
+  return row ? { targets: [row] } : { error: `flight ${flight_no} not found — pass origin/dest so it can be created` };
+}
+
+app.post("/api/admin/ops/disrupt", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { scope = "booking", flight_no, date, origin, dest, action = "delay", delayMinutes = 90, cabinPrices, notify = true } = req.body || {};
+  const { targets, error } = resolveOpsTargets({ scope, flight_no, date, origin, dest });
+  if (error) return res.json({ ok: false, error });
+  if (!targets || !targets.length) return res.json({ ok: false, error: "no matching flights" });
+
+  const applied = [];
+  for (const t of targets) {
+    if (action === "delay") {
+      const mins = Math.max(1, Number(delayMinutes) || 90);
+      const nd = addMins(t.dep, mins), na = addMins(t.arr || addMins(t.dep, 90), mins);
+      db.prepare("UPDATE flights SET status='delayed', new_dep=?, new_arr=? WHERE id=?").run(nd, na, t.id);
+    } else if (action === "cancel") {
+      db.prepare("UPDATE flights SET status='cancelled' WHERE id=?").run(t.id);
+    } else if (action === "reprice") {
+      db.prepare("UPDATE flights SET cabin_prices=? WHERE id=?").run(JSON.stringify(cabinPrices || {}), t.id);
+    } else if (action === "clear") {
+      db.prepare("UPDATE flights SET status='scheduled', new_dep=NULL, new_arr=NULL, cabin_prices=NULL WHERE id=?").run(t.id);
+    } else { return res.json({ ok: false, error: `unknown action '${action}'` }); }
+    applied.push(`${t.flight_no}·${t.flight_date}`);
+  }
+  log("ops_inject", { scope, action, count: applied.length, flights: applied.slice(0, 8) });
+
+  // Delay/cancel → notify every persona holding an affected booking, with recovery tailored to them.
+  const notifications = [];
+  if (notify && (action === "delay" || action === "cancel")) {
+    for (const t of targets) {
+      const holders = db.prepare("SELECT DISTINCT user_id FROM bookings WHERE flight_no=? AND flight_date=? AND (status IS NULL OR status!='cancelled')").all(t.flight_no, t.flight_date);
+      for (const h of holders) {
+        const u = personaRow(h.user_id);
+        const fRow = db.prepare("SELECT * FROM flights WHERE id=?").get(t.id);
+        const recovery = buildRecoveryDet(fRow, u, action, rankedAlts(fRow, h.user_id, t.flight_no, t.flight_date));
+        let email = null; try { email = await sendEmail("disruption", { f: fRow, recovery }); } catch {}
+        try { await whatsapp.pushDisruption(fRow, recovery, h.user_id); } catch {}
+        notifications.push({ uid: h.user_id, persona: u.first_name, flight_no: t.flight_no, emailed: !!email });
+      }
+    }
+  }
+  // Preview what the active persona will see (panel shows it immediately).
+  let preview = null;
+  if (action === "delay" || action === "cancel") {
+    const mine = targets.find(t => db.prepare("SELECT 1 FROM bookings WHERE flight_no=? AND flight_date=? AND user_id=?").get(t.flight_no, t.flight_date, req.uid)) || targets[0];
+    const fRow = db.prepare("SELECT * FROM flights WHERE id=?").get(mine.id);
+    preview = buildRecoveryDet(fRow, personaRow(req.uid), action, rankedAlts(fRow, req.uid, mine.flight_no, mine.flight_date));
+  }
+  res.json({ ok: true, scope, action, affected: applied.length, flights: applied, notifications, preview });
+});
+
+// Ops panel data: flights on a route+day (create if missing), or currently-disrupted flights.
+app.get("/api/admin/ops/flights", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { origin, dest, date } = req.query;
+  const cols = "flight_no,origin,dest,dep,arr,price,seats_left,flight_date,status,new_dep,new_arr,cabin_prices";
+  if (origin && dest) {
+    const d = date || searchToday();
+    persistFlights(generateFlights(origin, dest, d));
+    return res.json({ ok: true, date: d, flights: db.prepare(`SELECT ${cols} FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep`).all(origin, dest, d) });
+  }
+  res.json({ ok: true, flights: db.prepare(`SELECT ${cols} FROM flights WHERE status IN ('delayed','cancelled') ORDER BY flight_date LIMIT 50`).all() });
+});
+
+// Admin-only: every upcoming booked flight across ALL users (to target a specific booking).
+app.get("/api/admin/ops/booked", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const rows = db.prepare(`SELECT b.flight_no, b.flight_date, b.user_id, u.first_name, u.tier
+    FROM bookings b JOIN users u ON b.user_id=u.id
+    WHERE (b.status IS NULL OR b.status!='cancelled') ORDER BY b.flight_date`).all();
+  const seen = new Set();
+  const out = [];
+  for (const r of rows) {
+    if (daysToGo(r.flight_date) < 0) continue;
+    const key = r.flight_no + "|" + r.flight_date + "|" + r.user_id;
+    if (seen.has(key)) continue; seen.add(key);
+    const exact = db.prepare("SELECT origin,dest,dep,status FROM flights WHERE flight_no=? AND flight_date=?").get(r.flight_no, r.flight_date);
+    const route = exact || flightByNo(r.flight_no) || {};
+    out.push({ flight_no: r.flight_no, date: r.flight_date, passenger: r.first_name, tier: r.tier, origin: route.origin || "?", dest: route.dest || "?", dep: route.dep || "", status: (exact && exact.status) || "scheduled" });
+  }
+  res.json({ ok: true, bookings: out });
+});
+
 /* ── Disruption: live ops event → AI recovery → email ────────── */
 app.post("/api/disrupt", async (req, res) => {
-  // Default to the active persona's usual outbound flight, not a hardcoded one.
+  // Report-only: reflects a disruption an OPERATOR injected via the Admin Console. The persona
+  // experiences and resolves it here — but can no longer trigger one themselves. The email /
+  // WhatsApp go out once, at injection time (the ops endpoint), not on every page view.
   const u = db.prepare("SELECT first_name, tier, home_airport FROM users WHERE id=?").get(req.uid) || {};
-  const usual = db.prepare("SELECT flight_no, route FROM travel_history WHERE user_id=? AND route LIKE ? ORDER BY trip_date DESC LIMIT 1").get(req.uid, (u.home_airport || "OPO") + "→%");
-  const flight_no = req.body.flight_no || usual?.flight_no || currentBooking(req.uid)?.flight_no || "TP1927";
-  let f = flightByNo(flight_no);
-  // If that flight isn't in the flights table yet, synthesize a row from history/route.
-  if (!f) { const r = (usual?.route || `${u.home_airport||"OPO"}→LIS`).split("→"); f = { flight_no, origin: r[0], dest: r[1], dep: "07:05", arr: "08:00" }; }
-  // Delay (~1h50, late inbound aircraft) computed from the flight's REAL schedule — never hardcoded.
-  const DELAY = 110;
-  const newDep = addMins(f.dep, DELAY), newArr = addMins(f.arr || addMins(f.dep, 60), DELAY);
-  db.prepare("UPDATE flights SET status='delayed', new_dep=?, new_arr=? WHERE flight_no=?").run(newDep, newArr, flight_no);
-  f = { ...f, status: "delayed", new_dep: newDep, new_arr: newArr };
-  const routeStr = `${cityName(f.origin)}→${cityName(f.dest)}`;
-  // pick an alternative flight on the same route from the flights table
-  // Alternative on the SAME route — prefer a generated same-route flight (works for any
-  // network route, not just seeded ones), then the flights table, then a safe stub.
-  const sameRoute = (generateFlights(f.origin, f.dest, searchToday()) || []).filter(x => x.flight_no !== flight_no);
-  const alt = sameRoute[0]
-    || db.prepare("SELECT flight_no, dep, arr FROM flights WHERE origin=? AND dest=? AND flight_no!=? ORDER BY dep LIMIT 1").get(f.origin, f.dest, flight_no)
-    || { flight_no: "TP" + ((parseInt((flight_no || "TP100").replace(/\D/g, "")) || 100) + 4), dep: addMins(f.dep, 180), arr: addMins(f.arr || addMins(f.dep, 60), 180) };
-  log("ops_disruption", { flight_no, cause: "late inbound aircraft", new_dep: f.new_dep });
-
-  let recovery, ai = "live";
-  try {
-    recovery = await callClaude([{ role: "user", content:
-      `LIVE OPS EVENT: ${flight_no} ${f.origin}→${f.dest} (${routeStr}) is delayed ~1h50, late inbound aircraft. New estimate ${f.new_dep}, landing ${f.new_arr}. The traveller is ${u.first_name} (${u.tier}).
-Write their proactive disruption notification. Return JSON exactly:
-{"headline": string, "message": string (2-3 sentences, personal, transparent about the cause, reassuring, no fluff), "options":[{"id":"${flight_no}","label": string,"detail": string},{"id":"${alt.flight_no}","label": string,"detail": string}], "compensation": string (one line, ${u.tier} + EU261 entitlements)}.
-Alternative ${alt.flight_no} departs ${alt.dep} arrives ${alt.arr}; keeping ${flight_no} lands ${f.new_arr}.` }],
-      { json: true });
-  } catch {
-    // Deterministic, persona-and-flight-aware recovery (no key / offline) — real times,
-    // real tier, option ids that match the actual flights so one-tap rebook works.
-    recovery = {
-      headline: `Your flight is delayed — new departure ${f.new_dep}`,
-      message: `Your aircraft is arriving late, so ${flight_no} (${routeStr}) now departs ${f.new_dep} and lands ${f.new_arr}. Here are your realistic options — no queue needed.`,
-      options: [
-        { id: flight_no, label: `Keep ${flight_no} · lands ${f.new_arr}`, detail: "We'll fast-track you on arrival per your tier." },
-        { id: alt.flight_no, label: `Move to ${alt.flight_no} · departs ${alt.dep}`, detail: `Lands ${alt.arr} — guaranteed seat if your schedule can flex.` },
-      ],
-      compensation: `${u.tier || "Gold"} + EU261: lounge access now, meal voucher added to your wallet automatically.`,
-    };
-    ai = "cached";
+  const flight_no = req.body.flight_no || currentBooking(req.uid)?.flight_no
+    || db.prepare("SELECT flight_no FROM travel_history WHERE user_id=? AND route LIKE ? ORDER BY trip_date DESC LIMIT 1").get(req.uid, (u.home_airport || "OPO") + "→%")?.flight_no
+    || null;
+  // A flight number recurs across dates — pin to the instance the persona actually booked so an
+  // admin disruption on that date is what gets reported (not a stale same-number row).
+  const bk = flight_no ? db.prepare("SELECT flight_date FROM bookings WHERE user_id=? AND flight_no=? ORDER BY id DESC LIMIT 1").get(req.uid, flight_no) : null;
+  const flight_date = req.body.flight_date || bk?.flight_date || null;
+  const f = flight_no ? ((flight_date && db.prepare("SELECT * FROM flights WHERE flight_no=? AND flight_date=?").get(flight_no, flight_date)) || flightByNo(flight_no)) : null;
+  if (!f || (f.status !== "delayed" && f.status !== "cancelled")) {
+    return res.json({ recovery: null, noDisruption: true, flight_no: flight_no || null });
   }
-
-  const email = await sendEmail("disruption", { f, recovery });
-  const wa = await whatsapp.pushDisruption(f, recovery, req.uid);   // proactive WhatsApp with one-tap rebook buttons (acts as the disrupted user)
-  res.json({ recovery, email, ai });
+  const action = f.status === "cancelled" ? "cancel" : "delay";
+  const ranked = rankedAlts(f, req.uid, flight_no, f.flight_date);
+  const recovery = buildRecoveryDet(f, u, action, ranked);
+  res.json({ recovery, action, ai: "cached", noDisruption: false });
 });
 
 /* ── Booking management (used by portal + WhatsApp) ──────────── */
@@ -1992,6 +2149,44 @@ app.get("/api/admin/emails", (req, res) =>
   res.json(db.prepare("SELECT id,to_addr,subject,email_type,status,created_at FROM emails WHERE app=? ORDER BY id DESC LIMIT 50").all(currentApp())));
 app.get("/api/admin/emails/:id", (req, res) =>
   res.json(db.prepare("SELECT * FROM emails WHERE id=? AND app=?").get(req.params.id, currentApp()) || {}));
+
+// Admin-only: every user + a summary, for the Admin Console user list.
+app.get("/api/admin/users", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const rows = db.prepare("SELECT id, member_no, full_name, first_name, tier, miles, home_airport, nationality, email, phone FROM users ORDER BY id").all();
+  const out = rows.map(u => {
+    let bookings = 0, spend = 0;
+    try { bookings = db.prepare("SELECT COUNT(*) c FROM bookings WHERE user_id=?").get(u.id).c; } catch {}
+    try { spend = db.prepare("SELECT COALESCE(SUM(p.total),0) s FROM payments p JOIN bookings b ON p.booking_id=b.id WHERE b.user_id=?").get(u.id).s; } catch {}
+    return { ...maskUserCard(u), bookings, spend };
+  });
+  res.json({ ok: true, count: out.length, users: out });
+});
+
+// Admin-only: one user's full footprint across the DB, for drill-down.
+app.get("/api/admin/users/:uid", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const uid = Number(req.params.uid);
+  const raw = db.prepare("SELECT * FROM users WHERE id=?").get(uid);
+  if (!raw) return res.status(404).json({ ok: false, error: "no such user" });
+  const { html, ...u } = raw;
+  const q = (sql, ...a) => { try { return db.prepare(sql).all(...a); } catch { return []; } };
+  const bookings = q("SELECT * FROM bookings WHERE user_id=? ORDER BY id DESC", uid).map(b => {
+    let meta = null; try { meta = JSON.parse(b.meta_json || "null"); } catch {}
+    let items = []; try { items = JSON.parse(b.items_json || "[]"); } catch {}
+    return { ...b, items, meta, flight: (db.prepare("SELECT * FROM flights WHERE flight_no=? AND flight_date=?").get(b.flight_no, b.flight_date) || flightByNo(b.flight_no) || null) };
+  });
+  const ids = bookings.map(b => b.id);
+  const payments = ids.length ? q(`SELECT * FROM payments WHERE booking_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC`, ...ids) : [];
+  let prefs = null; try { prefs = db.prepare("SELECT * FROM preferences WHERE user_id=?").get(uid) || null; } catch {}
+  res.json({
+    ok: true, user: maskUserCard(u), prefs, bookings, payments,
+    vouchers: q("SELECT * FROM vouchers WHERE user_id=? ORDER BY id DESC", uid),
+    searches: q("SELECT * FROM searches WHERE user_id=? ORDER BY id DESC LIMIT 25", uid),
+    history: q("SELECT * FROM travel_history WHERE user_id=? ORDER BY trip_date DESC LIMIT 40", uid),
+    events: q("SELECT * FROM events WHERE user_id=? ORDER BY id DESC LIMIT 40", uid),
+  });
+});
 
 /* ── Live DB + CDP proof for the demo ──────────────────────────────
    Returns (1) the real DB file + engine, (2) live row counts, (3) the
