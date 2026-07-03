@@ -72,7 +72,7 @@ function Stepper({ active }) {
     </div>
   );
 }
-const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-full bg-surface border border-line text-[12px] font-semibold inline-flex items-center gap-1.5">{dot && <span className="w-1.5 h-1.5 rounded-full bg-lime" />}{children}</span>;
+const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-[8px] bg-surface border border-line text-[12px] font-semibold inline-flex items-center gap-1.5">{dot && <span className="w-1.5 h-1.5 rounded-full bg-lime" />}{children}</span>;
 const Req = () => <span className="text-tap-red">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
@@ -102,8 +102,8 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
   );
   return (
     <aside className="space-y-4">
-      <Card className="p-5">
-        <div className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="text-[17px] font-bold">{basket ? "Basket summary" : "My trip basket"}</div><span className="w-5 h-5 rounded-full bg-tap-red text-white text-[11px] font-bold inline-flex items-center justify-center">{trip.extras.length + 1}</span></div>{basket ? <Pill tone="slate">EUR</Pill> : <span className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-tap-red text-white">Step {step}/5</span>}</div>
+      <Card className="p-5" style={{ borderColor: "#e0e3e8", boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="text-[17px] font-bold">{basket ? "Basket summary" : "My trip basket"}</div><span className="w-[22px] h-[22px] rounded-full bg-tap-red text-white text-[11px] font-bold inline-flex items-center justify-center">{trip.extras.length + 1}</span></div>{basket ? <Pill tone="slate">EUR</Pill> : <span className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-tap-red text-white">Step {step}/5</span>}</div>
         <div className="text-[11px] text-ink-faint mt-0.5">{trip.origin}–{trip.dest} · {trip.pax} adult{trip.pax > 1 ? "s" : ""} · {fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</div>
 
         <div className="mt-4">
@@ -147,7 +147,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
         {breakdown && <div className="mt-3 rounded-lg bg-surface-soft border border-line px-3 py-2.5 flex items-center justify-between gap-2"><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-tap-greenDeep hover:border-tap-green">Save mix</button></div>}
 
-        <Btn size="lg" className="w-full mt-4" disabled={disabled} onClick={onCta}>{cta}</Btn>
+        <Btn size="lg" className="w-full mt-4" style={{ height: "46px", borderRadius: "10px" }} disabled={disabled} onClick={onCta}>{cta}</Btn>
         {step === 2 && <div className="text-[11px] text-ink-muted text-center mt-2 flex items-center justify-center gap-1"><Icon name="globe" size={11} className="text-ink-faint" /> You'll be able to adjust all items on the next step.</div>}
         {note && <div className="text-[11px] text-ink-faint text-center mt-2">{note}</div>}
         {secondary && <button onClick={onSecondary} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">{secondary}{!/^[←]/.test(String(secondary)) && <Icon name="arrow" size={13} />}</button>}
@@ -162,12 +162,14 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         </div>
       )}
 
-      <Card className="p-4 space-y-2.5 text-[12px]">
-        {[["lock", "PCI-DSS Level 1", "Stripe encrypts & tokenises every card."], ["clock", "Free 24h cancellation", "Full refund on flights & most extras."], ["star", "24/7 voa Care", "WhatsApp · phone · live chat."], ["check", "Confirmation in seconds", "E-ticket sent to your inbox."]].map(([ic, a, b]) => (
-          <div key={a} className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name={ic} size={15} /></span><div><div className="font-semibold">{a}</div><div className="text-ink-faint">{b}</div></div></div>
-        ))}
-      </Card>
-      <div className="rounded-xl bg-surface-dark text-white p-4 flex items-center justify-between"><div className="flex items-center gap-2"><span className="w-7 h-7 rounded-md bg-[#635bff] inline-flex items-center justify-center text-[11px] font-bold">S</span><div><div className="text-[12px] font-semibold">Verified by Stripe</div><div className="text-[10px] text-white/50">Trusted by millions of businesses.</div></div></div><span className="text-[11px] text-lime font-semibold">Learn more →</span></div>
+      <div className="rounded-[14px] border" style={{ background: "#F2FFDB", borderColor: "#E8E8E5", padding: "16px" }}>
+        <div className="grid grid-cols-2 gap-3">
+          {[["lock", "Encrypted"], ["check", "Ticket usage"], ["refresh", "Editable"], ["star", "24/7 Care"]].map(([ic, a]) => (
+            <div key={a} className="flex items-center gap-2"><span className="w-8 h-8 rounded-lg bg-white inline-flex items-center justify-center text-tap-greenDeep shrink-0"><Icon name={ic} size={15} /></span><div className="text-[12px] font-semibold" style={{ color: "#1A1F29" }}>{a}</div></div>
+          ))}
+        </div>
+      </div>
+      <div className="rounded-xl border p-4 flex items-center justify-between" style={{ background: "#FFFFFF", borderColor: "#e0e3e8" }}><div className="flex items-center gap-2.5"><span className="w-9 h-9 rounded-[10px] bg-[#635bff] inline-flex items-center justify-center text-white text-[12px] font-bold shrink-0">S</span><div><div className="text-[12px] font-semibold" style={{ color: "#1A1F29" }}>Verified by Stripe</div><div className="text-[10px]" style={{ color: "#667080" }}>Trusted by millions of businesses.</div></div></div><span className="text-[11px] text-tap-greenDeep font-semibold">Learn more →</span></div>
     </aside>
   );
 }
@@ -506,30 +508,41 @@ function CartView({ go, mode = "cart", shared }) {
 
   const SeatType = ({ code, name, sub, price }) => {
     const on = code === "std" ? !seat : hasExtra(code);
-    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); r(); }} className={cx("flex-1 text-left rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line")}>
+    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); r(); }} className={cx("flex-1 text-left rounded-xl p-3", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
       <div className="rounded-xl border border-line bg-surface p-3 mb-3 flex justify-center gap-1.5">{[0, 1, 2, 3, 4].map(i => { const yours = on && i === 2; const free = on && code !== "std" && i === 3; return <span key={i} className={cx("w-6 h-6 rounded", yours ? "bg-lime" : free ? "bg-lime/40" : "bg-surface-mute")} />; })}</div>
       <div className="flex items-center gap-2">
         <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span>
         <span className="text-[13px] font-semibold flex-1">{name}</span>
-        {price ? <span className="text-[13px] font-bold v2-num">{eur2(price)}</span> : <span className="text-[13px] font-semibold text-tap-greenDeep">Included</span>}
+        {price ? <span className="text-[13px] font-bold v2-num">{eur2(price)}</span> : <span className="text-[13px] font-semibold text-[rgba(10,10,10,1)]">Included</span>}
       </div>
       <div className="text-[11px] text-ink-faint mt-1 pl-6">{sub}</div>
     </button>;
   };
-  const Bag = ({ code, name, sub, price, locked }) => { const on = locked || hasExtra(code); return (
-    <label className={cx("flex items-center gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line", locked && "opacity-90")}>
-      <input type="checkbox" checked={on} disabled={locked} onChange={() => !locked && add(code, name, price, "Seats & baggage")} className="accent-[#46a41a]" />
-      <div className="flex-1"><div className="text-[13px] font-semibold">{name} {locked && <Pill tone="green">Included</Pill>}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
+  const Bag = ({ code, name, sub, price, locked }) => { const on = locked || hasExtra(code); const toggle = () => { if (!locked) add(code, name, price, "Seats & baggage"); }; return (
+    <div onClick={toggle} className={cx("flex items-center gap-3 rounded-xl p-3", locked ? "opacity-95" : "cursor-pointer", on ? "border" : "border border-line")} style={on ? { background: "rgba(250,250,247,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
+      <span className="w-5 h-5 rounded-md inline-flex items-center justify-center shrink-0" style={on ? { background: "rgba(10,10,10,1)", border: "1px solid rgba(232,232,229,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>{on && <Icon name="check" size={12} className="stroke-[3] text-[rgba(158,253,56,1)]" />}</span>
+      <div className="flex-1"><div className="text-[13px] font-semibold flex items-center gap-2">{name} {locked && <span className="inline-flex items-center uppercase rounded px-1.5 py-0.5" style={{ background: "rgba(158,253,56,1)", color: "rgba(51,102,20,1)", fontWeight: 700, fontSize: "9px", letterSpacing: "0.27px" }}>Included</span>}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
       <div className="text-right"><div className="text-[13px] font-bold v2-num">{locked ? "Included" : eur2(price)}</div>{!locked && <div className="text-[10px] text-ink-faint">per bag · per flight</div>}</div>
-    </label>
+    </div>
   ); };
+  const featBadge = (t) => <span key={t} className="inline-flex items-center justify-center rounded-[4px]" style={{ background: "rgba(242,242,238,1)", color: "rgba(107,107,107,1)", padding: "3px 8px", fontSize: "10px", fontWeight: 400, letterSpacing: "0.2px", lineHeight: 1 }}>{t}</span>;
   const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec }) => { const on = hasExtra(code); const nn = tripDays; const tot = pn > 0 ? pn * nn : total; return (
-    <div className={cx("flex gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-      <Img seed={"hotel-" + code} src={imageFor("hotel-" + code)} alt={name} className="w-28 h-20 rounded-lg shrink-0 object-cover" />
-      <div className="flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">{tags.map(t => <span key={t} className="text-[10px] uppercase tracking-wide text-ink-faint">{t}</span>)}</div>
-        <div className="text-[11px] text-ink-muted mt-1">★ {rating} Excellent · {reviews} reviews</div></div>
-      <div className="text-right shrink-0"><div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div><div className="text-[11px] text-ink-faint v2-num">{eur2(tot)} total for {nn} night{nn !== 1 ? "s" : ""}</div><Btn size="sm" variant={on ? "outline" : "primary"} className="mt-1.5" onClick={() => add(code, name, tot, "Hotels", { rate: pn, nights: nn })}>{on ? "✓ Added" : "Add to cart"}</Btn></div>
+    <div className="flex rounded-[14px] overflow-hidden max-w-[808px]" style={on ? { background: "rgba(250,250,247,1)", border: "2px solid rgba(158,253,56,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>
+      <Img seed={"hotel-" + code} src={imageFor("hotel-" + code)} alt={name} className="w-[168px] self-stretch shrink-0 object-cover" />
+      <div className="flex-1 min-w-0 flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">{tags.map(featBadge)}</div>
+          <div className="text-[11px] text-ink-muted mt-1.5">★ {rating} Excellent · {reviews} reviews</div>
+        </div>
+        <div className="text-right shrink-0 flex flex-col items-end">
+          <div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div>
+          <div className="text-[11px] text-ink-faint v2-num">{eur2(tot)} total for {nn} night{nn !== 1 ? "s" : ""}</div>
+          <button onClick={() => add(code, name, tot, "Hotels", { rate: pn, nights: nn })} className="mt-2 inline-flex items-center justify-center gap-1.5 rounded-full font-semibold" style={on
+            ? { width: "124px", height: "33px", padding: "9px 14px", background: "rgba(255,255,255,1)", border: "1.5px solid rgba(158,253,56,1)", color: "rgba(51,102,20,1)", fontSize: "12px" }
+            : { width: "108px", height: "33px", padding: "9px 14px", background: "rgba(255,255,255,1)", border: "1px solid rgba(51,102,20,1)", color: "rgba(51,102,20,1)", fontSize: "12px" }}>{on ? "✓ Added to cart" : "+ Add to cart"}</button>
+        </div>
+      </div>
     </div>
   ); };
   const Row = ({ code, name, sub, rate, unit, cat, tag }) => {
@@ -538,7 +551,7 @@ function CartView({ go, mode = "cart", shared }) {
     const total = rate * mult;
     const multLabel = unit === "per person" ? `× ${pax} = ${eur2(total)}` : unit === "per day" ? `${tripDays} days = ${eur2(total)}` : unit === "per car" ? "per car" : "";
     return (
-      <div className={cx("flex items-center gap-3 rounded-xl border p-3", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
+      <div className={cx("flex items-center gap-3 rounded-xl p-3", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
         <Img seed={"xfer-" + code} src={imageFor(code)} alt={name} className="w-20 h-16 rounded-lg shrink-0 object-cover" />
         <div className="flex-1"><div className="text-[13px] font-semibold flex items-center gap-2">{name}{tag && <span className="text-[9px] font-bold uppercase tracking-wide text-ink-faint bg-surface-mute rounded px-1.5 py-0.5">{tag}</span>}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
         <div className="text-right shrink-0">
@@ -546,6 +559,20 @@ function CartView({ go, mode = "cart", shared }) {
           {multLabel && <div className="text-[10px] text-ink-faint v2-num">{multLabel}</div>}
           <Btn size="sm" variant="outline" className="mt-1" onClick={() => add(code, name, total, cat)}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
         </div>
+      </div>
+    );
+  };
+  const ServiceRow = ({ code, name, sub, rate, tag, icon }) => {
+    const on = hasExtra(code); const tot = rate * pax;
+    return (
+      <div className={cx("flex items-center gap-3 rounded-xl p-3", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
+        <button onClick={() => add(code, name, tot, "Lounge & services")} className={cx("w-10 h-6 rounded-full relative transition-colors shrink-0", on ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", on ? "right-0.5" : "left-0.5")} /></button>
+        <span className="w-9 h-9 rounded-lg bg-surface-mute text-ink-slate inline-flex items-center justify-center shrink-0"><Icon name={icon} size={16} /></span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap"><span className="text-[13px] font-semibold">{name}</span><span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-surface-mute text-ink-faint">{tag}</span></div>
+          <div className="text-[11px] text-ink-faint">{sub}</div>
+        </div>
+        <div className="text-right shrink-0"><div className="text-[14px] font-bold v2-num">{eur2(tot)}</div><div className="text-[10px] text-ink-faint v2-num">{eur2(rate)} / pax</div></div>
       </div>
     );
   };
@@ -560,7 +587,7 @@ function CartView({ go, mode = "cart", shared }) {
       save(); r();
     };
     return (
-      <div className={cx("flex-1 rounded-xl border p-4 flex flex-col", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line")}>
+      <div className={cx("flex-1 rounded-xl p-4 flex flex-col", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
         <button onClick={select} className="flex items-start gap-2.5 text-left w-full">
           <span className={cx("mt-0.5 w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span>
           <div className="flex-1 min-w-0">
@@ -578,14 +605,14 @@ function CartView({ go, mode = "cart", shared }) {
   };
 
   return (
-    <div className="bg-surface-soft min-h-screen">
+    <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <RevalGate reval={reval} setReval={setReval} go={go} />
       {seatMapOpen && <SeatMapModal pax={pax} cabin={cab} aircraft={trip.outbound?.flight?.aircraft} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
       {isBasket
         ? <div className="mx-auto max-w-page px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
         : <Stepper active={1} />}
       <div className="mx-auto max-w-page px-6 py-6">
-        <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">{isBasket ? "My trip basket" : "View & customize cart"}</h1><Pill tone="slate">{isBasket ? `${trip.extras.length + 1} items` : "8 modules"}</Pill></div>
+        <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">{isBasket ? "My trip basket" : "View & customize cart"}</h1><span className="inline-flex items-center text-[10px] font-bold tracking-wide uppercase px-2.5 py-1 rounded-full bg-surface-mute text-ink-slate border border-line">{isBasket ? `${trip.extras.length + 1} items` : "8 modules"}</span></div>
         <p className="text-[13px] text-ink-muted mt-1">{isBasket ? "Review and customize everything you've added to your trip before checkout." : "Choose hotels, transfers, protection and experiences to complete your trip. Everything you add flows into your cart."}</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adult{trip.pax > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>All extras optional</Chip></div>
         {isBasket && <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5 text-[12px] flex items-center gap-2 flex-wrap"><Pill tone="lime">Pinned</Pill><span className="font-semibold">Your core flight stays in the basket</span><span className="text-ink-faint">— extras below are optional and can be removed.</span></div>}
@@ -599,13 +626,26 @@ function CartView({ go, mode = "cart", shared }) {
               <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked />{fareBags >= 1 ? <Bag name={fareBags === 2 ? "2× Checked bags · 23kg" : "Checked bag · 23kg"} sub={`${fareBags} piece${fareBags > 1 ? "s" : ""} per traveller · included with ${fareLabel} fare`} locked /> : <Bag code="bag-checked" name="Checked bag · 23kg" sub={`Not included in ${fareLabel} · add one`} price={30} />}<Bag code="bag-extra" name={fareBags >= 1 ? "Extra checked bag · 23kg" : "Second checked bag · 23kg"} sub="Add another bag · saves €15 vs airport" price={55} /></div>
             </Module>
 
-            <Module n="02" icon="leaf" kicker="Carbon offset" title="Carbon offset" sub="Auto-checked · uncheck if you wish" right={<div className="text-right"><span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00]">Opt-out</span><div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></div>}>
-              <label className={cx("flex items-center gap-3 rounded-xl border p-3", carbonOn ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-                <span className={cx("w-5 h-5 rounded-md border-2 inline-flex items-center justify-center shrink-0 cursor-pointer", carbonOn ? "bg-tap-green border-tap-green text-white" : "bg-surface border-line-strong text-transparent")} onClick={() => { const next = !carbonOn; setCarbonOn(next); if (next !== hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }}><Icon name="check" size={13} className="stroke-[3]" /></span>
-                <div className="flex-1 text-[13px] font-semibold">{carbonOn ? "Auto-added" : "Offset this trip's emissions"}</div>
-                <div className="text-[13px] font-bold v2-num">{eur2(10)}</div>
-              </label>
-            </Module>
+            <Card className="p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="shrink-0 w-9 h-9 rounded-lg bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center"><Icon name="leaf" size={18} /></span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap"><span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">02 · Carbon offset</span><span className="text-[14px] font-bold v2-num">{eur2(10)}</span><span className="text-[12px] text-ink-muted">Auto-checked · uncheck if you wish</span></div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <button onClick={() => { setCarbonOn(false); if (hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }} className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00] hover:brightness-95">Opt-out</button>
+                  <div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div>
+                </div>
+              </div>
+              <div className="h-px bg-line -mx-4 my-3" />
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => { const next = !carbonOn; setCarbonOn(next); if (next !== hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }}>
+                <span className="w-5 h-5 rounded-md inline-flex items-center justify-center shrink-0" style={carbonOn ? { background: "rgba(10,10,10,1)", border: "1px solid rgba(232,232,229,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>{carbonOn && <Icon name="check" size={12} className="stroke-[3] text-[rgba(158,253,56,1)]" />}</span>
+                <div className="text-[13px] font-semibold">{carbonOn ? "Auto-added" : "Offset this trip's emissions"}</div>
+                <div className="text-[13px] font-bold v2-num ml-auto">{eur2(10)}</div>
+              </div>
+            </Card>
 
             <Module n="03" icon="home" kicker="Hotels" title="Stay in Lisbon" badge={catBadge("Hotels")} sub="Recommended hotels for your dates." right={<button onClick={() => setAllHotels(v => !v)} className="text-[12px] font-semibold text-tap-greenDeep">{allHotels ? "Show less ↑" : "View all hotels →"}</button>}>
               <div className="space-y-2">
@@ -627,7 +667,7 @@ function CartView({ go, mode = "cart", shared }) {
               </div>
             </Module>
 
-            <Module n="05" icon="shield" kicker="Insurance" title="Protect your trip" badge="Mandatory" sub="Choose a plan that covers cancellation, medical, and baggage.">
+            <Module n="05" icon="shield" kicker="Insurance" title="Protect your trip" badge={`${ins === "none" ? "No plan" : ins === "plus" ? "Plus" : "Standard"} · ${pax} pax`} sub="Choose a plan that covers cancellation, medical, and baggage." right={<div className="text-right"><span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md" style={{ background: "rgba(255,240,240,1)", color: "rgba(224,10,10,1)" }}>Mandatory</span><div className="text-[10px] text-ink-faint font-semibold mt-1">EU package travel rules</div></div>}>
               <div className="grid sm:grid-cols-3 gap-3">
                 <Plan v="none" name="I already have coverage" kicker="My travel insurance is sorted" points={[[true, "Health coverage"], [true, "Trip cancellation protection"], [true, "Baggage loss"], [false, "COVID-19 protection"], [false, "24/7 support service"]]} />
                 <Plan v="standard" name="Standard" kicker="Essential cover" price={19} total={19 * pax} points={[[true, "Medical · €25K"], [true, "Trip cancellation"], [true, "Lost baggage"], [false, "COVID-19 cover"], [false, "24/7 concierge"]]} />
@@ -640,15 +680,15 @@ function CartView({ go, mode = "cart", shared }) {
 
             <Module n="06" icon="star" kicker="Lounge & priority" title="Relax and skip the queues" badge={catBadge("Lounge & services")} sub="Quality time before the flight — drinks, food, fast-track lanes.">
               <div className="space-y-2">
-                <Row code="lounge-opo" name="TAP Lounge · OPO" sub="Hot meals · drinks · showers · Wi-Fi · up to 3h pre-flight" rate={90} cat="Lounge & services" tag="OPO outbound" />
-                <Row code="priority" name="Priority boarding" sub="Skip the queue · board first · stow your bag first" rate={16} cat="Lounge & services" tag="both flights" />
-                <Row code="fasttrack" name="Fast-track security · LIS arrival" sub="Dedicated immigration lane on arrival in Lisbon" rate={18} cat="Lounge & services" tag="LIS arrival" />
+                <ServiceRow code="lounge-opo" icon="star" name="TAP Lounge · OPO" sub="Hot meals · drinks · showers · Wi-Fi · up to 3h pre-flight" rate={90} tag="OPO outbound" />
+                <ServiceRow code="priority" icon="bolt" name="Priority boarding" sub="Skip the queue · board first · stow your bag first" rate={16} tag="both flights" />
+                <ServiceRow code="fasttrack" icon="shield" name="Fast-track security · LIS arrival" sub="Dedicated immigration lane on arrival in Lisbon" rate={18} tag="LIS arrival" />
               </div>
             </Module>
 
             <Module n="07" icon="bag" kicker="Meals" title="Meals & onboard extras" badge={catCount("Onboard") ? catBadge("Onboard") : null} sub="Pick a meal for each traveller. We confirm 24h before departure.">
               <div className="grid sm:grid-cols-4 gap-3">
-                {[["Standard meal", "Chef-curated 3-course", 0], ["Vegetarian", "Plant-based · seasonal", 0], ["Premium meal", "Tasting menu", 28], ["Skip meal", "No meal · sleep", 0]].map(([n, s, p]) => {
+                {[["Standard meal", "Chef-curated 3-course", 0, "bag"], ["Vegetarian", "Plant-based · seasonal", 0, "leaf"], ["Premium meal", "Tasting menu", 28, "star"], ["Skip meal", "No meal · sleep", 0, "x"]].map(([n, s, p, ic]) => {
                   const on = meal === n;
                   const select = () => {
                     setMeal(n);
@@ -657,7 +697,7 @@ function CartView({ go, mode = "cart", shared }) {
                     else if (e) { toggleExtra(e); save(); }
                     r();
                   };
-                  return <button key={n} onClick={select} className={cx("text-left rounded-xl border p-3 flex flex-col", on ? "border-tap-green bg-lime-tint/50 ring-1 ring-tap-green" : "border-line")}><div className="flex items-start justify-between gap-2"><div className="text-[13px] font-bold">{n}</div><span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span></div><div className="text-[10px] text-ink-faint flex-1 mt-0.5">{s}</div><div className="h-px bg-line my-2" /><div className="text-[11px] font-semibold">{p ? <span className="v2-num">{eur2(p)} <span className="text-[10px] text-ink-faint font-normal">per pax</span></span> : on ? <span className="text-tap-greenDeep">Included</span> : <span className="text-ink-faint font-normal">{n === "Skip meal" ? "No meal" : "Free"}</span>}</div></button>;
+                  return <button key={n} onClick={select} className={cx("text-left rounded-xl p-3 flex flex-col", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}><div className="flex items-start justify-between gap-2"><span className="w-9 h-9 rounded-lg bg-surface-mute text-ink-slate inline-flex items-center justify-center shrink-0"><Icon name={ic} size={18} /></span><span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span></div><div className="text-[13px] font-bold mt-2">{n}</div><div className="text-[10px] text-ink-faint flex-1 mt-0.5">{s}</div><div className="h-px bg-line my-2" /><div className="text-[11px] font-semibold">{p ? <span className="v2-num">{eur2(p)} <span className="text-[10px] text-ink-faint font-normal">per pax</span></span> : on ? <span className="text-[rgba(10,10,10,1)]">Included</span> : <span className="text-ink-faint font-normal">{n === "Skip meal" ? "No meal" : "Free"}</span>}</div></button>;
                 })}
               </div>
             </Module>
@@ -667,7 +707,7 @@ function CartView({ go, mode = "cart", shared }) {
                 {[["exp-belem", "Belém food walking tour", "3h · pastéis de Belém · small group · English guide", 65, "Experience"], ["exp-sintra", "Sintra full-day", "Pena Palace · Quinta da Regaleira · Cabo da Roca", 89, "Day trip · popular"], ["exp-douro", "Douro Valley wine tour", "Vineyards · tastings · river cruise · full day", 120, "Wine"], ["exp-fado", "Fado night experience", "Traditional Portuguese music · 3-course dinner · port wine", 75, "Night out"], ["exp-surf", "Surf lesson · Cascais", "2h · gear included · beginners welcome", 55, "Outdoor"], ["exp-train", "Lisbon–Porto train", "2h45 · 1st class · day-trip ready", 39, "Excursion"]].map(([code, name, sub, price, tag]) => {
                   const on = hasExtra(code); const tot = price * (trip.pax || 2);
                   const parts = String(tag).split("·").map(s => s.trim()); const popular = parts.some(p => /popular/i.test(p)); const catLabel = parts.filter(p => !/popular/i.test(p)).join(" · ") || parts[0];
-                  return <div key={code} className={cx("rounded-xl border overflow-hidden", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line")}><Img seed={"exp-" + code} src={imageFor(code)} alt={name} className="h-28 w-full object-cover" /><div className="p-3"><div className="flex items-center gap-1.5"><Pill tone="slate">{catLabel}</Pill>{popular && <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">Popular</span>}</div><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-end justify-between mt-2 gap-2"><div><div className="text-[14px] font-bold v2-num">{eur2(price)}</div><div className="text-[10px] text-ink-faint">per person</div>{on && <div className="text-[10px] text-ink-faint v2-num">× {trip.pax || 2} = {eur2(tot)}</div>}</div><Btn size="sm" variant="outline" className="shrink-0" onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add to cart"}</Btn></div></div></div>;
+                  return <div key={code} className={cx("rounded-xl overflow-hidden", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}><Img seed={"exp-" + code} src={imageFor(code)} alt={name} className="h-28 w-full object-cover" /><div className="p-3"><div className="flex items-center gap-1.5"><Pill tone="slate">{catLabel}</Pill>{popular && <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">Popular</span>}</div><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-end justify-between mt-2 gap-2"><div><div className="text-[14px] font-bold v2-num">{eur2(price)}</div><div className="text-[10px] text-ink-faint">per person</div>{on && <div className="text-[10px] text-ink-faint v2-num">× {trip.pax || 2} = {eur2(tot)}</div>}</div><Btn size="sm" variant="outline" className="shrink-0" onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add to cart"}</Btn></div></div></div>;
                 })}
               </div>
             </Module>
@@ -748,7 +788,7 @@ export function Basket({ shared, go }) {
   );
 
   return (
-    <div className="bg-surface-soft min-h-screen">
+    <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       {editItem && <ItemEditModal item={editItem.item} link={editItem.link} onClose={() => setEditItem(null)} onApply={applyEdit} />}
       <Stepper active={2} />
       <div className="mx-auto max-w-content px-6 py-6">
@@ -910,9 +950,9 @@ const FLAG_CTRY = { Portugal: "🇵🇹", Brazil: "🇧🇷", Spain: "🇪🇸",
 const FLAG_NAT = { Portuguese: "🇵🇹", Brazilian: "🇧🇷", Spanish: "🇪🇸", French: "🇫🇷", German: "🇩🇪", British: "🇬🇧", Italian: "🇮🇹", American: "🇺🇸" };
 const PHONE_CODES = [["+351", "🇵🇹"], ["+55", "🇧🇷"], ["+34", "🇪🇸"], ["+33", "🇫🇷"], ["+49", "🇩🇪"], ["+44", "🇬🇧"]];
 function FlagSelect({ value, onChange, options, err }) {
-  return <div className={cx("relative w-full bg-surface border rounded-xl", err ? "border-tap-red" : "border-line-strong")}>
+  return <div className={cx("relative w-full bg-surface border rounded-[10px]", err ? "border-tap-red" : "border-line")}>
     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[15px] pointer-events-none">{options[value] || "🌐"}</span>
-    <select value={value || ""} onChange={e => onChange(e.target.value)} className="w-full bg-transparent pl-9 pr-7 py-2.5 text-[14px] text-ink outline-none appearance-none cursor-pointer">
+    <select value={value || ""} onChange={e => onChange(e.target.value)} className="w-full bg-transparent pl-9 pr-7 py-3 text-[14px] text-ink outline-none appearance-none cursor-pointer">
       <option value="" disabled>Select…</option>{Object.keys(options).map(o => <option key={o} value={o}>{o}</option>)}
     </select>
     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[11px]">▾</span>
@@ -921,19 +961,19 @@ function FlagSelect({ value, onChange, options, err }) {
 // Input with valid (green check) / error (red border) feedback
 const VInput = ({ value, onChange, placeholder, err }) => (
   <div className="relative">
-    <input value={value || ""} onChange={onChange} placeholder={placeholder} className={cx("w-full bg-surface border rounded-xl px-3 py-2.5 pr-8 text-[14px] text-ink placeholder:text-ink-faint outline-none focus:border-tap-green", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")} />
+    <input value={value || ""} onChange={onChange} placeholder={placeholder} className={cx("w-full bg-surface border rounded-[10px] px-3 py-3 pr-8 text-[14px] text-ink placeholder:text-ink-faint outline-none focus:border-tap-green", err ? "border-tap-red" : "border-line")} />
     {err ? <Icon name="x" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-red" /> : null}
   </div>
 );
 // Native date picker with the same valid/error treatment (#8)
 const DateInput = ({ value, onChange, err, max, min }) => (
-  <input type="date" value={value || ""} max={max} min={min} onChange={onChange} className={cx("w-full bg-surface border rounded-xl px-3 py-2.5 text-[14px] text-ink outline-none focus:border-tap-green cursor-pointer", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")} />
+  <input type="date" value={value || ""} max={max} min={min} onChange={onChange} className={cx("w-full bg-surface border rounded-[10px] px-3 py-3 text-[14px] text-ink outline-none focus:border-tap-green cursor-pointer", err ? "border-tap-red" : "border-line")} />
 );
 // Generic dropdown with a visible ▾ affordance so selectable fields don't read as static
 // inputs (#7, #8). Mirrors FlagSelect styling minus the flag glyph.
 const Select = ({ value, onChange, options, placeholder = "Select…", err }) => (
-  <div className={cx("relative w-full bg-surface border rounded-xl", err ? "border-tap-red" : value ? "border-tap-green/60" : "border-line-strong")}>
-    <select value={value || ""} onChange={onChange} className="w-full bg-transparent pl-3 pr-8 py-2.5 text-[14px] text-ink outline-none appearance-none cursor-pointer">
+  <div className={cx("relative w-full bg-surface border rounded-[10px]", err ? "border-tap-red" : "border-line")}>
+    <select value={value || ""} onChange={onChange} className="w-full bg-transparent pl-3 pr-8 py-3 text-[14px] text-ink outline-none appearance-none cursor-pointer">
       <option value="" disabled>{placeholder}</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
@@ -954,7 +994,6 @@ const PaxSectionTitle = ({ title, sub, info, className }) => (
       {info && <Icon name="info" size={12} className="text-ink-faint" />}
       {sub && <span className="text-[11px] text-ink-faint leading-none normal-case tracking-normal font-medium">· {sub}</span>}
     </div>
-    <div className="h-[3px] w-9 rounded-full bg-tap-green mt-2" />
   </div>
 );
 
@@ -1037,13 +1076,13 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
   const doPrefill = () => { const v = { ...p, title: src.title || (src.gender === "Female" ? "Ms" : "Mr"), first: src.first, last: src.last, dob: src.dob, gender: src.gender, nat: src.nat, doctype: "Passport", doc: src.doc, docctry: src.docctry, docexp: src.docexp || "2028-11-22" }; setP(v); trip.passengers[idx] = v; onChange && onChange(); };
   useEffect(() => { trip.passengers[idx] = p; onChange && onChange(); }, []);
   return (
-    <Card className="p-5">
+    <Card className="p-5 border-2" style={{ borderRadius: "18px", borderColor: "#e8e8e5", boxShadow: "0px 4px 16px rgba(0,0,0,0.06)" }}>
       <div className="flex items-start justify-between gap-3 -mx-5 -mt-5 mb-4 px-5 py-4 bg-surface-soft rounded-t-2xl border-b border-line">
         <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{(p.first || "P")[0]}{(p.last || String(idx + 1))[0]}</span>
           <div><div className="font-bold text-[15px] flex items-center gap-2">Passenger {idx + 1}{p.first ? " · " + p.first + " " + (p.last || "") : " · Add details"}<Pill tone="slate">Adult</Pill>{lead && <Pill tone="gold">{src.tier}</Pill>}</div><div className="text-[11px] text-ink-faint">{lead ? "Lead traveler · contact for this booking" : "Required to issue ticket"}</div></div></div>
         <div className="flex items-center gap-2">
-          <button onClick={doPrefill} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green"><Icon name="refresh" size={12} /> Prefill from profile</button>
-          {!lead && <button onClick={() => onRemove && onRemove(idx)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink-muted hover:border-tap-red hover:text-tap-red"><Icon name="x" size={12} /> Remove</button>}
+          <button onClick={doPrefill} className="inline-flex items-center gap-1.5 rounded-[8px] border h-8 px-2.5 text-[12px] font-medium text-ink hover:border-tap-green" style={{ borderColor: "#e8e8e5" }}><Icon name="refresh" size={12} /> Prefill from profile</button>
+          {!lead && <button onClick={() => onRemove && onRemove(idx)} className="inline-flex items-center gap-1.5 rounded-[8px] border h-8 px-2.5 text-[12px] font-medium text-ink-muted hover:border-tap-red hover:text-tap-red" style={{ borderColor: "#e8e8e5" }}><Icon name="x" size={12} /> Remove</button>}
         </div>
       </div>
       <PaxSectionTitle title="Identity" sub="as shown on passport" />
@@ -1067,11 +1106,11 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
       </div>
       <PaxSectionTitle title="Loyalty" sub="Optional — earn miles on this trip" className="mt-4" />
       {lead
-        ? <div className="rounded-xl border border-tap-green/30 bg-lime-tint text-tap-greenDark px-4 py-3 flex items-center gap-3"><Icon name="plane" size={16} /><div className="flex-1"><div className="text-[13px] font-bold">TAP.miles applied</div><div className="text-[11px]">{src.member} · {src.tier} tier — you'll earn {miles(src.earn || 2416)} tap.miles on this trip.</div></div><button className="text-[12px] font-semibold shrink-0">Edit</button></div>
+        ? <div className="rounded-[10px] border text-tap-greenDark flex items-center gap-3" style={{ background: "#F2FFDB", borderColor: "#9EFD38", padding: "14px" }}><span className="w-9 h-9 rounded-lg bg-white inline-flex items-center justify-center shrink-0 text-tap-greenDeep"><Icon name="plane" size={16} /></span><div className="flex-1"><div className="text-[13px] font-bold">TAP.miles applied</div><div className="text-[11px]">{src.member} · {src.tier} tier — you'll earn {miles(src.earn || 2416)} tap.miles on this trip.</div></div><button className="text-[12px] font-semibold shrink-0">Edit</button></div>
         : <div className="grid sm:grid-cols-[160px_1fr_auto] gap-3 items-end"><Field label="Program"><Input defaultValue="TAP.miles" /></Field><Field label="Membership number"><Input placeholder="Add Miles&Go number (optional)" /></Field><Btn variant="outline" size="sm">Apply membership</Btn></div>}
-      <div className="mt-4 pt-3 border-t border-line">
-        <div className="flex items-center justify-between"><div><div className="text-[13px] font-semibold">Special requests <span className="text-ink-faint font-normal">· optional</span></div><div className="text-[11px] text-ink-faint">Wheelchair, special meals, dietary preferences, traveling with a pet…</div></div><button onClick={() => setReqOpen(o => !o)} className="text-[12px] font-semibold text-tap-greenDeep shrink-0">{reqOpen ? "Close ▴" : "Add request ▾"}</button></div>
-        {(reqs.length > 0 || reqOpen) && <div className="mt-3 rounded-xl border border-line bg-surface-soft p-3">
+      <div className="mt-4 rounded-[10px]" style={{ background: "#FAFAF7", padding: "14px" }}>
+        <div className="flex items-center justify-between gap-2"><div><div className="text-[13px] font-semibold">Special requests <span className="text-ink-faint font-normal">· optional</span></div><div className="text-[11px] text-ink-faint">Wheelchair, special meals, dietary preferences, traveling with a pet…</div></div><button onClick={() => setReqOpen(o => !o)} className="text-[12px] font-semibold text-tap-greenDeep shrink-0">{reqOpen ? "Close ▴" : "Add request ▾"}</button></div>
+        {(reqs.length > 0 || reqOpen) && <div className="mt-3 rounded-xl border border-line bg-surface p-3">
           {reqs.length > 0 && <div className="flex flex-wrap gap-1.5 mb-2">{reqs.map(rq => <span key={rq} className="inline-flex items-center gap-1 text-[11px] font-semibold bg-lime-tint text-tap-greenDeep rounded-full px-2.5 py-1">{rq}<button onClick={() => setReqs(reqs.filter(x => x !== rq))} className="text-tap-greenDeep/70 hover:text-tap-red"><Icon name="x" size={11} /></button></span>)}</div>}
           {reqOpen && <div className="flex flex-wrap gap-1.5">{REQ_OPTS.filter(o => !reqs.includes(o)).map(o => <button key={o} onClick={() => { setReqs([...reqs, o]); setReqOpen(false); }} className="text-[11px] font-medium border border-line-strong rounded-full px-2.5 py-1 hover:border-tap-green hover:text-tap-greenDeep"><span className="text-[13px] leading-none mr-0.5">+</span> {o}</button>)}</div>}
         </div>}
@@ -1079,7 +1118,7 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
     </Card>
   );
 }
-const Toggle = ({ on, set }) => <button onClick={() => set(!on)} className={cx("w-11 h-6 rounded-full relative transition-colors", on ? "bg-lime" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all", on ? "right-0.5" : "left-0.5")} /></button>;
+const Toggle = ({ on, set }) => <button onClick={() => set(!on)} className="w-12 h-7 rounded-[14px] relative transition-colors shrink-0" style={{ background: on ? "#C7F21F" : "#D9DBE0" }}><span className={cx("absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all", on ? "right-0.5" : "left-0.5")} /></button>;
 
 export function Passenger({ shared, go }) {
   if (!trip.outbound) return noTrip(go);
@@ -1110,7 +1149,7 @@ export function Passenger({ shared, go }) {
   const removePax = (i) => { trip.passengers.splice(i, 1); setPaxCount(c => Math.max(1, c - 1)); setTab("all"); };
 
   return (
-    <div className="bg-surface-soft min-h-screen">
+    <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <RevalGate reval={reval} setReval={setReval} go={go} />
       <Stepper active={3} />
       <div className="mx-auto max-w-page px-6 py-6">
@@ -1120,10 +1159,12 @@ export function Passenger({ shared, go }) {
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-5 items-start">
           <div className="space-y-5">
-            <div className="flex items-center gap-2 text-[13px] font-semibold flex-wrap">
-              {[["all", "All"], ...Array.from({ length: paxCount }).map((_, i) => ["p" + (i + 1), `Passenger ${i + 1}` + (i === 0 ? ` · ${u.first_name}` : "")])].map(([k, l]) => (
-                <button key={k} onClick={() => setTab(k)} className={cx("px-3 py-1.5 rounded-full", tab === k ? "bg-surface-dark text-white" : "bg-surface border border-line text-ink-muted")}>{tab === k && k !== "all" && <span className="text-tap-green mr-1">●</span>}{l}</button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-1 rounded-full border" style={{ borderColor: "#E8E8E5", padding: "6px" }}>
+                {[["all", "All"], ...Array.from({ length: paxCount }).map((_, i) => ["p" + (i + 1), `Passenger ${i + 1}` + (i === 0 ? ` · ${u.first_name}` : "")])].map(([k, l]) => (
+                  <button key={k} onClick={() => setTab(k)} className="px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors" style={tab === k ? { background: "#0A0A0A", color: "#FFFFFF" } : { background: "#FFFFFF", color: "#0A0A0A" }}>{tab === k && k !== "all" && <span className="text-tap-green mr-1">●</span>}{l}</button>
+                ))}
+              </div>
               <span className="ml-auto text-[11px] text-ink-faint">{completeN} of {paxCount} complete · <span className="text-tap-greenDeep font-semibold">Autosaved</span></span>
             </div>
 
@@ -1135,14 +1176,14 @@ export function Passenger({ shared, go }) {
             {tab === "all" && <button onClick={addPax} className="w-full rounded-xl border border-dashed border-line-strong py-3 text-[13px] font-semibold text-tap-greenDeep hover:border-tap-green hover:bg-lime-tint/30 inline-flex items-center justify-center gap-1.5"><span className="text-[15px] leading-none">+</span> Add another passenger</button>}
 
             <Card className="p-5">
-              <div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><Icon name="mail" size={15} className="text-ink-faint" /><div className="font-bold text-[15px]">Contact details for this booking</div></div><button className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green"><Icon name="refresh" size={12} /> Using your account · Change</button></div>
+              <div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><Icon name="mail" size={15} className="text-ink-faint" /><div className="font-bold text-[15px]">Contact details for this booking</div></div><button className="inline-flex items-center gap-1.5 rounded-[8px] border h-8 px-2.5 text-[12px] font-medium text-ink hover:border-tap-green" style={{ borderColor: "#e8e8e5" }}><Icon name="refresh" size={12} /> Using your account · Change</button></div>
               <p className="text-[11px] text-ink-muted mb-3">We'll send confirmation and important trip updates to this contact.</p>
               <div className="grid sm:grid-cols-2 gap-3">
                 <Field label={<>Email address <Req /></>}><VInput value={contact.email} onChange={e => setContact({ ...contact, email: e.target.value })} err={showErr && !contact.email} /></Field>
                 <Field label={<>Mobile phone <Req /></>}>
                   <div className="flex gap-2">
-                    <div className="relative w-[96px] shrink-0"><span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none">{(PHONE_CODES.find(c => c[0] === contact.phoneCode) || PHONE_CODES[0])[1]}</span><select value={contact.phoneCode} onChange={e => setContact({ ...contact, phoneCode: e.target.value })} className="w-full bg-surface border border-line-strong rounded-xl pl-8 pr-6 py-2.5 text-[13px] outline-none appearance-none cursor-pointer">{PHONE_CODES.map(([c]) => <option key={c} value={c}>{c}</option>)}</select><span className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[10px]">▾</span></div>
-                    <input value={contact.phone} onChange={e => setContact({ ...contact, phone: e.target.value })} className={cx("flex-1 bg-surface border rounded-xl px-3 py-2.5 text-[14px] outline-none focus:border-tap-green", showErr && !contact.phone ? "border-tap-red" : "border-line-strong")} />
+                    <div className="relative w-[96px] shrink-0"><span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none">{(PHONE_CODES.find(c => c[0] === contact.phoneCode) || PHONE_CODES[0])[1]}</span><select value={contact.phoneCode} onChange={e => setContact({ ...contact, phoneCode: e.target.value })} className="w-full bg-surface border border-line rounded-[10px] pl-8 pr-6 py-3 text-[13px] outline-none appearance-none cursor-pointer">{PHONE_CODES.map(([c]) => <option key={c} value={c}>{c}</option>)}</select><span className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[10px]">▾</span></div>
+                    <input value={contact.phone} onChange={e => setContact({ ...contact, phone: e.target.value })} className={cx("flex-1 bg-surface border rounded-[10px] px-3 py-3 text-[14px] outline-none focus:border-tap-green", showErr && !contact.phone ? "border-tap-red" : "border-line")} />
                   </div>
                 </Field>
                 <Field label={<>Country <Req /></>}><FlagSelect value={contact.country} onChange={v => setContact({ ...contact, country: v })} options={FLAG_CTRY} err={showErr && !contact.country} /></Field>
@@ -1153,12 +1194,12 @@ export function Passenger({ shared, go }) {
               <label className="flex items-start gap-2.5 text-[13px] text-ink-700"><input type="checkbox" checked={contact.fare} onChange={e => setContact({ ...contact, fare: e.target.checked })} className="accent-[#46a41a] mt-0.5" /><span>Email me fare alerts and travel inspiration <span className="text-ink-faint">(optional)</span><span className="block text-[11px] text-ink-faint">You can unsubscribe any time. We'll always send essential trip emails.</span></span></label>
             </Card>
 
-            <div className="rounded-2xl border border-tap-green/30 bg-lime-tint/40 p-4 flex items-start gap-3"><Icon name="lock" size={16} className="text-tap-greenDeep shrink-0 mt-0.5" /><div><div className="font-bold text-[14px] text-tap-greenDark">Your data, your choice</div><div className="text-[11px] text-ink-muted">GDPR-compliant · TAP only shares what you explicitly allow below. Encrypted end-to-end.</div></div></div>
+            <div className="rounded-[12px] border flex items-start gap-3" style={{ background: "#F5FAFF", borderColor: "#C7D6F5", padding: "16px 22px" }}><span className="w-9 h-9 rounded-[18px] bg-white inline-flex items-center justify-center shrink-0" style={{ color: "#1A1F29" }}><Icon name="lock" size={16} /></span><div><div className="font-bold text-[14px]" style={{ color: "#1A1F29" }}>Your data, your choice</div><div className="text-[11px]" style={{ color: "#667080" }}>GDPR-compliant · TAP only shares what you explicitly allow below. Encrypted end-to-end.</div></div></div>
             <Card className="p-5">
-              <Eyebrow className="mb-3">Marketing &amp; partner consents</Eyebrow>
-              <div className="divide-y divide-line">
+              <div className="mb-3 font-bold" style={{ fontSize: "18px", fontWeight: 700, color: "#1A1F29" }}>Marketing &amp; partner consents</div>
+              <div className="divide-y divide-[#e0e3e8]">
                 {[["fare", "TAP fare alerts", "Personalised deals based on your routes"], ["hotel", "Hotel & car partners", "Booking.com & Hertz can email you matched offers"], ["stopover", "Stopover Portugal", "Destination guides & limited-time experiences"], ["analytics", "Anonymised analytics", "Helps TAP improve product (no personal data shared)"], ["ads", "Third-party advertising", "Personalised ads on social platforms"]].map(([k, t, s]) => (
-                  <div key={k} className="flex items-center justify-between py-3"><div><div className="text-[13px] font-semibold">{t}</div><div className="text-[11px] text-ink-faint">{s}</div></div><Toggle on={cons[k]} set={v => setCons({ ...cons, [k]: v })} /></div>
+                  <div key={k} className="flex items-center justify-between gap-3 min-h-[72px]" style={{ padding: "14px 0" }}><div><div className="text-[13px] font-semibold">{t}</div><div className="text-[11px] text-ink-faint">{s}</div></div><Toggle on={cons[k]} set={v => setCons({ ...cons, [k]: v })} /></div>
                 ))}
               </div>
             </Card>
@@ -1329,7 +1370,7 @@ export function Payment({ shared, go }) {
   );
 
   return (
-    <div className="bg-surface-soft min-h-screen">
+    <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <RevalGate reval={reval} setReval={setReval} go={go} />
       <Stepper active={4} />
       <div className="mx-auto max-w-page px-6 py-6">
@@ -1712,7 +1753,7 @@ export function Confirmation({ shared, go }) {
   const downloadTicket = () => downloadFile(`eticket-${trip.pnr}.txt`, ticketText(), "text/plain");
   const addWallet = () => downloadFile(`boarding-pass-${trip.pnr}.txt`, ticketText(), "text/plain");
   return (
-    <div className="bg-surface-soft min-h-screen">
+    <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <div className="mx-auto max-w-page px-6 py-8">
         <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center shrink-0"><Icon name="check" size={22} /></span><div><h1 className="text-[30px] font-black leading-tight">Booking Confirmed</h1><div className="text-[13px] text-ink-muted">PNR {trip.pnr} · Receipt sent to {pay.email || u.email}</div></div></div>
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
@@ -1848,7 +1889,7 @@ export function ExpressCheckout({ shared, go }) {
   const Sec = ({ title, action, onAction, children }) => <Card className="p-5"><div className="flex items-center justify-between mb-2"><div className="font-bold text-[15px]">{title}</div>{action && <button onClick={onAction} className="text-[12px] font-bold text-tap-greenDeep underline underline-offset-2 hover:text-tap-green">{action}</button>}</div>{children}</Card>;
 
   return (
-    <div className="bg-surface-soft min-h-screen">
+    <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <div className="bg-surface border-b border-line"><div className="mx-auto max-w-page px-6 py-4 flex items-center gap-3 text-[13px] font-semibold"><span className="flex items-center gap-1.5 text-ink"><span className="w-5 h-5 rounded-full bg-lime text-ink inline-flex items-center justify-center text-[11px]">1</span> Review &amp; Pay</span><span className="flex-1 h-px bg-line-strong" /><span className="flex items-center gap-1.5 text-ink-faint"><span className="w-5 h-5 rounded-full bg-surface-mute text-ink-faint inline-flex items-center justify-center text-[11px]">2</span> Confirmation</span></div></div>
       <div className="mx-auto max-w-page px-6 py-6">
         <h1 className="text-[26px] font-bold">Express checkout</h1>
