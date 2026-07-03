@@ -160,57 +160,86 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
     }
     return go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
   };
-  const cell = "p-3 min-w-0";
-  const lbl = "text-[9px] font-bold uppercase tracking-wide text-ink-faint";
+  const lbl = "text-[10px] font-semibold uppercase tracking-[1px] text-[rgba(139,142,134,1)]";
   const bare = "w-full min-w-0 bg-transparent text-[15px] font-bold outline-none";
+  const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const compactRange = () => {
+    const d = date ? new Date(date + "T00:00:00") : null, r = ret ? new Date(ret + "T00:00:00") : null;
+    if (!d) return "Select dates";
+    const dd = d.getDate(), dm = MON[d.getMonth()];
+    if (type === "oneway" || !r) return `${dd} ${dm}`;
+    const rd = r.getDate(), rm = MON[r.getMonth()];
+    return dm === rm ? `${dd}–${rd} ${dm}` : `${dd} ${dm} – ${rd} ${rm}`;
+  };
 
   return (
     <div className="mt-5">
-      {/* inner solid white box — tabs + form sit on the outer frosted-glass panel (HomePage #32) */}
-      <div className="rounded-2xl bg-surface shadow-sm overflow-hidden">
-        <div className="flex gap-1 overflow-x-auto v2-track text-[13px] font-semibold border-b border-line px-2 pt-1.5">
-          {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-3.5 py-2 rounded-t-lg border-b-2 -mb-px transition-colors", i === 0 ? "bg-lime-tint text-tap-greenDeep border-tap-green" : "border-transparent text-ink-muted hover:text-ink")}>{t}</button>)}
+      {/* #6 inner search module — 18px radius, soft shadow, status row contained inside */}
+      <div className="rounded-[18px] bg-surface overflow-hidden" style={{ boxShadow: "0px 8px 24px -16px rgba(15,20,16,0.12)" }}>
+        {/* #7 service tabs — flat, integrated into the bar */}
+        <div className="flex overflow-x-auto v2-track text-[13.5px] font-bold border-b border-line px-1">
+          {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-5 py-3.5 border-b -mb-px transition-colors whitespace-nowrap", i === 0 ? "" : "border-transparent text-ink-muted hover:text-ink")} style={i === 0 ? { background: "rgba(242,255,219,1)", color: "rgba(70,164,26,1)", borderBottomWidth: "1px", borderBottomColor: "rgba(70,164,26,1)" } : {}}>{t}</button>)}
         </div>
         <div className="p-4 sm:p-5">
           <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex gap-1 text-[12px] font-semibold bg-surface-soft rounded-full p-1">
-          {[["round", "Round trip"], ["oneway", "One way"], ["multi", "Multi-city"]].map(([k, l]) => (
-            <button key={k} onClick={() => setType(k)} className={cx("px-3 py-1 rounded-full transition-colors", type === k ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink")}>{l}</button>
-          ))}
-        </div>
-        <button onClick={() => setPayMiles(v => !v)} className="flex items-center gap-2 text-[12px] font-semibold text-ink-muted">Pay with Miles <Icon name="spark" size={13} className={payMiles ? "text-tap-green" : "text-ink-faint"} /><span className={cx("w-9 h-5 rounded-full relative transition-colors", payMiles ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", payMiles ? "right-0.5" : "left-0.5")} /></span></button>
-      </div>
+            {/* #8 trip-type selector — compact 251×37 pill group */}
+            <div className="inline-flex gap-1 p-1 rounded-[10px]" style={{ background: "rgba(250,250,247,1)" }}>
+              {[["round", "Round trip"], ["oneway", "One way"], ["multi", "Multi-city"]].map(([k, l]) => (
+                <button key={k} onClick={() => setType(k)} className="px-3 py-1 rounded-[7px] text-[12px] font-semibold transition-colors" style={type === k ? { background: "rgba(255,255,255,1)", color: "rgba(20,22,28,1)", boxShadow: "0px 1px 2px 0px rgba(20,22,28,0.06)" } : { color: "rgba(107,107,107,1)" }}>{l}</button>
+              ))}
+            </div>
+            {/* #9 pay-with-miles — toggle first, then label + filled star */}
+            <button onClick={() => setPayMiles(v => !v)} className="inline-flex items-center gap-2.5 text-[12px] font-semibold text-ink-muted">
+              <span className={cx("w-9 h-5 rounded-full relative transition-colors shrink-0", payMiles ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", payMiles ? "right-0.5" : "left-0.5")} /></span>
+              Pay with Miles <Icon name="star" size={14} className={payMiles ? "text-tap-green" : "text-ink-faint"} />
+            </button>
+          </div>
 
-      <div className="mt-3 rounded-2xl border border-line overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-line">
-        <div className={cx(cell, "lg:col-span-3 relative")}>
-          <div className={lbl}>Frequent route · prefilled</div>
-          <div className="flex items-center gap-2 mt-1"><select value={from} onChange={e => setFrom(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select><button onClick={swap} className="text-tap-green shrink-0" title="Swap"><Icon name="swap" size={14} /></button><select value={to} onChange={e => setTo(e.target.value)} className={cx(bare, "appearance-none cursor-pointer text-right")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-          <div className="text-[10px] text-ink-faint mt-0.5">{cityOf(from)} → {cityOf(to)}</div>
+          <div className="mt-3 rounded-2xl border border-line overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-line">
+            {/* #10 #13 route — single container, location icons + circular swap between */}
+            <div className="lg:col-span-4 p-4">
+              <div className={lbl}>Frequent route · prefilled</div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <Icon name="plane" size={14} className="text-tap-green shrink-0" />
+                <select value={from} onChange={e => setFrom(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select>
+                <button onClick={swap} title="Swap" className="shrink-0 w-[30px] h-[30px] rounded-full inline-flex items-center justify-center" style={{ border: "1px solid rgba(217,230,203,1)", background: "rgba(241,245,236,1)" }}><Icon name="swap" size={13} className="text-tap-greenDeep" /></button>
+                <Icon name="home" size={14} className="text-ink-muted shrink-0" />
+                <select value={to} onChange={e => setTo(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select>
+              </div>
+              <div className="text-[10px] text-ink-faint mt-1">{cityOf(from)} → {cityOf(to)}</div>
+            </div>
+            {/* #14 dates — compact range + calendar icon (dynamic, still selectable) */}
+            <div className="lg:col-span-3 p-4">
+              <div className={lbl}>{type === "oneway" ? "Depart" : "Depart · Return"}</div>
+              <div className="flex items-center gap-2 mt-1.5"><Icon name="clock" size={14} className="text-ink-muted shrink-0" /><span className="text-[15px] font-bold">{compactRange()}</span></div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-[10px] text-ink-faint outline-none w-[94px]" />
+                {type !== "oneway" && <><span className="text-ink-faint text-[10px]">→</span><input type="date" value={ret} onChange={e => setRet(e.target.value)} className="bg-transparent text-[10px] text-ink-faint outline-none w-[94px]" /></>}
+              </div>
+            </div>
+            {/* #15 passenger — traveler icon before count */}
+            <div className="lg:col-span-2 p-4"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><select value={pax} onChange={e => setPax(+e.target.value)} className={cx(bare)}>{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Adult{n > 1 ? "s" : ""}</option>)}</select></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
+            <div className="lg:col-span-1 p-4"><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1.5")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select></div>
+            {/* #11 search CTA — 161×92 rounded green button */}
+            <div className="lg:col-span-2 p-2 flex items-stretch">
+              <button onClick={go2} className="w-full text-white font-bold text-[14px] flex items-center justify-center gap-2.5 rounded-[16px] hover:opacity-95 transition-opacity" style={{ background: "rgba(70,164,26,1)", padding: "16px 22px" }}>Search flight <Icon name="arrow" size={15} /></button>
+            </div>
+          </div>
+          {type === "multi" && (
+            <div className="grid lg:grid-cols-12 gap-3 mt-3">
+              <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+              <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
+              <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
+              <div className="lg:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
+            </div>
+          )}
+          {/* #6 status indicators — contained inside the search module */}
+          <div className="flex flex-wrap gap-4 mt-4 text-[12px] text-ink-muted">
+            {[["Traveler details saved", true], [`Default ${u.card_brand || "Mastercard"} ready`, true], [`${u.tier} benefits active`, true], ["Use miles available", (u.miles || 0) > 0]].map(([t, ok], i) => (
+              <span key={i} className="flex items-center gap-1.5"><Icon name="check" size={13} className={ok ? "text-tap-green" : "text-ink-faint"} /> {t}</span>
+            ))}
+          </div>
         </div>
-        <div className={cx(cell, "lg:col-span-3")}>
-          <div className={lbl}>{type === "oneway" ? "Depart" : "Depart · Return"}</div>
-          <div className="flex items-center gap-2 mt-1"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={cx(bare, "text-[13px]")} />{type !== "oneway" && <input type="date" value={ret} onChange={e => setRet(e.target.value)} className={cx(bare, "text-[13px]")} />}</div>
-          <div className="text-[10px] text-ink-faint mt-0.5">± 3 days flexibility on</div>
-        </div>
-        <div className={cx(cell, "lg:col-span-2")}><div className={lbl}>Passenger</div><select value={pax} onChange={e => setPax(+e.target.value)} className={cx(bare, "mt-1")}>{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Adult{n > 1 ? "s" : ""}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">{u.first_name} · saved</div></div>
-        <div className={cx(cell, "lg:col-span-2")}><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><div className="text-[10px] text-ink-faint mt-0.5">Preferred</div></div>
-        <button onClick={go2} className="lg:col-span-2 bg-tap-green text-white font-bold text-[14px] flex items-center justify-center gap-1.5 py-3.5 hover:bg-tap-greenDeep transition-colors">Search flight <Icon name="arrow" size={15} /></button>
-      </div>
-      {type === "multi" && (
-        <div className="grid lg:grid-cols-12 gap-3 mt-3">
-          <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-          <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-          <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
-          <div className="lg:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
-        </div>
-      )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-4 mt-4 px-1 text-[12px] text-ink-muted">
-        {[["Traveler details saved", true], [`Default ${u.card_brand || "Mastercard"} ready`, true], [`${u.tier} benefits active`, true], ["Use miles available", (u.miles || 0) > 0]].map(([t, ok], i) => (
-          <span key={i} className="flex items-center gap-1.5"><Icon name="check" size={13} className={ok ? "text-tap-green" : "text-ink-faint"} /> {t}</span>
-        ))}
       </div>
     </div>
   );
@@ -255,13 +284,13 @@ export function Home({ shared, go }) {
         </video>
         <div className="absolute inset-0 bg-black/15" />
         <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
-          <div className="rounded-3xl bg-white/60 backdrop-blur-2xl border border-white/50 shadow-pop p-6 sm:p-8">
+          <div className="rounded-[37px] border-2 border-white shadow-pop p-5 sm:p-8 max-w-[1320px] mx-auto" style={{ background: "rgba(255,255,255,0.9)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}>
             <div className="flex items-start justify-between">
               <PersonalizedTag />
-              <button onClick={() => setAiOn(v => !v)} className="flex items-center gap-2 text-ink-muted text-[12px] font-semibold">TAP AI <span className={cx("w-9 h-5 rounded-full relative transition-colors", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span></button>
+              <button onClick={() => setAiOn(v => !v)} className="inline-flex items-center gap-1.5 rounded-full bg-white shadow-sm text-ink-muted text-[12px] font-semibold pl-3.5 pr-2 py-2"><span className={cx("w-9 h-5 rounded-full relative transition-colors shrink-0", aiOn ? "bg-tap-green" : "bg-ink/15")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow", aiOn ? "right-0.5" : "left-0.5")} /></span> TAP AI</button>
             </div>
             <div className="text-ink-muted text-[14px] mt-3">Bom dia, {u.first_name}.</div>
-            <h1 className="text-[34px] font-black text-ink tracking-tight">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
+            <h1 className="text-[32px] font-semibold tracking-[-0.8px] leading-none text-[rgba(15,20,16,1)]">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
             {aiOn
               ? <HomeAIPanel go={go} aiOn={aiOn} onToggle={() => setAiOn(false)} />
               : <HeroSearch u={u} pat={pat} cityOf={cityOf} airports={airports} go={go} />}
@@ -276,17 +305,17 @@ export function Home({ shared, go }) {
             <div><h2 className="text-[22px] font-bold">Your commute templates</h2><div className="flex gap-4 text-[12px] font-semibold mt-2"><span className="text-ink border-b-2 border-ink pb-0.5">Templates</span><span className="text-ink-faint">Recent searches</span><span className="text-ink-faint">Favourites</span></div></div>
             <div className="flex gap-2"><button onClick={() => scrollTpl(-1)} className="w-9 h-9 rounded-full border border-line flex items-center justify-center text-ink-muted hover:bg-surface-mute">←</button><button onClick={() => scrollTpl(1)} className="w-9 h-9 rounded-full bg-surface-dark text-white flex items-center justify-center hover:bg-ink-strong">→</button></div>
           </div>
-          <div ref={tplRef} className="flex gap-4 overflow-x-auto v2-track snap-x pb-2 -mx-1 px-1">
+          <div ref={tplRef} className="flex gap-3 overflow-x-auto v2-track snap-x pb-2 -mx-1 px-1">
             {buildTemplates(profile, cityOf).map((t, i) => (
-              <Card key={i} className="overflow-hidden shrink-0 w-[320px] snap-start">
-                <div className="h-44 relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
-                <div className="p-4">
+              <Card key={i} className="overflow-hidden shrink-0 w-[377px] snap-start border" style={{ borderRadius: "22px", boxShadow: "0px 4px 16px 0px rgba(0,0,0,0.06)" }}>
+                <div className="h-[100px] relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
+                <div className="p-5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">{t.label}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-[rgba(70,164,26,1)]">{t.label}</span>
                     <span className="text-[10px] text-ink-faint">{t.used ? `Used ${t.used}×` : t.shuttle ? "Recurring" : ""}</span>
                   </div>
-                  <div className="flex items-center justify-between mt-1.5"><div className="text-[15px] font-bold">{t.route}</div><div className="text-[12px] font-semibold text-ink-muted v2-num">{t.time}</div></div>
-                  <div className="text-[11px] text-ink-muted mt-1 min-h-[28px]">{t.detail}</div>
+                  <div className="flex items-center justify-between mt-2"><div className="text-[15px] font-bold">{t.route}</div><div className="text-[12px] font-semibold text-ink-muted v2-num">{t.time}</div></div>
+                  <div className="text-[11px] text-ink-muted mt-2 min-h-[28px]">{t.detail}</div>
                   <Btn size="sm" variant="soft" className="mt-2 w-full" onClick={() => go(t.shuttle ? "manage" : "express")}>{t.shuttle ? "Manage shuttle" : "One-tap book"}</Btn>
                 </div>
               </Card>
@@ -303,25 +332,25 @@ export function Home({ shared, go }) {
       </div>
 
       {/* MILES & GO JOURNEY (dark full-bleed) */}
-      <section className="bg-surface-dark text-white" style={{ background: "radial-gradient(55% 70% at 95% 42%, rgba(38,116,58,0.55), transparent 62%), radial-gradient(50% 55% at 100% 100%, rgba(28,86,43,0.5), transparent 58%), radial-gradient(130% 105% at 50% -5%, #17381f, transparent 60%), #0a130e" }}>
-        <div className="mx-auto max-w-content px-6 py-14 text-center">
+      <section className="text-white" style={{ background: "linear-gradient(90deg, #000000 0%, #143817 100%)" }}>
+        <div className="mx-auto max-w-content px-6 py-20 text-center">
           <span className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-widest uppercase px-3 py-1 rounded-full bg-gradient-to-br from-[#E8C75A] to-[#C9A227] text-ink"><Icon name="spark" size={11} /> Your Miles&Go journey · {u.tier} member</span>
           <h2 className="text-[44px] font-black leading-tight mt-5">{prog.next ? <>You're {miles(prog.toGo)} miles<br />from {prog.next}, {u.first_name}.</> : <>You're at the top tier, {u.first_name}.</>}</h2>
           <p className="text-white/60 text-[14px] mt-3 max-w-2xl mx-auto">One Lisbon stopover + one European return gets you there — and unlocks free upgrades and lounge access for two.</p>
-          <div className="mt-8 rounded-2xl border border-white/10 bg-black/40 p-5 text-left">
+          <div className="mt-8 rounded-[24px] p-9 text-left" style={{ background: "rgba(13,13,13,0.2)", border: "1px solid rgba(255,255,255,0.06)" }}>
             <div className="flex flex-wrap items-center justify-center gap-8 text-center">
               <div><div className="text-[10px] uppercase tracking-wide text-white/50">Current balance</div><div className="text-[34px] font-black v2-num">{miles(u.miles)} <span className="text-[14px] font-medium text-white/50">tap.miles</span></div><div className="text-[11px] mt-1"><TierBadge tier={u.tier} /> {prog.next && <span className="text-white/50 ml-1">You · {miles(prog.toGo)} mi to <span className="text-lime font-bold uppercase">{prog.next}</span></span>}</div></div>
-              {prog.next && <div className="rounded-xl bg-black/40 border border-white/10 p-4 min-w-[220px] text-center"><div className="text-[40px] font-black text-lime leading-none v2-num">{prog.pct}%</div><div className="text-[10px] uppercase tracking-wide text-white/50 mt-1">Progress to {prog.next}</div><div className="h-2 rounded-full bg-white/15 mt-2 overflow-hidden"><div className="h-full rounded-full" style={{ width: prog.pct + "%", background: "linear-gradient(90deg,#9efd38,#8b5cf6)" }} /></div></div>}
+              {prog.next && <div className="rounded-[18px] p-3.5 min-w-[280px] text-center" style={{ background: "rgba(15,26,17,1)", border: "1px solid rgba(46,77,52,1)" }}><div className="text-[40px] font-black text-lime leading-none v2-num">{prog.pct}%</div><div className="text-[10px] uppercase tracking-wide text-white/50 mt-1">Progress to {prog.next}</div><div className="h-2 rounded-full bg-white/15 mt-2 overflow-hidden"><div className="h-full rounded-full" style={{ width: prog.pct + "%", background: "linear-gradient(90deg,#9efd38,#8b5cf6)" }} /></div></div>}
             </div>
             <div className="grid sm:grid-cols-3 gap-3 mt-5">
               {(offerTiles && offerTiles.length ? offerTiles : [
                 { icon: "home", badge: "Because you're " + u.tier, title: "Use miles to discount your Lisbon hotel", detail: "Apply 8,000 mi to any 3-night stay · save up to €80 instantly.", value: "8,000 mi", cta: "Apply", reason: `${u.tier} member · ${miles(u.miles)} tap.miles available (users)` },
                 { icon: "plane", badge: "Limited · next trip", title: "Upgrade " + cityOf(pat.origin || "LIS") + "–" + cityOf(pat.dest || "OPO") + " to Business with miles", detail: "20% mileage discount when upgrading on your existing booking.", value: "42,000 mi", cta: "Upgrade", reason: `${cityOf(pat.origin || "LIS")}–${cityOf(pat.dest || "OPO")} is your most-flown route (travel_history)` },
                 { icon: "star", badge: "Partner offer · Nov", title: "Earn 3× miles at Memmo Príncipe Real", detail: "Triple miles when booking your favourite hotel through voa stay.", value: "3× MI", cta: "Activate", reason: "Memmo Príncipe Real is in your recent stays (bookings)" },
-              ]).map((o, i) => (
-                <div key={o.id || i} className="rounded-xl bg-black/30 border border-white/10 p-4 flex flex-col text-left">
+              ]).slice(0, 3).map((o, i) => (
+                <div key={o.id || i} className="rounded-[14px] p-[18px] flex flex-col text-left" style={{ background: "rgba(15,26,17,1)", border: "1px solid rgba(46,77,52,1)" }}>
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="w-9 h-9 rounded-xl bg-white/10 inline-flex items-center justify-center text-tap-green shrink-0"><Icon name={o.icon} size={18} /></span>
+                    <span className="w-11 h-11 rounded-xl inline-flex items-center justify-center text-lime shrink-0" style={{ background: "linear-gradient(135deg, rgba(158,253,56,0.18), rgba(46,125,51,0.25))", border: "1px solid rgba(158,253,56,0.25)" }}><Icon name={o.icon} size={20} /></span>
                     <span className="inline-flex items-center gap-1 rounded-full bg-lime-tint px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep"><Icon name="spark" size={9} /> {o.badge}</span>
                   </div>
                   <div className="text-[14px] font-bold mt-3">{o.title}</div>
@@ -333,7 +362,7 @@ export function Home({ shared, go }) {
               ))}
             </div>
           </div>
-          <div className="mt-6 rounded-2xl border border-tap-green/20 px-4 py-3 flex items-center gap-2 text-[12.5px] font-semibold text-lime" style={{ background: "linear-gradient(90deg, #14331a, #2e7d33 80%, #46a41a)" }}><Icon name="spark" size={14} className="shrink-0" /> Earn up to {miles(Math.round((rec?.package?.total || pat.usualPrice || 250) * 12))} voa.miles on your Lisbon stopover hotel and experiences this trip.</div>
+          <div className="mt-6 flex items-center justify-center gap-2 pt-2"><span className="text-[14px]" style={{ color: "rgba(158,253,56,1)" }}>✦</span><span className="text-[14px] font-medium leading-none text-white" style={{ opacity: 0.8 }}>Earn up to {miles(Math.round((rec?.package?.total || pat.usualPrice || 250) * 12))} voa.miles on your Lisbon stopover hotel and experiences this trip.</span></div>
         </div>
       </section>
 
@@ -350,7 +379,7 @@ export function Home({ shared, go }) {
                 <div className="text-[12px] text-ink-muted mt-1">{pat.recommendedLabel} {pat.usualDep} · fare from {EUR(pat.usualPrice)} · hand bag only.</div>
                 <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="slate">2 taps</Pill><Pill tone="slate">Default card</Pill><Pill tone="slate">{miles(u.miles)} mi avail.</Pill></div>
                 <div className="mt-auto"><div className="h-px bg-line my-3" />
-                <div className="flex items-center justify-between"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from ({rec?.package?.hotelNights || 3} night{(rec?.package?.hotelNights || 3) !== 1 ? "s" : ""} · 1 pax)</div><div className="text-[18px] font-black v2-num">€{Number(rec?.package?.total || pat.usualPrice || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div><Btn size="sm" onClick={() => go("express")}>Book Now →</Btn></div></div>
+                <div className="flex items-center justify-between"><div><div className="text-[9px] uppercase tracking-wide text-ink-faint">from ({rec?.package?.hotelNights || 3} night{(rec?.package?.hotelNights || 3) !== 1 ? "s" : ""} · 1 pax)</div><div className="text-[18px] font-black v2-num">€{Number(rec?.package?.total || pat.usualPrice || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div><Btn size="sm" variant="outline" onClick={() => go("express")}>Book Now →</Btn></div></div>
               </div>
             </Card>
             {/* resume */}
@@ -361,7 +390,7 @@ export function Home({ shared, go }) {
                   <div className="font-bold text-[15px]">Resume booking</div>
                   <div className="text-[12px] text-ink-muted mt-1">{journey.origin} → {journey.dest} · stopped at {journey.stage}.{journey.seat ? ` Seat ${journey.seat} held.` : ""}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="green">{["search", "results", "seat", "extras", "review"].indexOf(journey.stage) + 1} of 5 done</Pill><Pill tone="slate">Fare held</Pill></div>
-                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => { api.post("/journey/resume", {}).catch(() => {}); go("results", { origin: journey.origin || pat.origin || u.home_airport, dest: journey.dest || pat.dest || "LIS", date: journey.date || journey.travel_date || pat.recommendedDate, type: "round", pax: 1, cabin: journey.cabin || "Economy" }); }}>Continue →</Btn></div></div>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => { if (typeof window !== "undefined") window.__tapForceReval = true; api.post("/journey/resume", {}).catch(() => {}); go("results", { origin: journey.origin || pat.origin || u.home_airport, dest: journey.dest || pat.dest || "LIS", date: journey.date || journey.travel_date || pat.recommendedDate, type: "round", pax: 1, cabin: journey.cabin || "Economy" }); }}>Continue →</Btn></div></div>
                 </> : <>
                   <div className="font-bold text-[15px]">Nothing in progress</div>
                   <div className="text-[12px] text-ink-muted mt-1">Start a new search to begin a booking.</div>
@@ -443,15 +472,28 @@ export function Home({ shared, go }) {
           <section>
             <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Worth your while{upcoming ? ` · for ${upcoming.flight?.dep || "your trip"}` : ""}</h2><span className="text-[11px] text-ink-faint">Ranked for {u.tier} commuters</span></div>
             <div className="grid md:grid-cols-3 gap-4">
-              {anc.slice(0, 3).map((a, i) => (
-                <Card key={a.code || i} className="p-4 flex flex-col">
-                  <div className="flex items-center justify-between"><Pill tone={a.recommended ? "lime" : "slate"}>{a.recommended ? "Recommended" : i === 1 ? "Cash + miles" : "Popular · " + u.tier}</Pill><span className="text-[10px] text-ink-faint">{a.reason ? "" : ""}</span></div>
-                  <div className="text-[15px] font-bold mt-2">{a.name}</div>
-                  <div className="text-[11px] text-ink-muted mt-1 flex-1">{a.reason || a.desc || "Add before you fly."}</div>
-                  {a.recommended && a.reason && <WhyChip reason={a.reason} signals={a.signals} className="mt-1.5" />}
-                  <div className="flex items-center justify-between mt-3"><div className="text-[13px] font-bold v2-num">{EUR(a.price)} <span className="text-[11px] font-medium text-ink-faint">or {miles(Math.round(a.price / MILES_RATE))} mi</span></div><Btn size="sm" variant={i === 1 ? "outline" : "primary"} onClick={() => go("cart")}>{i === 1 ? "Review" : "Add"}</Btn></div>
-                </Card>
-              ))}
+              {anc.slice(0, 3).map((a, i) => {
+                const s = ((a.code || "") + " " + (a.name || "")).toLowerCase();
+                const ancIcon = /seat/.test(s) ? "seat" : /bag|lugg/.test(s) ? "bag" : /meal|food|veg|kid/.test(s) ? "leaf" : /loung/.test(s) ? "star" : /wifi|internet/.test(s) ? "bolt" : /upgrad|cabin|business/.test(s) ? "plane" : /insur|secur|protect/.test(s) ? "shield" : "spark";
+                return (
+                  <Card key={a.code || i} className="overflow-hidden flex flex-col" style={{ borderRadius: "16px" }}>
+                    <div className="h-[96px] flex items-center justify-center" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
+                      <span className="w-12 h-12 rounded-2xl bg-white/70 inline-flex items-center justify-center text-tap-greenDeep"><Icon name={ancIcon} size={22} /></span>
+                    </div>
+                    <div className="p-4 flex flex-col flex-1">
+                      <div className="flex items-center justify-between">
+                        {a.recommended
+                          ? <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide" style={{ background: "rgba(241,245,236,1)", color: "rgba(46,122,14,1)" }}><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Recommended</span>
+                          : <Pill tone="slate">{i === 1 ? "Cash + miles" : "Popular · " + u.tier}</Pill>}
+                      </div>
+                      <div className="text-[15px] font-bold mt-2">{a.name}</div>
+                      <div className="text-[11px] text-ink-muted mt-1 flex-1">{a.reason || a.desc || "Add before you fly."}</div>
+                      {a.recommended && a.reason && <WhyChip reason={a.reason} signals={a.signals} className="mt-1.5" />}
+                      <div className="flex items-center justify-between mt-3"><div className="text-[13px] font-bold v2-num">{EUR(a.price)} <span className="text-[11px] font-medium text-ink-faint">or {miles(Math.round(a.price / MILES_RATE))} mi</span></div><Btn size="sm" variant={i === 1 ? "outline" : "primary"} onClick={() => go("cart")}>{i === 1 ? "Review" : "Add"}</Btn></div>
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
           </section>
         </div>
@@ -462,7 +504,7 @@ export function Home({ shared, go }) {
         <div className="mx-auto max-w-page px-6 py-10">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {[["cart", "Manage booking", "PNR or last name", "basket"], ["check", "Online check-in", "Opens 22h before", "basket"], ["clock", "Flight status", "Track any TP", "results"], ["bag", "Add bag", "Cheaper before airport", "cart"], ["plane", "Change flight", u.tier + " · no fee", "basket"], ["star", "Help center", "Chat or call", "ai"]].map(([ic, t, s, r]) => (
-              <button key={t} onClick={() => go(r)} className="text-left rounded-xl border border-lime/40 bg-lime-tint/40 hover:bg-lime-tint p-3.5"><span className="text-tap-greenDeep"><Icon name={ic} size={16} /></span><div className="text-[13px] font-bold mt-2">{t}</div><div className="text-[11px] text-ink-muted">{s}</div></button>
+              <button key={t} onClick={() => go(r)} className="text-left rounded-[14px] p-4 transition-colors hover:brightness-95" style={{ background: "rgba(242,255,219,1)", border: "1px solid rgba(199,242,31,1)" }}><span className="text-tap-greenDeep"><Icon name={ic} size={16} /></span><div className="text-[13px] font-bold mt-2">{t}</div><div className="text-[11px] text-ink-muted">{s}</div></button>
             ))}
           </div>
         </div>

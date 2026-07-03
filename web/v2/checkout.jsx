@@ -461,6 +461,9 @@ function CartView({ go, mode = "cart", shared }) {
   const isBasket = mode === "basket";
   const [, force] = useState(0); const r = () => force(x => x + 1);
   const [carbonOn, setCarbonOn] = useState(() => hasExtra("carbon"));
+  // H2 — a fare change can surface as early as the cart step (and on resume, via the force flag).
+  // Only in the checkout "cart" step, not the standalone basket view.
+  const [reval, setReval] = usePriceReval(!isBasket);
   // Don't re-seed a recommended basket if the member explicitly cleared it last time; an open
   // saved basket has already been restored on login, so seedExtras() is a no-op in that case.
   useEffect(() => { if (trip.outbound && shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
@@ -576,6 +579,7 @@ function CartView({ go, mode = "cart", shared }) {
 
   return (
     <div className="bg-surface-soft min-h-screen">
+      <RevalGate reval={reval} setReval={setReval} go={go} />
       {seatMapOpen && <SeatMapModal pax={pax} cabin={cab} aircraft={trip.outbound?.flight?.aircraft} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
       {isBasket
         ? <div className="mx-auto max-w-page px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
@@ -1091,6 +1095,8 @@ export function Passenger({ shared, go }) {
   const [cons, setCons] = useState({ fare: true, hotel: true, stopover: false, analytics: true, ads: false });
   const [, force] = useState(0); const bump = () => force(x => x + 1);
   useEffect(() => { trip.contact = contact; trip.pax = paxCount; }, [contact, paxCount]);
+  // H2 — surface a mid-journey fare change here (once per selected outbound); Payment re-arms as a fallback.
+  const [reval, setReval] = usePriceReval();
 
   const REQ = ["title", "first", "last", "dob", "gender", "nat", "doctype", "doc", "docctry", "docexp"];
   const paxComplete = (i) => { const d = trip.passengers[i] || {}; return REQ.every(k => d[k] && String(d[k]).trim()); };
@@ -1105,6 +1111,7 @@ export function Passenger({ shared, go }) {
 
   return (
     <div className="bg-surface-soft min-h-screen">
+      <RevalGate reval={reval} setReval={setReval} go={go} />
       <Stepper active={3} />
       <div className="mx-auto max-w-page px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Passenger details</h1><Pill tone="slate">{paxCount} traveler{paxCount > 1 ? "s" : ""}</Pill></div>
@@ -1176,30 +1183,65 @@ function computeRevalidation(t) {
   const o = trip.outbound;
   const delta = Math.max(12, Math.round((o?.price || 130) * 0.08));   // ~8% of the outbound fare, min €12
   const fno = String(o?.flight?.flight_no || "your flight").replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2");
-  return {
-    oldTotal: t.total, newTotal: t.total + delta, delta, flight: fno,
-    reason: `The fare class you selected on ${fno} just sold its last seat at that price. The next available fare in the same cabin is €${delta} higher.`,
-  };
+  const oldTotal = t.total, newTotal = t.total + delta;
+  const pct = oldTotal > 0 ? Math.round((delta / oldTotal) * 1000) / 10 : 0;   // one decimal
+  const capturedAt = new Date(Date.now() - 4 * 60000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return { oldTotal, newTotal, delta, pct, capturedAt, flight: fno };
+}
+// Shared once-per-journey revalidation: any checkout step can arm this on mount; it fires a
+// single time per selected outbound (guarded by _h2ArmedFor), so the price-change popup shows
+// mid-journey and never repeats. Presenters can silence it via window.__tapNoRevalidate.
+function usePriceReval(enabled = true) {
+  const [reval, setReval] = useState(null);
+  useEffect(() => {
+    if (!enabled) return;
+    if (trip.pnr) return;                                                      // already booked → never
+    if (typeof window !== "undefined" && window.__tapNoRevalidate) return;     // presenter silenced it
+    const fno = trip.outbound?.flight?.flight_no || null;
+    // A resume sets window.__tapForceReval so the popup re-fires on return even if it was already
+    // shown for this flight (the fare is re-validated fresh on resume). Otherwise: once per flight.
+    const forced = typeof window !== "undefined" && !!window.__tapForceReval;
+    if (!forced && _h2ArmedFor === fno) return;
+    if (forced && typeof window !== "undefined") window.__tapForceReval = false;   // consume the flag
+    setReval(computeRevalidation(tripTotals()));
+  }, []);
+  return [reval, setReval];
+}
+// Renders the price-change modal + wires accept/exit consistently for whichever step armed it.
+function RevalGate({ reval, setReval, go }) {
+  if (!reval) return null;
+  const arm = () => { _h2ArmedFor = trip.outbound?.flight?.flight_no || null; };
+  return <PriceChangeModal info={reval}
+    onAccept={() => { trip.repriceDelta = (trip.repriceDelta || 0) + reval.delta; arm(); pingBasket(); setReval(null); }}
+    onExit={() => { arm(); setReval(null); go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type }); }} />;
 }
 function PriceChangeModal({ info, onAccept, onExit }) {
+  const pctStr = String(info.pct).replace(".", ",");
   return (
     <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onExit}>
-      <div className="bg-white rounded-2xl max-w-md w-full shadow-pop overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-line flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-full bg-[#fff4d6] text-[#9a6b00] inline-flex items-center justify-center shrink-0"><Icon name="clock" size={16} /></span>
-          <div><div className="text-[10px] font-bold uppercase tracking-wide text-[#9a6b00]">Availability updated</div><div className="font-bold text-[16px] leading-tight">Price changed while you were booking</div></div>
-        </div>
-        <div className="p-5">
-          <p className="text-[13px] text-ink-muted">{info.reason}</p>
-          <div className="mt-4 rounded-xl border border-line bg-surface-soft p-4 flex items-center justify-between">
-            <div><div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Previous total</div><div className="text-[18px] font-bold v2-num text-ink-faint line-through">{EUR(info.oldTotal)}</div></div>
-            <Icon name="arrow" size={16} className="text-ink-faint" />
-            <div className="text-right"><div className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep">New total</div><div className="text-[22px] font-black v2-num text-ink">{EUR(info.newTotal)}</div><div className="text-[10px] text-tap-red font-semibold">+{EUR(info.delta)}</div></div>
+      <div className="bg-white rounded-2xl max-w-lg w-full shadow-pop overflow-hidden border-t-4 border-[#f59e0b]" onClick={e => e.stopPropagation()}>
+        <div className="p-6">
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-full bg-[#fef3c7] text-[#d97706] inline-flex items-center justify-center shrink-0 text-[18px] font-black leading-none">!</span>
+            <div className="text-[22px] font-black text-ink leading-tight">Price has changed</div>
           </div>
-          <div className="mt-3 rounded-xl bg-lime-tint/50 border border-tap-green/30 px-3 py-2 flex items-center gap-2 text-[12px] text-tap-greenDark"><Icon name="check" size={14} className="text-tap-green shrink-0" /> Your seat, extras and passenger details are saved — nothing was lost.</div>
-          <div className="flex flex-col gap-2 mt-4">
-            <Btn variant="primary" className="w-full" onClick={onAccept}>Continue at {EUR(info.newTotal)} <Icon name="arrow" size={14} /></Btn>
-            <Btn variant="outline" className="w-full" onClick={onExit}>Go back to my basket</Btn>
+          <p className="text-[14px] text-ink-muted mt-3 leading-relaxed">While you were choosing, the fare on <b>{info.flight}</b> changed. Please confirm to continue with the new price.</p>
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="rounded-xl border border-line bg-surface-soft p-4">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Old price</div>
+              <div className="text-[22px] font-black v2-num text-ink-faint line-through mt-1">{money(info.oldTotal, { dp: 2 })}</div>
+              <div className="text-[11px] text-ink-faint mt-1">Captured at {info.capturedAt}</div>
+            </div>
+            <div className="rounded-xl border-2 p-4" style={{ borderColor: "#f5c518", background: "#fffaeb" }}>
+              <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#9a6b00" }}>New price</div>
+              <div className="text-[26px] font-black v2-num text-ink mt-1">{money(info.newTotal, { dp: 2 })}</div>
+              <div className="text-[12px] text-tap-red font-bold mt-1">+{money(info.delta, { dp: 0 })} (+{pctStr}%)</div>
+            </div>
+          </div>
+          <div className="text-[12px] text-ink-faint mt-4">💡 Why did this happen? Fares update in real time.</div>
+          <div className="flex items-center gap-3 mt-5">
+            <Btn variant="outline" className="flex-1" onClick={onExit}>Find another flight</Btn>
+            <Btn variant="primary" className="flex-1" onClick={onAccept}>Accept changes &amp; continue</Btn>
           </div>
         </div>
       </div>
@@ -1228,14 +1270,8 @@ export function Payment({ shared, go }) {
   const [editMiles, setEditMiles] = useState(false); // #7: Edit reveals an exact-amount field
   const [editVoucher, setEditVoucher] = useState(false), [editCash, setEditCash] = useState(false); // #21: Edit reveals partial-amount fields
   useEffect(() => { api.get("/seat-recommendation").then(setSeat).catch(() => {}); }, []);
-  // H2 — revalidate availability/price on reaching payment; fire once per selected outbound.
-  const [reval, setReval] = useState(null);
-  useEffect(() => {
-    const fno = trip.outbound?.flight?.flight_no || null;
-    if (typeof window !== "undefined" && window.__tapNoRevalidate) return;   // presenter silenced it
-    if (trip.pnr || _h2ArmedFor === fno) return;                             // already booked / already shown for this flight
-    setReval(computeRevalidation(tripTotals()));
-  }, []);
+  // H2 — revalidate availability/price; fires once per selected outbound (also armed mid-journey on Passenger).
+  const [reval, setReval] = usePriceReval();
   const cashbackBal = 38;
   let voucher_amt = 0, miles_used = 0, miles_amt = 0, cashback_amt = 0;
   if (method === "Miles & Go") { miles_used = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE)); miles_amt = Math.round(miles_used * MILES_RATE); voucher_amt = Math.min(voucher, Math.max(0, t.total - miles_amt)); }
@@ -1294,9 +1330,7 @@ export function Payment({ shared, go }) {
 
   return (
     <div className="bg-surface-soft min-h-screen">
-      {reval && <PriceChangeModal info={reval}
-        onAccept={() => { trip.repriceDelta = (trip.repriceDelta || 0) + reval.delta; _h2ArmedFor = trip.outbound?.flight?.flight_no || null; pingBasket(); setReval(null); }}
-        onExit={() => { _h2ArmedFor = trip.outbound?.flight?.flight_no || null; setReval(null); go("cart"); }} />}
+      <RevalGate reval={reval} setReval={setReval} go={go} />
       <Stepper active={4} />
       <div className="mx-auto max-w-page px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Payment</h1><Pill tone="slate"><Icon name="lock" size={11} /> Secure checkout · powered by Stripe</Pill></div>
