@@ -614,6 +614,11 @@ app.post("/api/hold", async (req, res) => {
 /* ── Payment → booking + confirmation email ──────────────────── */
 app.post("/api/pay", async (req, res) => {
   const { flight_no, items, total, voucher_amt, miles_used, miles_amt, card_amt, seat, date, fare, cabin, pax, passengers, inbound, contact } = req.body;
+  // Resilience: any omitted payment component must bind as a number, not undefined (node:sqlite
+  // rejects undefined binds). Frontend normally sends all of these; direct/partial callers may not.
+  const _num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const vAmt = _num(voucher_amt), mUsed = _num(miles_used), mAmt = _num(miles_amt), cAmt = _num(card_amt);
+  const tot = (Number.isFinite(Number(total)) ? Number(total) : (cAmt + vAmt + mAmt));
   const pnr = "TP" + Math.random().toString(36).slice(2, 6).toUpperCase();
   const f = flightByNo(flight_no);
   if (!f) { log("pay_unknown_flight", { flight_no }); return res.status(400).json({ ok: false, error: "unknown flight — search the route first" }); }
@@ -633,20 +638,20 @@ app.post("/api/pay", async (req, res) => {
   const b = db.prepare(`INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,items_json,meta_json,created_at)
     VALUES (?,?,?,?,?,?,?,?)`).run(pnr, req.uid, flight_no, bookDate, seat || (/(exec|business)/i.test(meta.cabin || meta.fare || "") ? "1A" : /premium/i.test(meta.cabin || meta.fare || "") ? "6A" : "22C"), JSON.stringify(items || []), JSON.stringify(meta), now());
   db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at)
-    VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), total, voucher_amt, miles_used, miles_amt, card_amt, now());
-  if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=?").run(miles_used, req.uid);
-  if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=? AND status='active'").run(req.uid);
+    VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), tot, vAmt, mUsed, mAmt, cAmt, now());
+  if (mUsed > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=?").run(mUsed, req.uid);
+  if (vAmt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=? AND status='active'").run(req.uid);
   db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=? AND status='open'").run(req.uid);
   // Booking completed → clear the "resume your search" banner for this destination
   db.prepare("DELETE FROM synced_searches WHERE user_id=?").run(req.uid);
   // Feed the booking back into travel history → future recommendations learn from it
   db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose)
     VALUES (?,?,?,?,?,'Business')`).run(req.uid, flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);
-  log("payment_captured", { pnr, total, date: bookDate, split: { voucher_amt, miles_used, card_amt }, history_updated: true });
+  log("payment_captured", { pnr, total: tot, date: bookDate, split: { voucher_amt: vAmt, miles_used: mUsed, card_amt: cAmt }, history_updated: true });
   cancelAllSearchFollowups(req.uid);   // converted — don't chase with abandonment emails
-  const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
+  const email = await sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt: vAmt, miles_used: mUsed, miles_amt: mAmt, card_amt: cAmt } });
   cdpEvents.emit("booked", liveIdentity(req.uid), { origin: f.origin, destination: f.dest, travelDate: bookDate, flightNumber: flight_no, seat: seat || "—", cabin: meta.cabin || "Economy", ancillaries: (items || []).map(i => i.name || i.label || i), channel: "Web app", abandoned: false });
-  cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "booked", spend: Number(total) || 0,
+  cdpProfile.record({ identity: liveIdentity(req.uid), channel: "web", type: "booked", spend: tot,
     lounge: (items || []).some(i => /lounge/i.test(i.name || i.label || i)) });   // online booking → unified profile
   res.json({ ok: true, pnr, email });
 });
