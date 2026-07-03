@@ -5,6 +5,7 @@
 // password works and the field is prefilled for a one-click demo.
 import React, { useState, useEffect } from "react";
 import { Btn, Icon, TierBadge } from "./ui.jsx";
+import { api } from "./lib.js";
 import { TapLogo } from "./shell.jsx";
 
 // Each demo persona has a distinct identity. Match the entered email / member number to a
@@ -55,6 +56,18 @@ export function LoginModal({ profile, onClose, onLogin, onRegister }) {
   const [home, setHome] = useState("LIS");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // One-tap chips are data-driven from /api/personas so EVERY seeded persona appears
+  // (not just the original 5). Falls back to the hardcoded seed list if the call fails.
+  const [demoList, setDemoList] = useState(DEMO);
+  useEffect(() => {
+    let alive = true;
+    api.get("/personas").then(d => {
+      if (!alive || !d || !Array.isArray(d.personas) || !d.personas.length) return;
+      const CITY = { OPO: "Porto", LIS: "Lisbon", FRA: "Frankfurt", LHR: "London", GRU: "São Paulo", BOS: "Boston", JFK: "New York", MAD: "Madrid", CDG: "Paris", FCO: "Rome", BCN: "Barcelona" };
+      setDemoList(d.personas.map(p => ({ id: p.id, name: p.label || p.id, tier: p.tier, hub: (CITY[p.home] ? CITY[p.home] + " · " : "") + (p.home || "") })));
+    }).catch(() => { });
+    return () => { alive = false; };
+  }, []);
   useEffect(() => {
     const esc = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc);
@@ -70,11 +83,20 @@ export function LoginModal({ profile, onClose, onLogin, onRegister }) {
 
   // Log in: a known persona resolves to {persona}; anything else is tried as a registrant
   // {email} so members 6–15 can sign in too. The server rejects truly-unknown identities.
+  // Resolve a typed identity: the known seed accounts via ACCOUNTS, plus ANY fetched
+  // persona matched by id, first name, or full name (so doc personas sign in by typing too).
+  const resolveAny = (v) => {
+    const hit = resolvePersona(v); if (hit) return hit;
+    const k = (v || "").trim().toLowerCase(); if (!k) return null;
+    const local = k.split("@")[0].replace(/[._-].*$/, "");
+    const m = demoList.find(d => d.id === k || d.id === local || (d.name || "").toLowerCase() === k || (d.name || "").toLowerCase().split(" ")[0] === local);
+    return m ? m.id : null;
+  };
   const submitLogin = (e) => {
     e?.preventDefault?.();
     const v = (email || "").trim();
     if (!v) { setErr("Enter your email or member number."); return; }
-    const id = resolvePersona(v);
+    const id = resolveAny(v);
     run(() => onLogin(id ? { persona: id } : { email: v }));
   };
   const loginChip = (d) => run(() => onLogin({ persona: d.id }));
@@ -120,7 +142,7 @@ export function LoginModal({ profile, onClose, onLogin, onRegister }) {
           <div className="mt-5 pt-4 border-t border-line">
             <div className="text-[10px] font-bold tracking-wide uppercase text-ink-slate mb-2">Demo accounts · one-tap sign-in</div>
             <div className="space-y-1.5">
-              {DEMO.map(d => (
+              {demoList.map(d => (
                 <button key={d.id} disabled={busy} onClick={() => loginChip(d)}
                   className="w-full flex items-center justify-between rounded-xl border border-line-strong px-3 py-2.5 text-left hover:border-tap-green disabled:opacity-50 transition-colors">
                   <span><span className="text-[13px] font-semibold">{d.name}</span><span className="block text-[11px] text-ink-faint">{d.hub}</span></span>
