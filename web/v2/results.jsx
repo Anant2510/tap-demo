@@ -98,6 +98,7 @@ export function Results({ shared, params, go }) {
     if (worth >= euros) return { miles: Math.round(euros / MILES_RATE), cash: 0, full: true };
     return { miles: userMiles, cash: Math.round(euros - worth), full: false };   // all miles + remaining cash
   };
+  const [showMiles, setShowMiles] = useState(payMilesOn);   // results-page control, defaults to the search toggle
 
   // #56/#57 + My Trip Cart #7 — propagate the user's actual search selections (dates,
   // passenger count, trip type) into the shared trip state as soon as results load, so
@@ -406,6 +407,10 @@ export function Results({ shared, params, go }) {
             })}
             </div>
             <div className="ml-auto shrink-0 pr-1 flex items-center gap-2">
+              <button onClick={() => setShowMiles(v => !v)} title="Show fares in miles" className={cx("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-colors", showMiles ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-line text-ink-muted hover:bg-surface-mute")}>
+                <span className={cx("w-7 h-4 rounded-full relative transition-colors shrink-0", showMiles ? "bg-tap-green" : "bg-line-strong")}><span className={cx("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", showMiles ? "left-3.5" : "left-0.5")} /></span>
+                <span className="whitespace-nowrap">Show in miles ✦</span>
+              </button>
               <button onClick={() => setHoldOpen(true)} className={cx("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-[12px] font-semibold transition-colors", held ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-tap-green/50 bg-lime-tint/40 text-tap-greenDeep hover:bg-lime-tint")}>
                 <Icon name={held ? "check" : "lock"} size={13} /> {held ? "Fare held · 72h" : "Hold your fare"}
               </button>
@@ -424,6 +429,7 @@ export function Results({ shared, params, go }) {
           {(showAll ? view : view.slice(0, 5)).map((f, i) => (
             <FlightCard key={f.flight_no} f={f} expanded={expanded === f.flight_no} sel={sel} lowest={lowest} cabin={cabin} inline={inlineFares}
               pairing={leg === "inbound" && i === 0 && !sel} originCity={cityOf(f.origin)} destCity={cityOf(f.dest)}
+              payMilesOn={showMiles} milesFor={milesFor}
               onToggle={() => setExpanded(expanded === f.flight_no ? null : f.flight_no)} onPick={pickFare} />
           ))}
 
