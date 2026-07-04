@@ -22,6 +22,8 @@ function gradFor(seed) { let h = 0; for (const c of String(seed)) h = (h * 31 + 
 // #13 — passenger configuration panel: separate Adults / Children / Infants counters (replaces adult-only dropdown).
 function PaxPanel({ adults, children, infants, onChange, buttonClassName }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
   const summary = [
     `${adults} adult${adults !== 1 ? "s" : ""}`,
     children ? `${children} child${children !== 1 ? "ren" : ""}` : "",
@@ -33,6 +35,15 @@ function PaxPanel({ adults, children, infants, onChange, buttonClassName }) {
     if (cur.infants > cur.adults) cur.infants = cur.adults;   // one lap infant per adult
     onChange(cur);
   };
+  const place = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setPos({ left: r.left, top: r.bottom + 6, width: r.width }); };
+  const toggle = () => { if (!open) place(); setOpen(o => !o); };
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const on = () => place();
+    window.addEventListener("scroll", on, true); window.addEventListener("resize", on);
+    return () => { window.removeEventListener("scroll", on, true); window.removeEventListener("resize", on); };
+  }, [open]); // eslint-disable-line
   const Row = ({ label, sub, val, k, min = 0, max = 9 }) => (
     <div className="flex items-center justify-between py-2">
       <div><div className="text-[13px] font-semibold text-ink">{label}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
@@ -45,10 +56,10 @@ function PaxPanel({ adults, children, infants, onChange, buttonClassName }) {
   );
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>{summary}<span className="text-ink-faint text-[10px] ml-2">▾</span></button>
-      {open && <>
-        <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-        <div className="absolute left-0 mt-2 w-64 bg-white rounded-xl border border-line shadow-pop z-30 p-3">
+      <button ref={btnRef} type="button" onClick={toggle} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>{summary}<span className="text-ink-faint text-[10px] ml-2">▾</span></button>
+      {open && pos && <>
+        <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+        <div className="fixed z-[61] bg-white rounded-xl border border-line shadow-pop p-3" style={{ left: pos.left, top: pos.top, width: "min(256px, calc(100vw - 24px))" }}>
           <Row label="Adults" sub="12+ years" val={adults} k="adults" min={1} />
           <div className="h-px bg-line" />
           <Row label="Children" sub="2–11 years" val={children} k="children" />
@@ -64,21 +75,34 @@ function PaxPanel({ adults, children, infants, onChange, buttonClassName }) {
 function AirportPicker({ value, onChange, airports = [], placeholder = "Select airport", buttonClassName }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
   const sel = airports.find(a => a.code === value);
   const ql = q.trim().toLowerCase();
   const list = (ql
     ? airports.filter(a => a.code.toLowerCase().includes(ql) || (a.city || "").toLowerCase().includes(ql) || (a.country || "").toLowerCase().includes(ql))
     : airports).slice(0, 80);
   const pick = (code) => { onChange(code); setOpen(false); setQ(""); };
+  // Anchor the panel with position:fixed (viewport coords) so it escapes the
+  // overflow-hidden search card / fields grid that would otherwise clip the results.
+  const place = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setPos({ left: r.left, top: r.bottom + 6, width: r.width }); };
+  const toggle = () => { if (!open) place(); setQ(""); setOpen(o => !o); };
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const on = () => place();
+    window.addEventListener("scroll", on, true); window.addEventListener("resize", on);
+    return () => { window.removeEventListener("scroll", on, true); window.removeEventListener("resize", on); };
+  }, [open]); // eslint-disable-line
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>
+      <button ref={btnRef} type="button" onClick={toggle} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>
         {sel ? <span className="truncate"><span className="font-bold">{sel.code}</span><span className="text-ink-muted"> · {sel.city}</span></span> : <span className="text-ink-faint">{placeholder}</span>}
         <span className="text-ink-faint text-[10px] ml-2 shrink-0">▾</span>
       </button>
-      {open && <>
-        <div className="fixed inset-0 z-20" onClick={() => { setOpen(false); setQ(""); }} />
-        <div className="absolute left-0 top-full mt-2 w-72 max-w-[88vw] bg-white rounded-xl border border-line shadow-pop z-30 overflow-hidden">
+      {open && pos && <>
+        <div className="fixed inset-0 z-[60]" onClick={() => { setOpen(false); setQ(""); }} />
+        <div className="fixed z-[61] bg-white rounded-xl border border-line shadow-pop overflow-hidden" style={{ left: pos.left, top: pos.top, width: "min(288px, calc(100vw - 24px))" }}>
           <div className="p-2 border-b border-line">
             <div className="relative"><Icon name="search" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" /><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search city, airport or country" className="w-full bg-surface border border-line rounded-lg pl-8 pr-3 py-2 text-[13px] outline-none focus:border-tap-green" /></div>
           </div>
