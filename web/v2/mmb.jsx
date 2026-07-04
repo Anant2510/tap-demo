@@ -416,61 +416,62 @@ export function CabinUpgrade({ shared, go }) {
     </div>
   );
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="bg-white min-h-screen"><div className="mx-auto max-w-page px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr} — ${cityOf(shared.airports, booking.flight?.origin)}–${cityOf(shared.airports, booking.flight?.dest)} · ${fmtDate(booking.flight_date)}`, page: "manage" }, { label: "Cabin upgrade" }]} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-[26px] font-black">Upgrade your cabin</h1>
-          <p className="text-[13px] text-ink-muted mt-1">You're checked in. Pick a fixed price — your new boarding pass is auto-reissued.</p>
+          <h1 className="text-[36px] font-bold">Upgrade your cabin</h1>
+          <p className="text-[16px] leading-6 text-ink-muted mt-1">You're checked in. Pick a fixed price — your new boarding pass is auto-reissued.</p>
         </div>
-        <Pill tone="green"><Icon name="check" size={11} /> Checked in</Pill>
+        <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold shrink-0" style={{ borderRadius: "14px", padding: "8px 16px", background: "#F2FCD9", color: "#2E7D33" }}><Icon name="check" size={12} /> Checked in</span>
       </div>
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
         <div>
-          <div className="rounded-xl bg-surface-soft border border-line px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
+          <div className="rounded-xl text-[13px] flex items-center gap-2 flex-wrap" style={{ background: "#FAFAF7", border: "1px solid #DCDCD8", padding: "18px" }}>
             <span className="text-ink-muted">Current:</span><span className="font-semibold">{curCabin} · Seat {booking.seat || "—"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
           </div>
           <div className="grid sm:grid-cols-2 gap-4 mt-4">
             {["prem", "exec"].map(k => { const o = OPTS[k]; const on = sel === k; return (
-              <Card key={k} onClick={() => setSel(k)} className={cx("p-5 cursor-pointer transition-all v2-in", on ? "ring-2 ring-tap-green bg-lime-tint/25" : "hover:border-line-strong")}>
-                <div className="flex items-start justify-between gap-2"><div className="text-[16px] font-black">{o.name}</div>{o.rec && <Pill tone="gold">Recommended</Pill>}</div>
-                <div className="mt-1.5"><span className="text-[20px] font-black v2-num">{k === "exec" ? "+" : ""}{EUR(o.diff)}</span><span className="text-[12px] text-ink-faint"> {k === "exec" ? "to upgrade" : "currently"}</span></div>
-                <div className="text-[11px] font-semibold text-tap-greenDeep mt-2">Fixed price · instant</div>
-                <div className="text-[11px] text-ink-muted mt-0.5">{o.seats > 5 ? `Available · ${o.seats} seats` : `${o.seats} seats left`}</div>
-                <ul className="text-[12px] text-ink-muted mt-3 space-y-1.5">{UPGRADE_BENEFITS.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
-                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" disabled={busy} onClick={e => { e.stopPropagation(); setSel(k); confirm(); }}>Upgrade for {EUR(baseFare + o.diff)}</Btn>
+              <Card key={k} onClick={() => setSel(k)} className={cx("cursor-pointer transition-all v2-in", on ? "border-2" : "hover:border-line-strong")} style={{ padding: "24px", borderRadius: "16px", ...(on ? { borderColor: "#9EFD38", background: "#F2FFDB" } : {}) }}>
+                <div className="flex items-start justify-between gap-2"><div className="text-[20px] font-bold">{o.name}</div>{o.rec && <span className="text-[9px] font-bold uppercase tracking-wide inline-flex items-center" style={{ background: "#FAD633", color: "#1A1F29", borderRadius: "10px", padding: "3px 8px" }}>Recommended</span>}</div>
+                <div className="mt-1.5"><span className="text-[22px] font-bold v2-num">{k === "exec" ? "+" : ""}{eur2(o.diff)}</span><span className="text-[12px] text-ink-faint"> {k === "exec" ? "to upgrade" : "currently"}</span></div>
+                <div className="h-px w-full my-3" style={{ background: "#E0E3E8" }} />
+                <div className="text-[11px] font-semibold text-tap-greenDeep">Fixed price · instant</div>
+                <div className="text-[11px] font-semibold mt-0.5" style={{ color: "#2E7D33" }}>{o.seats > 5 ? `Available · ${o.seats} seats` : `${o.seats} seats left`}</div>
+                <ul className="text-[13px] font-medium text-ink-muted mt-3 space-y-1.5">{UPGRADE_BENEFITS.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
+                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" style={{ height: "48px", borderRadius: "24px", padding: "0 16px" }} disabled={busy} onClick={e => { e.stopPropagation(); setSel(k); confirm(); }}>Upgrade for {eur2(baseFare + o.diff)}</Btn>
               </Card>
             ); })}
           </div>
           <div className="flex flex-wrap gap-2 mt-4">
-            {[`Save ${EUR(120)} vs. buying at gate`, `Lounge value alone ≈ ${EUR(38)}`, `+${miles(1240)} bonus miles`].map(b => <span key={b} className="text-[11px] font-semibold rounded-full border border-tap-green/40 bg-lime-tint/50 text-tap-greenDeep px-3 py-1.5">{b}</span>)}
+            {[`Save ${eur2(120)} vs. buying at gate`, `Lounge value alone ≈ ${eur2(38)}`, `+${miles(1240)} bonus miles`].map(b => <span key={b} className="text-[11px] font-semibold" style={{ borderRadius: "14px", border: "1px solid #A6D926", background: "#F2FFDB", color: "#1A1F29", padding: "6px 12px" }}>{b}</span>)}
           </div>
-          <Card className="p-5 mt-4">
+          <Card className="p-5 mt-4" style={{ background: "#FAFAF7", borderColor: "#DCDCD8" }}>
             <div className="font-bold text-[14px] mb-2.5">After upgrade — auto-reissue</div>
-            <ul className="text-[12px] text-ink-muted space-y-1.5">{REISSUE.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
+            <ul className="text-[13px] font-medium text-ink-muted space-y-1.5">{REISSUE.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
           </Card>
         </div>
 
         <aside className="lg:sticky lg:top-6 space-y-3">
-          <Card className="p-5">
+          <Card className="p-5" style={{ borderRadius: "18px" }}>
             <div className="font-bold text-[16px] mb-3">Upgrade summary</div>
             <div className="space-y-2 text-[13px]">
-              <div className="flex justify-between"><span className="text-ink-muted">Current {curCabin} fare</span><span className="v2-num">{EUR(baseFare)}</span></div>
-              <div className="flex justify-between"><span className="text-ink-muted">Cabin upgrade · {chosen.name}</span><span className="v2-num">+{EUR(fareDiff)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Current {curCabin} fare</span><span className="v2-num">{eur2(baseFare)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Cabin upgrade · {chosen.name}</span><span className="v2-num">+{eur2(fareDiff)}</span></div>
             </div>
             <Divider className="my-3" />
-            <div className="flex items-end justify-between"><span className="font-bold">New total</span><span className="text-[22px] font-black v2-num">{EUR(newTotal)}</span></div>
+            <div className="flex items-end justify-between"><span className="font-bold">New total</span><span className="text-[28px] font-bold v2-num">{eur2(newTotal)}</span></div>
             <div className="text-[11px] text-ink-faint mt-1">or {miles(milesPrice)} miles</div>
-            <Btn size="lg" className="w-full mt-3" disabled={busy} onClick={confirm}>{busy ? "Confirming…" : `Upgrade for ${EUR(newTotal)} →`}</Btn>
-            <Btn variant="outline" className="w-full mt-2" onClick={() => go("manage")}>No thanks, keep {curCabin}</Btn>
+            <Btn size="lg" className="w-full mt-3" style={{ height: "42px", borderRadius: "9999px" }} disabled={busy} onClick={confirm}>{busy ? "Confirming…" : `Upgrade for ${eur2(newTotal)} →`}</Btn>
+            <Btn variant="outline" className="w-full mt-2" style={{ borderColor: "#E8E8E5" }} onClick={() => go("manage")}>No thanks, keep {curCabin}</Btn>
           </Card>
-          <div className="rounded-xl border border-[#f5d9a8] bg-[#fffaf0] px-4 py-3 text-[12px]">
-            <div className="font-bold text-[#b45309]">{chosen.seats} {chosen.name} seats remaining</div>
-            <div className="text-ink-muted">Window closes 4 h before departure</div>
+          <div className="rounded-xl px-4 py-3" style={{ background: "#FFF0D6", border: "1px solid #FAA824" }}>
+            <div className="text-[13px] font-bold text-[#b45309]">{chosen.seats} {chosen.name} seats remaining</div>
+            <div className="text-[11px] text-ink-muted">Window closes 4 h before departure</div>
           </div>
         </aside>
       </div>
-    </div>
+    </div></div>
   );
 }
 
@@ -497,7 +498,7 @@ export function SeatChange({ shared, go }) {
   const CABINS = {
     Economy: { cols: ["A", "B", "C", "D", "E", "F"], rows: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], config: "3 – 3", desc: "Standard Economy", extraRows: [20, 26], exitRows: [20, 26], aisleAfter: [2] },
     Premium: { cols: ["A", "C", "D", "F"], rows: [6, 7, 8, 9, 10, 11], config: "2 – 2", desc: "Premium cabin · wider seat", extraRows: [6], exitRows: [6], aisleAfter: [1] },
-    Business: { cols: ["A", "D"], rows: [1, 2, 3, 4, 5], config: "1 – 1", desc: "Lie-flat Business suite", extraRows: [1], exitRows: [], aisleAfter: [0] },
+    Business: { cols: ["A", "C", "D", "F"], rows: [1, 2, 3, 4, 5], config: "2 – 2", desc: "Executive cabin · lie-flat recline", extraRows: [1], exitRows: [], aisleAfter: [1] },
   };
   // Default to the cabin actually booked (normalise any legacy First/Executive labels), else infer from the seat row.
   const bookingCabin = ({ First: "Business", Executive: "Business", "Premium Economy": "Premium" }[booking.meta?.cabin] || booking.meta?.cabin);
@@ -519,6 +520,7 @@ export function SeatChange({ shared, go }) {
   const canConfirm = sel && sel !== safeSeat && (!selExit || eligOk);
 
   const confirm = async () => {
+    if (!canConfirm) return;   // #31 — CTA stays visually active, but a valid new seat is required
     setBusy(true);
     await api.post("/bookings/ancillary", { code: "seat-" + sel, pnr: booking.pnr }).catch(() => ({ ok: false }));
     notifyBookingChanged();   // #36 — seat change must reflect in My Trip immediately
@@ -543,45 +545,38 @@ export function SeatChange({ shared, go }) {
         <div className="text-[12px] text-ink-faint">
           <button onClick={() => go("manage")} className="hover:text-ink">My Trip</button> › {booking.pnr} — {cityOf(shared.airports, booking.flight?.origin)}–{cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)} › <span className="text-ink-muted">Change seat</span>
         </div>
-        {booking.checked_in && <Pill tone="green"><Icon name="check" size={11} /> Checked in</Pill>}
+        {booking.checked_in && <span className="inline-flex items-center gap-1.5 font-bold" style={{ background: "#F2FCD9", borderRadius: "14px", padding: "8px 16px", color: "#2E7D33", fontSize: "11px" }}><Icon name="check" size={11} /> Checked in</span>}
       </div>
-      <h1 className="text-[30px] font-black mt-3">Change your seat</h1>
-      <p className="text-[13px] text-ink-muted mt-1">Pick a new seat; we recalculate the fare difference and reissue your boarding pass.</p>
+      <h1 className="text-[36px] font-bold mt-3">Change your seat</h1>
+      <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Pick a new seat; we recalculate the fare difference and reissue your boarding pass.</p>
 
       <div className="grid lg:grid-cols-[1fr_380px] gap-6 mt-6 items-start">
-        <Card className="p-6 v2-in">
+        <Card className="p-6 v2-in" style={{ borderRadius: "18px", boxShadow: "0 8px 24px rgba(0,0,0,0.08)" }}>
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="font-bold text-[15px]">{aircraft} · <span className="text-tap-greenDeep">{cabinKey} cabin</span></div>
+            <div className="text-[18px] font-bold" style={{ color: "#1A1F29" }}>{aircraft} · {cabinKey === "Business" ? "Executive" : cabinKey} cabin</div>
             <div className="text-[11px] text-ink-faint">{C.config} · {C.desc}</div>
           </div>
-          <div className="flex gap-1.5 mt-3 mb-4">
-            {Object.keys(CABINS).map(cb => (
-              <button key={cb} onClick={() => { setCabin(cb); setSel(null); setEligOk(false); }}
-                className={cx("px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors", cb === cabinKey ? "bg-surface-dark text-white" : "bg-surface border border-line text-ink-muted hover:bg-surface-mute")}>{cb}</button>
-            ))}
-          </div>
-          <div className="text-center text-[10px] uppercase tracking-widest text-ink-faint mb-3">Front of aircraft</div>
-          <div className="max-w-[400px] mx-auto">
-            <div className="flex items-center gap-2 mb-2"><span className="w-5 shrink-0" />{C.cols.map((col, ci) => <React.Fragment key={col}><span className="flex-1 text-center text-[10px] text-ink-faint">{col}</span>{C.aisleAfter?.includes(ci) && <span className="w-4 shrink-0" />}</React.Fragment>)}</div>
+          <div className="text-center mt-4 mb-3" style={{ color: "#667080", fontSize: "11px", fontWeight: 700 }}>Front</div>
+          <div className="mx-auto w-fit overflow-x-auto">
+            <div className="flex items-center mb-2 justify-center" style={{ gap: 0 }}>
+              <span className="w-5 shrink-0" /><span className="shrink-0" style={{ width: "18px" }} />
+              {C.cols.map((col, ci) => <React.Fragment key={col}><span className="text-center text-[10px] text-ink-faint" style={{ width: "60px" }}>{col}</span>{ci < C.cols.length - 1 && <span className="shrink-0" style={{ width: C.aisleAfter?.includes(ci) ? "64px" : "48px" }} />}</React.Fragment>)}
+            </div>
             <div className="space-y-2.5">
               {C.rows.map(r => (
-                <div key={r} className="flex items-center gap-2">
-                  <span className="w-5 text-[10px] text-ink-faint text-right shrink-0">{r}</span>
+                <div key={r} className="flex items-center justify-center" style={{ gap: 0 }}>
+                  <span className="w-5 text-[10px] text-ink-faint text-right shrink-0">{r}</span><span className="shrink-0" style={{ width: "18px" }} />
                   {C.cols.map((col, ci) => {
                     const id = `${r}${col}`, isCur = id === safeSeat, isTaken = taken.has(id) && !isCur, isSel = sel === id, extra = feeOf(id) > 0, isRec = rec?.seat === id && !isCur;
                     return (
                       <React.Fragment key={id}>
                       <button disabled={isTaken} title={isExit(id) ? "Exit row · extra legroom" : extra ? "Extra legroom" : ""} onClick={() => { setSel(id); setEligOk(false); }}
-                        className={cx("flex-1 h-10 rounded-lg text-[10px] font-bold leading-none flex flex-col items-center justify-center transition-colors",
-                          isSel ? "bg-tap-green text-white"
-                            : isCur ? "bg-lime-tint text-ink border border-tap-green/50"
-                              : isTaken ? "bg-surface-mute text-ink-faint cursor-not-allowed"
-                                : extra ? "bg-[#F4B740] text-ink"
-                                  : isRec ? "bg-lime text-ink"
-                                    : "bg-white border border-line-strong text-ink hover:border-tap-green")}>
+                        style={isSel ? { width: 60, height: 60, background: "#D4F25E", border: "2px solid #2E7D33", color: "#111111" } : isCur ? { width: 60, height: 60, background: "#F5FCD9", border: "1px solid #E0E3E8" } : { width: 60, height: 60 }}
+                        className={cx("shrink-0 rounded-lg text-[10px] font-bold leading-none flex flex-col items-center justify-center transition-colors",
+                          isSel ? "" : isCur ? "text-ink" : isTaken ? "bg-surface-mute text-ink-faint cursor-not-allowed" : extra ? "bg-[#F4B740] text-ink" : isRec ? "bg-lime text-ink" : "bg-white border border-line-strong text-ink hover:border-tap-green")}>
                         <span>{id}</span>{isCur && <span className="text-[7px] font-medium">Your seat</span>}
                       </button>
-                      {C.aisleAfter?.includes(ci) && <span className="w-4 shrink-0" />}
+                      {ci < C.cols.length - 1 && <span className="shrink-0" style={{ width: C.aisleAfter?.includes(ci) ? "64px" : "48px" }} />}
                       </React.Fragment>
                     );
                   })}
@@ -590,36 +585,37 @@ export function SeatChange({ shared, go }) {
             </div>
           </div>
           <div className="flex items-center justify-center flex-wrap gap-3 mt-5 text-[10px] text-ink-faint">
-            {[["bg-white border border-line-strong", "Available"], ["bg-surface-mute", "Taken"], ["bg-[#F4B740]", "Extra €18"], ["bg-lime-tint border border-tap-green/50", "Your seat"], ["bg-tap-green", "Selected"]].map(([c, t]) => (
-              <span key={t} className="inline-flex items-center gap-1"><span className={cx("w-3.5 h-3.5 rounded inline-block", c)} /> {t}</span>
+            {[["bg-white border border-line-strong", "Available", null], ["bg-surface-mute", "Taken", null], ["bg-[#F4B740]", "Extra €18", null], ["", "Your seat", "#F5FCD9"], ["", "Selected", "#D4F25E"]].map(([c, t, bg]) => (
+              <span key={t} className="inline-flex items-center gap-1"><span className={cx("w-3.5 h-3.5 rounded inline-block", c)} style={bg ? { background: bg, border: "1px solid #E0E3E8" } : undefined} /> {t}</span>
             ))}
           </div>
         </Card>
 
         <aside className="space-y-4">
-          <Card className="p-5 v2-in">
-            <div className="font-bold text-[16px] mb-3">Seat change summary</div>
+          <Card className="p-5 v2-in" style={{ borderRadius: "18px" }}>
+            <div className="font-semibold text-[20px] mb-3" style={{ color: "#1A1F29" }}>Seat change summary</div>
             <div className="flex items-center gap-2">
-              <div className="flex-1 rounded-xl border border-line p-3"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[18px] font-black v2-num">{safeSeat}</div><div className="text-[10px] text-ink-faint">{cabinKey} · row {safeRow}</div></div>
-              <Icon name="arrow" size={16} className="text-ink-faint shrink-0" />
-              <div className={cx("flex-1 rounded-xl border p-3", sel ? "border-tap-green/50 bg-lime-tint/40" : "border-line border-dashed")}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[18px] font-black v2-num">{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
+              <div className="flex-1 rounded-xl" style={{ background: "#F7FAFC", border: "1px solid #E0E3E8", padding: "16px" }}><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[22px] font-bold v2-num" style={{ color: "#1A1F29" }}>{safeSeat}</div><div className="text-[10px] text-ink-faint">{cabinKey} · row {safeRow}</div></div>
+              <span className="shrink-0 font-bold" style={{ fontSize: "22px", color: "#1A1F29" }}>→</span>
+              <div className="flex-1 rounded-xl" style={{ background: "#F5FCD9", border: "1px solid #E0E3E8", padding: "16px" }}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[22px] font-bold v2-num" style={{ color: "#1A1F29" }}>{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
             </div>
-            {selFee > 0 && <div className="mt-3.5 rounded-xl border border-line bg-surface-soft p-3 flex items-center justify-between"><span className="text-[13px] font-semibold">Extra-legroom fee</span><span className="text-[18px] font-black v2-num">{eur2(selFee)}</span></div>}
+            <div style={{ height: "1px", background: "#E8E8E5", margin: "16px 0", width: "100%" }} />
+            {selFee > 0 && <div className="flex items-center justify-between mb-3" style={{ height: "76px", borderRadius: "14px", border: "1px solid #E0E3E8", padding: "0 18px" }}><div><div className="text-[13px] font-semibold">Extra-legroom fee</div><div className="text-[11px] text-ink-faint">One-time · added to this booking</div></div><span className="v2-num font-bold" style={{ fontSize: "22px", color: "#1A1F29" }}>{eur2(selFee)}</span></div>}
             {selExit && (
-              <div className="mt-3 rounded-xl border border-[#F4B740]/60 p-3" style={{ background: "#FFF7E6" }}>
+              <div className="mb-1" style={{ background: "#FFF5E0", border: "1px solid #FAA824", padding: "16px 22px", borderRadius: "12px" }}>
                 <div className="text-[12px] font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> Exit-row eligibility</div>
-                <div className="text-[11px] text-ink-muted mt-1">You must be 16+, able-bodied, speak Portuguese or English, and assist in an emergency.</div>
-                <label className="flex items-center gap-2 text-[12px] font-semibold mt-2"><input type="checkbox" checked={eligOk} onChange={e => setEligOk(e.target.checked)} className="accent-tap-green" /> I confirm I meet exit-row requirements</label>
+                <div className="text-[11px] text-ink-muted mt-1">You must be 16+, able-bodied, speak Portuguese or English, and willing to assist in an emergency.</div>
+                <button onClick={() => setEligOk(v => !v)} className="flex items-center gap-2 text-[12px] font-semibold mt-2.5 text-left w-full"><span className="inline-flex items-center justify-center shrink-0" style={{ width: "20px", height: "20px", borderRadius: "6px", background: eligOk ? "#1A1F29" : "#fff", border: eligOk ? "none" : "1px solid #C9CDD3" }}>{eligOk && <Icon name="check" size={12} className="stroke-[3]" style={{ color: "#D4F25E" }} />}</span> I confirm I meet the exit-row requirements</button>
               </div>
             )}
-            <Btn size="lg" className="w-full mt-4" disabled={busy || !canConfirm} onClick={confirm}>{busy ? "Reissuing…" : (sel && sel !== safeSeat) ? `Confirm seat ${sel}${selFee ? " · " + eur2(selFee) : ""} →` : "Pick a new seat"}</Btn>
-            <button onClick={() => go("manage")} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Keep current seat</button>
+            <button onClick={confirm} disabled={busy} style={{ height: "42px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} className="w-full mt-4 font-semibold text-[14px] inline-flex items-center justify-center disabled:opacity-60 transition-opacity">{busy ? "Reissuing…" : canConfirm ? `Confirm seat ${sel}${selFee ? " · " + eur2(selFee) : ""}` : (sel && sel === safeSeat ? "This is your current seat" : "Select a seat to confirm")}</button>
+            <button onClick={() => go("manage")} className="w-full mt-2 rounded-full bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors" style={{ border: "1px solid #E8E8E5" }}>Keep current seat</button>
           </Card>
-          <div className="rounded-2xl border border-tap-green/30 p-4" style={{ background: "#f2ffdb88" }}>
+          <div className="rounded-2xl p-4" style={{ background: "#F2FCD9", border: "1px solid #2E7D33" }}>
             <div className="text-[12px] font-bold mb-2">After confirming</div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
               {["New BP issued in 5s", "Old BP invalidated", "Wallet & email updated", "Gate updates continue"].map(t => (
-                <div key={t} className="flex items-center gap-1.5"><Icon name="check" size={11} className="text-tap-green shrink-0" /> {t}</div>
+                <div key={t} className="flex items-center gap-1.5"><span className="font-bold shrink-0" style={{ color: "#2E7D33" }}>✓</span> {t}</div>
               ))}
             </div>
           </div>
@@ -963,6 +959,17 @@ const CHECKIN_PAX = [
   { id: "sofia", avatar: "P", name: "Pinto, Sofia", type: "Adult", doc: "Passport PT2438217", verified: true, seat: "22B · Middle", on: true },
   { id: "tomas", avatar: "T", name: "Tomás Silva (CHD 8)", type: "Child", doc: "PT Cédula · 999111 · DOB 2017", verified: false, seat: "22C · Middle", needsDocs: true, on: false },
 ];
+/* UI-5/UI-6 — seat position derivation + adjacent-seat allocation + distinct per-passenger passports */
+const CI_SEAT_POS = { A: "Window", B: "Middle", C: "Aisle", D: "Aisle", E: "Middle", F: "Window" };
+const ciSeatLabel = (s) => { const m = String(s || "").match(/^(\d+)\s*([A-Fa-f])/); if (!m) return s || "—"; const L = m[2].toUpperCase(); const pos = CI_SEAT_POS[L]; return `${m[1]}${L}${pos ? " · " + pos : ""}`; };
+const ciAdjSeat = (base, n) => { const m = String(base || "22A").match(/^(\d+)\s*([A-Fa-f])/); if (!m) return base || "—"; const letters = ["A", "B", "C", "D", "E", "F"]; const start = Math.max(0, letters.indexOf(m[2].toUpperCase())); return `${m[1]}${letters[Math.min(start + n, 5)]}`; };
+const ciPaxDoc = (p, i, baseDoc) => {
+  if (p.doc || p.passport) return p.doc || p.passport;
+  if (/child|chd|infant/i.test(p.type || "")) return "ID document pending";
+  if (i === 0 && baseDoc) return "Passport " + baseDoc;                // lead keeps the profile passport
+  const seed = String(p.first || p.last || p.name || ("P" + i)).toUpperCase().split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return "Passport PT" + (2438200 + (seed * 7 + i * 131) % 9000);      // co-passengers get a distinct, deterministic number
+};
 export function CheckInIndirect({ shared, go }) {
   const { booking, loading, err } = useActiveBooking();
   const [doc, setDoc] = useState("");
@@ -981,9 +988,10 @@ export function CheckInIndirect({ shared, go }) {
         const first = p.first || p.firstName || "", last = p.last || p.lastName || "";
         const nm = (last && first) ? `${last}, ${first}` : (p.name || `${first} ${last}`.trim() || `Passenger ${i + 1}`);
         const child = /child|chd|infant/i.test(p.type || "");
-        return { id: "p" + i, avatar: (last || first || "P")[0].toUpperCase(), name: nm, type: child ? "Child" : "Adult", doc: p.doc || p.passport || (child ? "ID document pending" : (u.doc_id ? "Passport " + u.doc_id : "Passport")), verified: !child, seat: i === 0 ? bookedSeat : (p.seat || "—"), needsDocs: child && !p.doc, on: true };
+        const seatCode = i === 0 ? bookedSeat : (p.seat || ciAdjSeat(bookedSeat, i));   // UI-5 — co-passengers get an adjacent seat
+        return { id: "p" + i, avatar: (last || first || "P")[0].toUpperCase(), name: nm, type: child ? "Child" : "Adult", doc: ciPaxDoc(p, i, u.doc_id), verified: !child, seat: ciSeatLabel(seatCode), needsDocs: child && !p.doc, on: true };
       })
-    : [{ id: "self", avatar: (u.first_name || "D")[0].toUpperCase(), name: u.full_name ? `${u.full_name.split(" ").slice(-1)[0]}, ${u.first_name || u.full_name.split(" ")[0]}` : "Ferreira, Daniel", type: "Adult", doc: u.doc_id ? "Passport " + u.doc_id : "Passport", verified: true, seat: bookedSeat, on: true }];
+    : [{ id: "self", avatar: (u.first_name || "D")[0].toUpperCase(), name: u.full_name ? `${u.full_name.split(" ").slice(-1)[0]}, ${u.first_name || u.full_name.split(" ")[0]}` : "Ferreira, Daniel", type: "Adult", doc: u.doc_id ? "Passport " + u.doc_id : "Passport", verified: true, seat: ciSeatLabel(bookedSeat), on: true }];
   const isOn = (p) => picks[p.id] ?? p.on;
   const checkin = async () => {
     setBusy(true);
@@ -1021,13 +1029,13 @@ export function CheckInIndirect({ shared, go }) {
       <h1 className="text-[26px] font-black">Check in for your flight</h1>
       <p className="text-[13px] text-ink-muted mt-1 flex items-center gap-1.5 flex-wrap"><Icon name="check" size={13} className="text-tap-green" /> Open · {booking.flight_no || "TP1042"} {cityOf(shared.airports, booking.flight?.origin)}–{cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)} · Booked via Booking.com agency</p>
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[1fr_422px] gap-8 mt-6 items-start">
         <div className="space-y-4">
           {/* Passenger cards (#4) */}
           {bookedPax.map(p => (
-            <Card key={p.id} className="p-4">
+            <Card key={p.id} style={{ padding: "18px", borderRadius: "12px", borderColor: "#E0E3E8" }}>
               <div className="flex items-start gap-3">
-                <span className="w-9 h-9 rounded-full bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center text-[14px] font-bold shrink-0">{p.avatar}</span>
+                <span className="w-11 h-11 rounded-full bg-lime-tint inline-flex items-center justify-center text-[20px] font-bold shrink-0" style={{ color: "#2E7D33" }}>{p.avatar}</span>
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-[14px]">{p.name}</div>
                   <div className="text-[11px] text-ink-faint mt-0.5">{p.type} · {p.doc} {p.verified && <Icon name="check" size={11} className="inline text-tap-green" />}</div>
@@ -1040,22 +1048,22 @@ export function CheckInIndirect({ shared, go }) {
               </div>
               {p.needsDocs
                 ? <div className="mt-3 rounded-lg border border-tap-green/20 px-3 py-2.5 flex items-center justify-between gap-2" style={{ background: "#f2ffdb88" }}><div className="text-[12px]"><div className="font-semibold">Travel-with-minor docs required</div><div className="text-[11px] text-ink-faint">Upload parental authorisation (PDF / image) — required by SEF before boarding</div></div><Btn size="sm" className="shrink-0">Upload PDF</Btn></div>
-                : <label className="flex items-center gap-2 mt-3 text-[12px] font-semibold cursor-pointer"><input type="checkbox" checked={isOn(p)} onChange={() => setPicks(s => ({ ...s, [p.id]: !(s[p.id] ?? p.on) }))} className="accent-ink w-4 h-4" /> Check in this passenger</label>}
+                : <label className="flex items-center gap-2 mt-3 text-[12px] font-semibold cursor-pointer" onClick={e => { e.preventDefault(); setPicks(s => ({ ...s, [p.id]: !(s[p.id] ?? p.on) })); }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "20px", height: "20px", borderRadius: "5px", background: isOn(p) ? "#D4F25E" : "#FFFFFF", border: isOn(p) ? "none" : "1px solid #DCDCD8" }}>{isOn(p) && <Icon name="check" size={13} className="stroke-[3]" style={{ color: "#1A1F29" }} />}</span> Check in this passenger</label>}
             </Card>
           ))}
 
           {/* Travel documents (APIS) (#5) */}
-          <div className="rounded-2xl border border-tap-green/30 p-4" style={{ background: "#f2ffdb88" }}>
+          <div className="p-4" style={{ borderRadius: "12px", border: "1px solid #C7F21F", background: "#F2FCD9" }}>
             <div className="font-bold text-[14px] mb-2">Travel documents (APIS)</div>
             <div className="text-[12px] flex items-start gap-1.5"><Icon name="check" size={13} className="text-tap-green mt-0.5 shrink-0" /> Passport PT2438211 · expires 2029-08-12 · all pax verified</div>
             <div className="text-[12px] text-[#b45309] font-semibold flex items-start gap-1.5 mt-1.5"><Icon name="info" size={13} className="mt-0.5 shrink-0" /> US ESTA pending — required for stopover OPO → re-check before boarding</div>
-            <button className="text-[12px] font-bold text-tap-greenDeep hover:underline mt-2">Update documents →</button>
+            <button className="hover:underline mt-2" style={{ color: "#E00A0A", fontSize: "13px", fontWeight: 700 }}>Update documents →</button>
           </div>
         </div>
 
         {/* Sticky check-in summary panel (#6) */}
         <aside className="lg:sticky lg:top-6">
-          <Card className="p-5">
+          <Card style={{ padding: "24px", borderRadius: "18px", borderColor: "#E8E8E5" }}>
             <div className="font-bold text-[16px] mb-3">Check-in summary</div>
             <div className="space-y-2.5 text-[13px]">
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Flight</span><span className="font-bold text-right">{booking.flight_no || "TP 73"} · {fmtDate(booking.flight_date)}</span></div>
@@ -1064,9 +1072,10 @@ export function CheckInIndirect({ shared, go }) {
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Bag</span><span className="font-bold">1 × 23kg (included)</span></div>
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Boarding</span><span className="font-bold v2-num">16:00 · Gate B12</span></div>
             </div>
-            <div className="mt-3 rounded-xl bg-lime-tint border border-tap-green/30 px-3 py-2.5 text-[12px]"><div className="font-bold">Add to your trip</div><div className="text-ink-muted mt-0.5">+ Extra bag €38 · + Lounge access €42</div><div className="text-[11px] text-ink-faint mt-0.5">Restricted by fare rule: cabin upgrade</div></div>
-            <Btn size="lg" className="w-full mt-4" disabled={busy} onClick={checkin}>{busy ? "Checking in…" : "Upload & check in all →"}</Btn>
-            <button onClick={checkin} disabled={busy} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Check in {selCount} of {total} now (resolve Tomás later)</button>
+            <div className="h-px w-full mt-3" style={{ background: "#E0E3E8" }} />
+            <div className="mt-3 text-[12px]" style={{ padding: "14px 18px", borderRadius: "12px", border: "1px solid #C7F21F", background: "#F2FCD9" }}><div className="font-bold">Add to your trip</div><div className="text-ink-muted mt-0.5">+ Extra bag €38 · + Lounge access €42</div><div className="text-[11px] text-ink-faint mt-0.5">Restricted by fare rule: cabin upgrade</div></div>
+            <Btn size="lg" className="w-full mt-4" style={{ height: "42px", borderRadius: "9999px", fontSize: "15px", fontWeight: 700 }} disabled={busy} onClick={checkin}>{busy ? "Checking in…" : "Upload & check in all →"}</Btn>
+            <button onClick={checkin} disabled={busy} className="w-full mt-2 bg-surface text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors inline-flex items-center justify-center" style={{ height: "42px", borderRadius: "9999px", border: "1px solid #E8E8E5" }}>Check in {selCount} of {total} now (resolve Tomás later)</button>
           </Card>
         </aside>
       </div>
