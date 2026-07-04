@@ -149,7 +149,7 @@ function App() {
     <div className="min-h-screen flex flex-col bg-surface-soft">
       <TopNav route={route} go={go} profile={shared.profile} loggedIn={loggedIn}
         onLogin={() => setShowLogin(true)} onLogout={() => { try { api.post("/auth/logout", {}); } catch {} setSessionId(null); try { localStorage.removeItem("flytap_auth"); localStorage.removeItem("flytap_persona"); localStorage.removeItem("flytap_login"); } catch {} resetTrip(); setLoggedIn(false); go("home"); }} />
-      <main className="flex-1">
+      <main className="flex-1 overflow-x-clip">
         {Screen
           ? <Screen shared={shared} params={params} go={go} />
           : <Placeholder title={entry.title} phase={entry.phase} plan={entry.plan} reuses={entry.reuses} go={go} />}

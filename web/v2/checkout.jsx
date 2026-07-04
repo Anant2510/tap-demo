@@ -31,9 +31,9 @@ function seedExtras() {
   // [code, name, per-unit price, category, source]. Per-traveller categories (Insurance,
   // Lounge, Experiences) are multiplied by pax so the stored total matches the cart's
   // "× pax" hint — at 1 pax these are unchanged; at 3 pax lounge €90 → €270 (#2).
-  [["hotel-memmo", "Hotel — Memmo Príncipe Real", 640, "Hotels", "recommended"], ["car-lis", "Airport transfer · LIS → hotel", 25, "Cars & transfers", "recommended"],
-   ["ins-plus", "Travel Insurance · Plus", 38, "Insurance", "auto"], ["lounge-opo", "TAP Lounge · OPO", 90, "Lounge & services", "recommended"],
-   ["exp-belem", "Belém food walking tour", 130, "Experiences", "recommended"]].forEach(([code, name, price, cat, source]) =>
+  // F8/F9 — seed only the destination-neutral mandatory insurance. Hotels, transfers, lounge and
+  // experiences are added by the traveller from the destination-aware modules (never hardcoded Lisbon).
+  [["ins-plus", "Travel Insurance · Plus", 38, "Insurance", "auto"]].forEach(([code, name, price, cat, source]) =>
      trip.extras.push({ code, name, price: PER_PAX_CATS.has(cat) ? price * px : price, qty: 1, cat, source }));
   trip.seeded = true;
   pingBasket();
@@ -325,7 +325,7 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, onClose, onConfirm
         </div>
 
         <div className="grid lg:grid-cols-[1fr_320px] gap-5 mt-5 items-start">
-          <div className="rounded-2xl border border-line p-4">
+          <div className="rounded-2xl border border-line p-4 overflow-x-auto v2-track">
             <div className="text-center text-[15px] font-bold">{aircraft || cfg.aircraftFallback} · {cabin} cabin</div>
             <div className="text-center text-[11px] font-semibold text-ink-faint mt-1">{cfg.blocks.map(b => b.length).join("-")} layout · {abreast} across</div>
             <div className="text-center text-[11px] font-semibold text-ink-faint mb-3">Front</div>
@@ -390,10 +390,10 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, onClose, onConfirm
 /* ═══════════ CART · View & customize (8 modules) ═══════════ */
 /* #22 — basket line-item editors: every modification link opens a real, functional editor. */
 const EDIT_CONFIG = {
-  "Change room": { title: "Change room · Memmo Príncipe Real", kind: "select", opts: [
-    { name: "Hotel — Memmo Príncipe Real · Classic Double", sub: "City view · 22m² · breakfast", delta: -90 },
-    { name: "Hotel — Memmo Príncipe Real", sub: "Deluxe · garden view · 28m² · breakfast", delta: 0 },
-    { name: "Hotel — Memmo Príncipe Real · Junior Suite", sub: "Terrace · 40m² · breakfast + minibar", delta: 150 },
+  "Change room": { title: "Change room type", kind: "select", opts: [
+    { name: "Classic Double", sub: "City view · 22m² · breakfast", delta: -90 },
+    { name: "Deluxe Room", sub: "Garden view · 28m² · breakfast", delta: 0 },
+    { name: "Junior Suite", sub: "Terrace · 40m² · breakfast + minibar", delta: 150 },
   ] },
   "Change vehicle": { title: "Change vehicle", kind: "select", opts: [
     { name: "Airport transfer · Private sedan", sub: "Up to 3 pax · 3 bags", delta: 0 },
@@ -406,15 +406,15 @@ const EDIT_CONFIG = {
     { name: "Travel Insurance · Premium", sub: "Medical €150K · cancel for any reason", delta: 24 },
   ] },
   "Change lounge": { title: "Change lounge", kind: "select", opts: [
-    { name: "TAP Lounge · OPO", sub: "Hot meals · showers · Wi-Fi", delta: 0 },
-    { name: "ANA Premium Lounge · OPO", sub: "À la carte · quiet zone · spa chairs", delta: 16 },
+    { name: "Standard lounge", sub: "Hot meals · showers · Wi-Fi", delta: 0 },
+    { name: "Premium lounge", sub: "À la carte · quiet zone · spa chairs", delta: 16 },
   ] },
   "Edit time": { title: "Edit pickup time", kind: "time", field: "time", def: "14:15" },
   "Change date": { title: "Change activity date", kind: "date", field: "date" },
-  "View hotel": { title: "Memmo Príncipe Real · Lisbon", kind: "info", body: [
-    "5★ boutique hotel in Príncipe Real with a rooftop pool, spa and fine-dining restaurant.",
+  "View hotel": { title: "Your hotel", kind: "info", body: [
+    "Boutique hotel in a central location with a rooftop pool, spa and fine-dining restaurant.",
     "9.2 Excellent · 1,240 reviews · Free cancellation up to 48h before check-in.",
-    "Walking distance to Bairro Alto, the botanical gardens and the best restaurants in town.",
+    "Walking distance to the historic centre, gardens and the best restaurants in town.",
   ] },
   "Compare plans": { title: "Compare insurance plans", kind: "compare", cols: ["Standard", "Plus", "Premium"], rows: [
     ["Medical cover", "€25K", "€50K", "€150K"],
@@ -459,6 +459,33 @@ function ItemEditModal({ item, link, onClose, onApply }) {
   );
 }
 
+// F8/F9 — destination-aware inventory. Hotels, experiences, transfers and the lounge follow the
+// booked destination (trip.dest) / origin instead of always showing Lisbon. City-name generators
+// give any route sensible, destination-specific content; the hotel/exp codes embed the city so
+// imageFor() also resolves a city-relevant photo.
+const slugCity = (c) => String(c || "city").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+function destHotels(city) {
+  const s = slugCity(city);
+  return [
+    { code: `htl-${s}-1`, name: `${city} Grand Hotel`, stars: 5, tags: ["City centre", "Free cancellation", "Breakfast"], rating: "9.2", reviews: "1,284", pn: 120, rec: true },
+    { code: `htl-${s}-2`, name: `${city} Boutique Suites`, stars: 4, tags: ["Central", "Free cancellation"], rating: "8.7", reviews: "962", pn: 88 },
+    { code: `htl-${s}-3`, name: `${city} Riverside Resort`, stars: 4, tags: ["Pool", "Spa", "Resort"], rating: "9.0", reviews: "538", pn: 150 },
+    { code: `htl-${s}-4`, name: `${city} Park Plaza`, stars: 5, tags: ["Landmark", "Spa", "Free cancellation"], rating: "9.4", reviews: "2,015", pn: 210 },
+    { code: `htl-${s}-5`, name: `${city} Old Town Inn`, stars: 4, tags: ["Historic", "City view"], rating: "8.5", reviews: "744", pn: 96 },
+  ];
+}
+function destExp(city) {
+  const s = slugCity(city);
+  return [
+    [`xp-${s}-1`, `${city} food walking tour`, "Small group · local tastings · English guide", 65, "Food"],
+    [`xp-${s}-2`, `${city} highlights full-day`, "Top sights · skip-the-line · guided", 89, "Day trip · popular"],
+    [`xp-${s}-3`, `${city} sunset experience`, "Evening tour · welcome drink included", 75, "Evening"],
+    [`xp-${s}-4`, `${city} museums & art pass`, "Priority entry · flexible full day", 45, "Culture"],
+    [`xp-${s}-5`, `${city} day-trip by rail`, "Nearby gems · 1st class · day-trip ready", 55, "Excursion"],
+    [`xp-${s}-6`, `${city} local flavours class`, "Hands-on cooking · market visit", 70, "Hands-on"],
+  ];
+}
+
 function CartView({ go, mode = "cart", shared }) {
   const isBasket = mode === "basket";
   const [, force] = useState(0); const r = () => force(x => x + 1);
@@ -481,6 +508,10 @@ function CartView({ go, mode = "cart", shared }) {
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
   const seat = trip.extras.find(e => e.cat === "Seats & baggage");
   const pax = trip.pax || 1;
+  const cityOf = (c) => shared?.airports?.find(a => a.code === c)?.city || c;   // F8/F9 — resolve booked-destination city
+  const destCity = cityOf(trip.dest) || "your destination";
+  const origCode = trip.origin || "OPO";
+  const HOTELS = destHotels(destCity);
   const cab = fareCabin(trip.outbound?.fare);                 // Economy / Premium / Business
   const fareLabel = trip.outbound?.fare || "Classic";
   const seatIncluded = { Economy: { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" }, Premium: { name: "Premium seat", sub: "Wider seat · recline · priority · included" }, Business: { name: "Business seat", sub: "Lie-flat · lounge access · included" } }[cab] || { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" };
@@ -647,23 +678,17 @@ function CartView({ go, mode = "cart", shared }) {
               </div>
             </Card>
 
-            <Module n="03" icon="home" kicker="Hotels" title="Stay in Lisbon" badge={catBadge("Hotels")} sub="Recommended hotels for your dates." right={<button onClick={() => setAllHotels(v => !v)} className="text-[12px] font-semibold text-tap-greenDeep">{allHotels ? "Show less ↑" : "View all hotels →"}</button>}>
+            <Module n="03" icon="home" kicker="Hotels" title={`Stay in ${destCity}`} badge={catBadge("Hotels")} sub={`Recommended hotels in ${destCity} for your dates.`} right={<button onClick={() => setAllHotels(v => !v)} className="text-[12px] font-semibold text-tap-greenDeep">{allHotels ? "Show less ↑" : "View all hotels →"}</button>}>
               <div className="space-y-2">
-                <HotelRow code="hotel-memmo" name="Memmo Príncipe Real" stars={4} tags={["Near city centre", "Free cancellation", "Breakfast"]} rating="9.2" reviews="1,284" pn={80} total={640} rec />
-                <HotelRow code="hotel-bairro" name="Bairro Alto Suites" stars={4} tags={["City centre", "Free cancellation"]} rating="8.7" reviews="962" pn={68} total={544} />
-                <HotelRow code="hotel-quinta" name="Quinta da Marinha · Cascais" stars={4} tags={["Beach", "Pool", "Resort"]} rating="9.0" reviews="538" pn={120} total={960} />
-                {allHotels && <>
-                  <HotelRow code="hotel-tivoli" name="Tivoli Avenida Liberdade" stars={5} tags={["Avenida", "Spa", "Free cancellation"]} rating="9.4" reviews="2,015" pn={210} total={1680} />
-                  <HotelRow code="hotel-lx" name="LX Boutique Hotel" stars={4} tags={["Cais do Sodré", "River view"]} rating="8.5" reviews="744" pn={72} total={576} />
-                </>}
+                {(allHotels ? HOTELS : HOTELS.slice(0, 3)).map(h => <HotelRow key={h.code} code={h.code} name={h.name} stars={h.stars} tags={h.tags} rating={h.rating} reviews={h.reviews} pn={h.pn} total={h.pn * tripDays} rec={h.rec} />)}
               </div>
             </Module>
 
-            <Module n="04" icon="swap" kicker="Cars & transfers" title="Getting to and from the airport" badge={catBadge("Cars & transfers")} sub="Pick how you move between LIS and your hotel.">
+            <Module n="04" icon="swap" kicker="Cars & transfers" title="Getting to and from the airport" badge={catBadge("Cars & transfers")} sub={`Pick how you move between ${trip.dest || "the airport"} and your hotel.`}>
               <div className="space-y-2">
-                <Row code="car-lis" name="Private transfer · LIS → hotel" sub="Sedan · meet & greet · up to 3 bags" rate={25} unit="per car" cat="Cars & transfers" tag="1-way" />
+                <Row code="car-dest" name={`Private transfer · ${trip.dest || "airport"} → hotel`} sub="Sedan · meet & greet · up to 3 bags" rate={25} unit="per car" cat="Cars & transfers" tag="1-way" />
                 <Row code="car-shuttle" name="Shared shuttle" sub="8-seat van · scheduled · 30 min wait max" rate={15} unit="per person" cat="Cars & transfers" tag="per person" />
-                <Row code="car-rental" name="Car rental from LIS" sub="Compact, automatic · free 24h cancellation" rate={40} unit="per day" cat="Cars & transfers" tag="per day" />
+                <Row code="car-rental" name={`Car rental from ${trip.dest || "airport"}`} sub="Compact, automatic · free 24h cancellation" rate={40} unit="per day" cat="Cars & transfers" tag="per day" />
               </div>
             </Module>
 
@@ -680,9 +705,9 @@ function CartView({ go, mode = "cart", shared }) {
 
             <Module n="06" icon="star" kicker="Lounge & priority" title="Relax and skip the queues" badge={catBadge("Lounge & services")} sub="Quality time before the flight — drinks, food, fast-track lanes.">
               <div className="space-y-2">
-                <ServiceRow code="lounge-opo" icon="star" name="TAP Lounge · OPO" sub="Hot meals · drinks · showers · Wi-Fi · up to 3h pre-flight" rate={90} tag="OPO outbound" />
+                <ServiceRow code="lounge-opo" icon="star" name={`TAP Lounge · ${origCode}`} sub="Hot meals · drinks · showers · Wi-Fi · up to 3h pre-flight" rate={90} tag={`${origCode} outbound`} />
                 <ServiceRow code="priority" icon="bolt" name="Priority boarding" sub="Skip the queue · board first · stow your bag first" rate={16} tag="both flights" />
-                <ServiceRow code="fasttrack" icon="shield" name="Fast-track security · LIS arrival" sub="Dedicated immigration lane on arrival in Lisbon" rate={18} tag="LIS arrival" />
+                <ServiceRow code="fasttrack" icon="shield" name={`Fast-track security · ${trip.dest || "arrival"} arrival`} sub={`Dedicated immigration lane on arrival in ${destCity}`} rate={18} tag={`${trip.dest || "arrival"} arrival`} />
               </div>
             </Module>
 
@@ -702,9 +727,9 @@ function CartView({ go, mode = "cart", shared }) {
               </div>
             </Module>
 
-            <Module n="08" icon="globe" kicker="Experiences" title="Experiences in Portugal" badge={catBadge("Experiences")} sub="Curated tours and tastings for your dates. Skip the lines.">
+            <Module n="08" icon="globe" kicker="Experiences" title={`Experiences in ${destCity}`} badge={catBadge("Experiences")} sub="Curated tours and tastings for your dates. Skip the lines.">
               <div className="grid sm:grid-cols-3 gap-3">
-                {[["exp-belem", "Belém food walking tour", "3h · pastéis de Belém · small group · English guide", 65, "Experience"], ["exp-sintra", "Sintra full-day", "Pena Palace · Quinta da Regaleira · Cabo da Roca", 89, "Day trip · popular"], ["exp-douro", "Douro Valley wine tour", "Vineyards · tastings · river cruise · full day", 120, "Wine"], ["exp-fado", "Fado night experience", "Traditional Portuguese music · 3-course dinner · port wine", 75, "Night out"], ["exp-surf", "Surf lesson · Cascais", "2h · gear included · beginners welcome", 55, "Outdoor"], ["exp-train", "Lisbon–Porto train", "2h45 · 1st class · day-trip ready", 39, "Excursion"]].map(([code, name, sub, price, tag]) => {
+                {destExp(destCity).map(([code, name, sub, price, tag]) => {
                   const on = hasExtra(code); const tot = price * (trip.pax || 2);
                   const parts = String(tag).split("·").map(s => s.trim()); const popular = parts.some(p => /popular/i.test(p)); const catLabel = parts.filter(p => !/popular/i.test(p)).join(" · ") || parts[0];
                   return <div key={code} className={cx("rounded-xl overflow-hidden", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}><Img seed={"exp-" + code} src={imageFor(code)} alt={name} className="h-28 w-full object-cover" /><div className="p-3"><div className="flex items-center gap-1.5"><Pill tone="slate">{catLabel}</Pill>{popular && <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">Popular</span>}</div><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-end justify-between mt-2 gap-2"><div><div className="text-[14px] font-bold v2-num">{eur2(price)}</div><div className="text-[10px] text-ink-faint">per person</div>{on && <div className="text-[10px] text-ink-faint v2-num">× {trip.pax || 2} = {eur2(tot)}</div>}</div><Btn size="sm" variant="outline" className="shrink-0" onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add to cart"}</Btn></div></div></div>;
@@ -735,6 +760,8 @@ export function Basket({ shared, go }) {
   const t = tripTotals();
   const ob = trip.outbound, ib = trip.inbound;
   const obf = ob?.flight || {}, ibf = ib?.flight || {};
+  const xCity = (shared?.airports?.find(a => a.code === trip.dest)?.city) || "your destination";   // F8/F9 — destination-aware cross-sell
+  const xCode = trip.dest || "airport";
   const nights = (() => { try { if (trip.date && trip.ret) { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); if (d > 0) return d; } } catch { } return 8; })();
   const itemCount = trip.extras.length + 1;
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
@@ -744,7 +771,7 @@ export function Basket({ shared, go }) {
     ["Lounge & services", "Lounge & priority", "star"],
     ["Onboard", "Meals & onboard", "bag"],
     ["Seats & baggage", "Seats & baggage", "seat"],
-    ["Experiences", "Experiences in Portugal", "globe"],
+    ["Experiences", "Experiences & tours", "globe"],
     ["Insurance", "Travel protection", "shield"],
     ["Carbon offset", "Carbon offset", "leaf"],
     ["Extras", "Other extras", "cart"],
@@ -872,9 +899,9 @@ export function Basket({ shared, go }) {
               <p className="text-[12px] text-ink-muted mb-3">Hand-picked extras that pair well with your trip. Each adds to your cart instantly.</p>
               <div className="grid sm:grid-cols-2 gap-4">
                 {[
-                  ["xsell-sintra", "Sintra full-day from Lisbon", "Pena Palace, Quinta da Regaleira & Cabo da Roca.", 89, "per person", "Day trip", "Experiences", "sintra,portugal", null],
-                  ["xsell-douro", "Douro Valley wine tour", "Vineyards, tastings & a river cruise. Full day.", 120, "per person", "Wine", "Experiences", "douro,vineyard", null],
-                  ["xsell-xfer-return", "Return transfer hotel → LIS", "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "Cars & transfers", "car,sedan", "Bundle −10%"],
+                  [`xsell-${slugCity(xCity)}-tour`, `${xCity} highlights full-day`, `Top sights · skip-the-line · guided.`, 89, "per person", "Day trip", "Experiences", `${slugCity(xCity)},city`, null],
+                  [`xsell-${slugCity(xCity)}-food`, `${xCity} food & flavours tour`, `Local tastings & market visit. Half day.`, 65, "per person", "Food", "Experiences", `${slugCity(xCity)},food`, null],
+                  ["xsell-xfer-return", `Return transfer hotel → ${xCode}`, "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "Cars & transfers", "car,sedan", "Bundle −10%"],
                   ["xsell-late-checkout", "Guaranteed late checkout", "Stay until 16:00 on departure day.", 40, "one-time", "Hotel add-on", "Extras", "hotel,room", null],
                 ].map(([code, name, sub, base, unit, badge, cat, imgkey, accent]) => {
                   const on = hasExtra(code);
