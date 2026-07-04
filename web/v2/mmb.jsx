@@ -1110,6 +1110,15 @@ export function AddExtras({ shared, go, params }) {
     const match = all.find(b => b.pnr === deepPnr && b.status === "confirmed");
     if (match) { setSel(match); setStaged([]); setStep("extras"); }
   }, [deepPnr, all]);
+  // Home "Worth your while" → Add: pre-stage the recommended extra and open the soonest
+  // upcoming trip's extras step, so the Add button lands on a ready-to-review item.
+  useEffect(() => {
+    if (!params?.add || !all) return;
+    const up = all.filter(b => b.status === "confirmed" && (b.days_to_go ?? 0) >= 0).sort((a, b) => String(a.flight_date).localeCompare(String(b.flight_date)));
+    if (!up.length) return;
+    setStaged(s => s.some(x => x.code === params.add) ? s : [...s, { code: params.add, name: params.addName || "Extra", price: +params.addPrice || 0 }]);
+    if (!deepPnr) { setSel(up[0]); setStep("extras"); }
+  }, [params?.add, all]); // eslint-disable-line
   const ICON = { seat: "seat", bag: "bag", meal: "star", wifi: "spark", car: "arrow", transfer: "arrow", lounge: "star" };
 
   if (loading) return <Loading label="Loading your trips…" />;

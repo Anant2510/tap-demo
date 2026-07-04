@@ -602,7 +602,7 @@ export function Home({ shared, go }) {
                       </div>
                       <div className="text-[14px] font-bold mt-1.5 truncate">{a.name}</div>
                       <div className="text-[11px] text-ink-muted mt-0.5 flex-1">{a.reason || a.desc || "Add before you fly."}</div>
-                      <div className="flex items-center justify-between mt-2.5 gap-2"><div className="text-[13px] font-bold v2-num shrink-0">{EUR(a.price)} <span className="text-[11px] font-medium text-ink-faint">or {miles(Math.round(a.price / MILES_RATE))} mi</span></div><Btn size="sm" variant={i === 1 ? "outline" : "primary"} className="shrink-0" onClick={() => go("cart")}>{i === 1 ? "Review" : "Add"}</Btn></div>
+                      <div className="flex items-center justify-between mt-2.5 gap-2"><div className="text-[13px] font-bold v2-num shrink-0">{EUR(a.price)} <span className="text-[11px] font-medium text-ink-faint">or {miles(Math.round(a.price / MILES_RATE))} mi</span></div><Btn size="sm" variant={i === 1 ? "outline" : "primary"} className="shrink-0" onClick={() => go("extras", { add: a.code, addName: a.name, addPrice: a.price })}>{i === 1 ? "Review" : "Add"}</Btn></div>
                     </div>
                   </Card>
                 );
@@ -616,7 +616,7 @@ export function Home({ shared, go }) {
       <section className="bg-surface border-y border-line">
         <div className="mx-auto max-w-page px-6 py-10">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {[["cart", "Manage booking", "PNR or last name", "basket"], ["check", "Online check-in", "Opens 22h before", "basket"], ["clock", "Flight status", "Track any TP", "results"], ["bag", "Add bag", "Cheaper before airport", "cart"], ["plane", "Change flight", u.tier + " · no fee", "basket"], ["star", "Help center", "Chat or call", "ai"]].map(([ic, t, s, r]) => (
+            {[["cart", "Manage booking", "PNR or last name", "manage"], ["check", "Online check-in", "Opens 22h before", "checkin"], ["clock", "Flight status", "Track any TP", "manage"], ["bag", "Add bag", "Cheaper before airport", "extras"], ["plane", "Change flight", u.tier + " · no fee", "rebook"], ["star", "Help center", "Chat or call", "ai"]].map(([ic, t, s, r]) => (
               <button key={t} onClick={() => go(r)} className="text-left rounded-[14px] p-4 transition-colors hover:brightness-95" style={{ background: "rgba(242,255,219,1)", border: "1px solid rgba(199,242,31,1)" }}><span className="text-tap-greenDeep"><Icon name={ic} size={16} /></span><div className="text-[13px] font-bold mt-2">{t}</div><div className="text-[11px] text-ink-muted">{s}</div></button>
             ))}
           </div>
