@@ -3,7 +3,7 @@
 // Executive), badges, the date strip, sort and filters are derived from the real
 // flight the engine returns, so it works for any route in the 100-route network.
 import React, { useState, useEffect, useMemo } from "react";
-import { api, EUR, miles, fmtDate } from "./lib.js";
+import { api, EUR, eur2, miles, fmtDate, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Icon, cx } from "./ui.jsx";
 import { trip, setLeg, pingBasket, resetTrip } from "./trip.js";
 
@@ -18,12 +18,19 @@ const CABIN_BRANDS = {
   Business: ["Executive", "Executive Flex"],
 };
 const CABIN_LABEL = { Economy: "Economy", Premium: "Premium", Business: "Business" };
-function deriveFares(price) {
-  const classic = Math.round(price * 1.62), plus = Math.round(price * 2.81),
-        premium = Math.round(price * 3.6), premFlex = Math.round(price * 4.4),
-        exec = Math.round(price * 7.43), execFlex = Math.round(price * 8.7);
+function deriveFares(price, cabinPrices) {
+  // Per-cabin ops override (from flights.cabin_prices): when set, that cabin's entry fare is
+  // pinned and its flex sibling scales off it; otherwise the usual multiplier off Economy.
+  let cp = cabinPrices; if (typeof cp === "string") { try { cp = JSON.parse(cp); } catch { cp = null; } }
+  cp = cp || {};
+  const ecoBase = cp.Economy != null ? Math.round(+cp.Economy) : price;
+  const classic = Math.round(ecoBase * 1.62), plus = Math.round(ecoBase * 2.81),
+        premium = cp.Premium != null ? Math.round(+cp.Premium) : Math.round(price * 3.6),
+        premFlex = cp.Premium != null ? Math.round(+cp.Premium * 1.22) : Math.round(price * 4.4),
+        exec = cp.Business != null ? Math.round(+cp.Business) : Math.round(price * 7.43),
+        execFlex = cp.Business != null ? Math.round(+cp.Business * 1.17) : Math.round(price * 8.7);
   return [
-    { key: "Basic", cabin: "Economy", tag: "CHEAPEST", tone: "slate", sub: "Hand luggage only · no changes", price,
+    { key: "Basic", cabin: "Economy", tag: "CHEAPEST", tone: "slate", sub: "Hand luggage only · no changes", price: ecoBase,
       feats: [["Cabin bag · 8kg", 1], ["Checked bag", 0], ["Seat selection", 0], ["Changes", 0], ["Refund", 0], ["Earn 50% miles", 1]] },
     { key: "Classic", cabin: "Economy", tag: "MOST POPULAR", tone: "lime", sub: "1 bag · seat select · 50% refundable", price: classic,
       was: Math.round(classic * 1.2), milesOpt: { mi: roundTo(classic * 110, 500), cash: Math.round(classic * 0.18) },
@@ -82,6 +89,15 @@ export function Results({ shared, params, go }) {
   const date = isMulti ? (mLeg.date || _isoPlus(3 + legIndex * 3)) : ((leg === "inbound" ? params.ret : params.date) || _isoPlus(leg === "inbound" ? 5 : 3));
   const retDate = params.ret || _isoPlus(5);
   const pax = +params.pax || 1, cabin = params.cabin || "Economy";
+  const adults = +params.adults || pax, children = +params.children || 0, infants = +params.infants || 0;   // #13 — passenger-type breakdown
+  // Pay-with-Miles: when the toggle is on, price each fare as "miles you have + € remaining".
+  const payMilesOn = params.payMiles === true || params.payMiles === "true";
+  const userMiles = +(shared?.profile?.user?.miles) || 0;
+  const milesFor = (euros) => {
+    const worth = userMiles * MILES_RATE;                       // value of the member's balance
+    if (worth >= euros) return { miles: Math.round(euros / MILES_RATE), cash: 0, full: true };
+    return { miles: userMiles, cash: Math.round(euros - worth), full: false };   // all miles + remaining cash
+  };
 
   // #56/#57 + My Trip Cart #7 — propagate the user's actual search selections (dates,
   // passenger count, trip type) into the shared trip state as soon as results load, so
@@ -110,6 +126,7 @@ export function Results({ shared, params, go }) {
   const [week, setWeek] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [sort, setSort] = useState("Best");
+  const [clearNonce, setClearNonce] = useState(0);   // #6 — force-remount filter controls on Clear all
   const [sel, setSel] = useState(isMulti ? (trip.legs || [])[legIndex] : trip[leg]);
   const [showAll, setShowAll] = useState(false);
   const [held, setHeld] = useState(false);
@@ -126,7 +143,7 @@ export function Results({ shared, params, go }) {
     setFlights(null); setExpanded(null);
     api.get(`/search?origin=${origin}&dest=${dest}${date ? "&date=" + date : ""}&pax=${pax}`)
       .then(r => {
-        const fl = (r.flights || []).map(f => ({ ...f, _m: meta(f), _fares: deriveFares(f.price) }));
+        const fl = (r.flights || []).map(f => ({ ...f, _m: meta(f), _fares: deriveFares(f.price, f.cabin_prices) }));
         setFlights(fl);
         // fares stay collapsed by default — user expands a flight to compare fares
         // keep the cross-channel journey alive at results stage for this real search
@@ -207,11 +224,11 @@ export function Results({ shared, params, go }) {
       const L = [...(trip.legs || [])]; L[legIndex] = choice; trip.legs = L;
       // Map the leg list onto outbound/inbound so the existing cart / passenger / payment
       // spine books every leg without a parallel code path (UI supports up to 2 legs).
-      Object.assign(trip, { type: "multi", pax, cabin, origin: mLegs[0].origin, dest: mLegs[mLegs.length - 1].dest, outbound: L[0] || null, inbound: L[1] || null, date: mLegs[0].date || date, ret: mLegs[1]?.date || null });
+      Object.assign(trip, { type: "multi", pax, adults, children, infants, cabin, payMiles: payMilesOn, origin: mLegs[0].origin, dest: mLegs[mLegs.length - 1].dest, outbound: L[0] || null, inbound: L[1] || null, date: mLegs[0].date || date, ret: mLegs[1]?.date || null });
       pingBasket();
     } else {
       setLeg(leg, choice);
-      Object.assign(trip, { type, pax, cabin, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret || retDate });
+      Object.assign(trip, { type, pax, adults, children, infants, cabin, payMiles: payMilesOn, origin: params.origin || origin, dest: params.dest || dest, date: params.date || date, ret: params.ret || retDate });
     }
     setSel(choice);
     api.post("/journey", { origin, dest, date, stage: "seat", flight_no: f.flight_no, cabin: fare.cabin || "Economy", device: "Web app" }).catch(() => {});
@@ -244,8 +261,8 @@ export function Results({ shared, params, go }) {
                 ? `Returning ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")            // #34 — return leg: single date, not a range
                 : `${fmtDate(date)} — ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")   // outbound: full trip span
           } />
-          <Chip label="Pax" value={`${pax} adult${pax > 1 ? "s" : ""} · ${CABIN_LABEL[cabin] || "Economy"}`} />
-          <Btn variant="outline" size="sm" className="ml-auto text-ink border-line-strong" onClick={() => go("home")}>Edit search</Btn>
+          <Chip label="Pax" value={`${(() => { const a = +params.adults || pax; const c = +params.children || 0; const inf = +params.infants || 0; return [`${a} adult${a !== 1 ? "s" : ""}`, c ? `${c} child${c !== 1 ? "ren" : ""}` : "", inf ? `${inf} infant${inf !== 1 ? "s" : ""}` : ""].filter(Boolean).join(" · "); })()} · ${(CABIN_LABEL[cabin] || "Economy") === "Economy" ? "Eco" : CABIN_LABEL[cabin]}`} />
+          <button onClick={() => go("home")} className="ml-auto inline-flex items-center justify-center text-ink hover:border-tap-green" style={{ width: "99px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #E2E2E5", fontSize: "13px", fontWeight: 600 }}>Edit search</button>
         </div>
       </div>
 
@@ -276,14 +293,14 @@ export function Results({ shared, params, go }) {
             </React.Fragment>
           ))}
         </div>
-        <div className="mx-auto max-w-page px-6 pb-3 -mt-1 text-[12px] text-ink-muted">Step 1 of 5 · Pick your flight</div>
+        <div className="mx-auto max-w-page px-6 pb-3 -mt-1 text-[12px] text-ink-muted text-right">Step 1 of 5 · <span className="font-bold text-ink">Pick your flight</span></div>
       </div>
 
       <div className="mx-auto max-w-page px-6 py-6 grid lg:grid-cols-[260px_1fr] gap-6">
         {/* filters */}
         <aside className="space-y-5">
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false })}>Clear all</button></div>
+            <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => { setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false }); setSort("Best"); setClearNonce(n => n + 1); }}>Clear all</button></div>
             <FGroup title="Stops">
               <Chk label="Direct only" count={counts.direct} on={F.direct} set={v => setF({ ...F, direct: v })} />
               <Chk label="1 stop" count={counts.oneStop} on={F.oneStop} set={v => setF({ ...F, oneStop: v })} />
@@ -295,10 +312,10 @@ export function Results({ shared, params, go }) {
               ))}
             </FGroup>
             <FGroup title="Departure window">
-              <DualRange min={0} max={24} lo={F.depLo} hi={F.depHi} onLo={v => setF({ ...F, depLo: v })} onHi={v => setF({ ...F, depHi: v })} fmtLo={`${String(F.depLo).padStart(2, "0")}:00`} fmtHi={`${String(F.depHi).padStart(2, "0")}:00`} />
+              <DualRange key={`dep-${clearNonce}`} min={0} max={24} lo={F.depLo} hi={F.depHi} onLo={v => setF({ ...F, depLo: v })} onHi={v => setF({ ...F, depHi: v })} fmtLo={`${String(F.depLo).padStart(2, "0")}:00`} fmtHi={`${String(F.depHi).padStart(2, "0")}:00`} />
             </FGroup>
             <FGroup title="Price range">
-              <DualRange min={0} max={800} step={10} lo={F.priceLo} hi={F.priceHi} onLo={v => setF({ ...F, priceLo: v })} onHi={v => setF({ ...F, priceHi: v })} fmtLo={EUR(F.priceLo)} fmtHi={F.priceHi >= 800 ? "€800+" : EUR(F.priceHi)} />
+              <DualRange key={`price-${clearNonce}`} min={0} max={800} step={10} lo={F.priceLo} hi={F.priceHi} onLo={v => setF({ ...F, priceLo: v })} onHi={v => setF({ ...F, priceHi: v })} fmtLo={EUR(F.priceLo)} fmtHi={F.priceHi >= 800 ? "€800+" : EUR(F.priceHi)} />
             </FGroup>
             <FGroup title="Airline">
               {["TAP Air Portugal", "TAP Express", "Partners"].map(a => <Chk key={a} label={a} count={counts.airline[a] || 0} on={F.airlines.has(a)} set={v => { const s = new Set(F.airlines); v ? s.add(a) : s.delete(a); setF({ ...F, airlines: s }); }} />)}
@@ -329,10 +346,10 @@ export function Results({ shared, params, go }) {
                         <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.arr}</div><div className="text-[11px] text-ink-faint mt-1">{of.dest}</div></div>
                       </div>
                       <div className="flex-1 min-w-[160px]">
-                        <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-surface-mute px-1.5 py-0.5 text-[12px] font-black leading-none tracking-tight"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+                        <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-white border border-line-strong px-2 py-1 text-[12px] font-black leading-none tracking-tight shrink-0"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
                         <div className="text-[11px] text-ink-faint mt-0.5">{of.aircraft} · Bag included</div>
                       </div>
-                      <div className="text-right rounded-xl bg-surface border border-line px-4 py-2.5 min-w-[140px]">
+                      <div className="text-right rounded-xl bg-surface border border-line px-4 py-2.5 min-w-[148px]">
                         <div className="text-[10px] font-semibold text-amber-600">OR {miles(Math.round(ob.price * 110 / 500) * 500)} MI + {EUR(Math.round(ob.price * 0.18))}</div>
                         <div className="text-[20px] font-bold v2-num leading-tight">{EUR(ob.price)}</div>
                         <div className="text-[10px] text-ink-faint">1 adult · {ob.fare}</div>
@@ -367,8 +384,8 @@ export function Results({ shared, params, go }) {
             {week.map(d => {
               const on = d.date === date;
               return <button key={d.date} onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: d.date })}
-                className={cx("flex-1 min-w-[88px] rounded-xl px-3 py-2 text-center", on ? "bg-lime-tint" : "hover:bg-surface-mute")}>
-                <div className={cx("text-[11px]", on ? "text-tap-greenDark font-bold" : "text-ink-muted")}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                className={cx("flex-1 min-w-[88px] px-3 text-center transition-colors", on ? "bg-lime-tint rounded-lg" : "rounded-xl py-2 hover:bg-surface-mute")} style={on ? { paddingTop: "18px", paddingBottom: "18px", borderBottom: "2px solid #2E7D33" } : undefined}>
+                <div className={cx("text-[11px]", on ? "text-tap-greenDark font-bold" : "text-ink-muted")}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}</div>
                 <div className={cx("text-[15px] font-bold v2-num", on ? "text-tap-greenDark" : "text-ink")}>{d.price ? EUR(d.price) : "—"}</div>
               </button>;
             })}
@@ -377,42 +394,18 @@ export function Results({ shared, params, go }) {
           </Card>
 
           {/* sort tabs — borderless, label-only, green active state */}
-          <div className="flex items-center gap-1 overflow-x-auto v2-track">
+          <div className="flex items-center gap-2 overflow-x-auto v2-track">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface p-1 shrink-0">
             {["All flights", "Best", "Cheapest", "Fastest", "Earliest", "Eco-friendly"].map(k => {
               const key = k === "Eco-friendly" ? "Eco" : k === "All flights" ? "All" : k;
               const on = sort === key;
               const label = k === "Best" && leg === "inbound" ? "Best pairing" : k;
-              return <button key={k} onClick={() => setSort(key)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-bold transition-colors", on ? "bg-tap-green text-white shadow-sm" : "text-ink-muted hover:bg-surface-mute")}>
+              return <button key={k} onClick={() => setSort(key)} className={cx("shrink-0 px-3.5 py-1.5 rounded-full text-[13px] font-bold transition-colors", on ? "bg-tap-green text-white shadow-sm" : "text-ink-muted hover:bg-surface-mute")}>
                 {label}
               </button>;
             })}
+            </div>
             <div className="ml-auto shrink-0 pr-1 flex items-center gap-2">
-              <div className="relative">
-                <button onClick={() => setDispOpen(o => !o)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-line text-[12px] font-semibold text-ink-muted hover:bg-surface-mute" title="Display settings (airline-configurable)">
-                  <Icon name="grid" size={13} /> Display
-                </button>
-                {dispOpen && (
-                  <>
-                    <div className="fixed inset-0 z-20" onClick={() => setDispOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl border border-line shadow-pop z-30 p-3">
-                      <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-2">Display mode · airline config</div>
-                      <div className="text-[11px] font-semibold text-ink mb-1">Fare bundles</div>
-                      <div className="grid grid-cols-2 gap-1.5 mb-3">
-                        {[["inline", "Inline"], ["expand", "Expand/collapse"]].map(([k, l]) => (
-                          <button key={k} onClick={() => setBundles(k)} className={cx("px-2 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors", disp.bundles === k ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-line text-ink-muted hover:bg-surface-mute")}>{l}</button>
-                        ))}
-                      </div>
-                      <div className="text-[11px] font-semibold text-ink mb-1">Round-trip layout</div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {[["perBound", "Per bound"], ["single", "Single page"]].map(([k, l]) => (
-                          <button key={k} onClick={() => setLayoutMode(k)} className={cx("px-2 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors", disp.layout === k ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-line text-ink-muted hover:bg-surface-mute")}>{l}</button>
-                        ))}
-                      </div>
-                      <div className="text-[10px] text-ink-faint mt-2.5 leading-snug">Defaults adapt to booking complexity. Configurable per market & channel.</div>
-                    </div>
-                  </>
-                )}
-              </div>
               <button onClick={() => setHoldOpen(true)} className={cx("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-[12px] font-semibold transition-colors", held ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-tap-green/50 bg-lime-tint/40 text-tap-greenDeep hover:bg-lime-tint")}>
                 <Icon name={held ? "check" : "lock"} size={13} /> {held ? "Fare held · 72h" : "Hold your fare"}
               </button>
@@ -451,7 +444,7 @@ export function Results({ shared, params, go }) {
                   ? <div className="text-[13px] font-semibold truncate">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} · {EUR(sel.price)}{(trip.legs || []).filter(Boolean).length > 1 && <> &nbsp;·&nbsp; itinerary <span className="text-lime">{EUR((trip.legs || []).filter(Boolean).reduce((s, l) => s + l.price, 0))}</span></>}</div>
                   : leg === "inbound" && trip.outbound
                   ? <div className="text-[13px] font-semibold truncate">{String(trip.outbound.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {trip.outbound.flight.origin}→{trip.outbound.flight.dest} {EUR(trip.outbound.price)} &nbsp;+&nbsp; {String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} {EUR(sel.price)} &nbsp;=&nbsp; <span className="text-lime">{EUR(trip.outbound.price + sel.price - 15)}</span> <span className="text-white/60 font-normal">(bundle saved €15)</span></div>
-                  : <div className="text-[13px] font-semibold">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} · {sel.flight.dep} → {sel.flight.arr} · {EUR(sel.price)}</div>}
+                  : <div className="text-[13px] font-semibold">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} · {new Date((leg === "inbound" ? retDate : date) + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} · {sel.flight.dep} → {sel.flight.arr} · {EUR(sel.price)}</div>}
               </> : <>
                 <div className="text-[10px] font-bold tracking-widest text-white/50 uppercase">{isMulti ? `Select flight ${legIndex + 1} of ${mLegs.length}` : (leg === "inbound" ? "Select your inbound flight" : "Select your outbound flight")}</div>
                 <div className="text-[13px] font-semibold text-white/80">Choose a flight and fare above to continue.</div>
@@ -587,7 +580,7 @@ const DualRange = ({ min, max, step = 1, lo, hi, onLo, onHi, fmtLo, fmtHi }) => 
 
 function Badge({ children, tone = "slate" }) {
   const tones = { lime: "bg-lime-tint text-tap-greenDark", green: "bg-tap-green/10 text-tap-greenDeep", gold: "bg-[#F6E9B8] text-[#7a5c00]", dark: "bg-surface-dark text-white", slate: "bg-surface-mute text-ink-muted" };
-  return <span className={cx("inline-flex items-center text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded", tones[tone])}>{children}</span>;
+  return <span className={cx("inline-flex items-center text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full", tones[tone])}>{children}</span>;
 }
 
 // Important #3 — full-screen fare comparison modal (Discount/Basic/Classic/Plus/Executive),
@@ -596,7 +589,6 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
   const byKey = k => f._fares.find(x => x.key === k);
   const basic = byKey("Basic")?.price ?? f.price;
   const cols = [
-    { key: "Discount", price: Math.round(basic * 0.86) },
     { key: "Basic", price: basic },
     { key: "Classic", price: byKey("Classic")?.price ?? Math.round(basic * 1.62) },
     { key: "Plus", price: byKey("Plus")?.price ?? Math.round(basic * 2.81) },
@@ -656,8 +648,8 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
             </div>
           );
         })()}
-        <div className="mt-5 rounded-2xl border border-line overflow-hidden">
-          <div className="grid grid-cols-[1.4fr_repeat(5,1fr)] bg-surface-soft">
+        <div className="mt-5 rounded-2xl border border-line overflow-x-auto v2-track">
+          <div className="grid grid-cols-[1.4fr_repeat(5,1fr)] min-w-[600px] bg-surface-soft">
             <div className="p-4"><div className="text-[12px] font-bold">Fare</div><div className="text-[11px] text-ink-faint">Per passenger, one-way</div></div>
             {cols.map((c, i) => (
               <div key={c.key} className={cx("p-4 text-center", i === selIdx && "bg-lime")}>
@@ -668,7 +660,7 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
             ))}
           </div>
           {ROWS.map((r, ri) => (
-            <div key={r.label} className={cx("grid grid-cols-[1.4fr_repeat(5,1fr)] border-t border-line", ri % 2 === 1 && "bg-surface-soft/40")}>
+            <div key={r.label} className={cx("grid grid-cols-[1.4fr_repeat(5,1fr)] min-w-[600px] border-t border-line", ri % 2 === 1 && "bg-surface-soft/40")}>
               <div className="p-3.5"><div className="text-[13px] font-semibold">{r.label}</div><div className="text-[11px] text-ink-faint">{r.sub}</div></div>
               {r.cells.map((v, ci) => <div key={ci} className={cx("p-3.5 text-center text-[12px] flex items-center justify-center", ci === selIdx && "bg-lime-tint/40")}><Cell v={v} /></div>)}
             </div>
@@ -688,7 +680,7 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
   );
 }
 
-function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, onToggle, onPick, cabin, inline }) {
+function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, onToggle, onPick, cabin, inline, payMilesOn, milesFor }) {
   const [compare, setCompare] = useState(false);
   const cab = cabin || "Economy";
   const m = f._m, classic = f._fares.find(x => x.key === "Classic");
@@ -707,7 +699,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
   return (
     <div className={cx("relative", pairing && "pt-3")}>
       {pairing && <span className="absolute top-0 left-4 z-10 text-[10px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-md px-2 py-1 inline-flex items-center gap-1">★ Best pairing · recommended for you</span>}
-      <Card className={cx("overflow-hidden", pairing && "ring-2 ring-tap-green bg-lime-tint/40", !pairing && expanded && !isSelected && "ring-2 ring-lime", !pairing && isSelected && "ring-2 ring-tap-green")}>
+      <Card style={{ borderRadius: "16px", borderColor: "#E2E2E5" }} className={cx("overflow-hidden", pairing && "ring-2 ring-tap-green bg-lime-tint/40", !pairing && expanded && !isSelected && "ring-2 ring-lime", !pairing && isSelected && "ring-2 ring-lime")}>
       {/* header row — compact single-line layout per design */}
       <div className="p-5 flex flex-wrap items-center gap-4">
         {/* times + route — airport under time, no arrow */}
@@ -718,12 +710,12 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
         </div>
         {/* status — vertical, centered, light weight */}
         <div className="text-center min-w-[92px]">
-          {seatsLeft <= 4 && <div className="inline-block text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-full bg-tap-red/10 text-tap-red">{seatsLeft} seats left</div>}
+          {seatsLeft <= 4 && <div className="inline-block text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-full full bg-tap-red/10 text-tap-red">{seatsLeft} seats left</div>}
           <div className="text-[10px] text-ink-faint mt-1">Booked {bookedToday}× today</div>
         </div>
         {/* airline block — TP mark + number, aircraft, bag + earn MI */}
         <div className="flex-1 min-w-[180px]">
-          <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-surface-mute px-1.5 py-0.5 text-[11px] font-black leading-none tracking-tight"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+          <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-white border border-line-strong px-2 py-1 text-[12px] font-black leading-none tracking-tight shrink-0"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
           <div className="text-[11px] text-ink-faint mt-0.5">{f.aircraft}{m.features.length ? " · " + m.features.join(" · ") : ""}</div>
           <div className="flex items-center gap-2 mt-1.5">
             {headline.feats[1][1] ? <Badge tone="green">Bag included</Badge> : <Badge>No bag</Badge>}
@@ -734,8 +726,12 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
         {/* price panel — light grey, right-aligned */}
         <div className="text-right rounded-xl bg-surface-soft px-4 py-3 min-w-[148px]">
           {pairing && <div className="text-[11px] font-bold text-tap-greenDeep">BUNDLE −€15</div>}
-          {selFare.milesOpt && <div className="text-[11px] font-semibold text-amber-600">OR {miles(selFare.milesOpt.mi)} MI + {EUR(selFare.milesOpt.cash)}</div>}
-          <div className="text-[24px] font-bold v2-num leading-tight">{EUR(selFare.price)}</div>
+          {payMilesOn && milesFor ? (() => { const mm = milesFor(selFare.price); return (
+            <><div className="text-[18px] font-bold text-tap-greenDeep v2-num leading-tight">{mm.full ? `${miles(mm.miles)} mi` : `${miles(mm.miles)} mi + ${EUR(mm.cash)}`}</div>
+            <div className="text-[10px] text-ink-faint v2-num">or {EUR(selFare.price)} cash</div></>); })() : (<>
+            {selFare.milesOpt && <div className="text-[11px] font-semibold text-amber-600">OR {miles(selFare.milesOpt.mi)} MI + {EUR(selFare.milesOpt.cash)}</div>}
+            <div className="text-[24px] font-bold v2-num leading-tight">{EUR(selFare.price)}</div>
+          </>)}
           <div className="text-[10px] text-ink-faint">1 adult · {isSelected ? sel.fare : `${CABIN_LABEL[cab] || "Economy"} ${headline.key}`}</div>
           <div className="mt-2">
             {inline
@@ -762,11 +758,17 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
             {cabinFares.map(fare => {
               const picked = isSelected && sel.fare === fare.key;
               return (
-                <div key={fare.key} className={cx("rounded-xl border bg-surface p-4 flex flex-col", picked ? "border-tap-green ring-1 ring-tap-green" : "border-line")}>
+                <div key={fare.key} className={cx("rounded-xl border p-4 flex flex-col", picked ? "border-tap-green ring-1 ring-tap-green" : "border-line bg-surface")} style={picked ? { background: "#F9F9FA" } : undefined}>
                   <div className="flex items-center justify-between"><div className="font-bold text-[14px]">{fare.key}</div><Badge tone={fare.tone}>{fare.tag}</Badge></div>
                   <div className="text-[11px] text-ink-muted mt-1 min-h-[28px]">{fare.sub}</div>
-                  {fare.milesOpt && <div className="text-[11px] font-semibold text-tap-greenDeep mt-2">OR {miles(fare.milesOpt.mi)} MI + {EUR(fare.milesOpt.cash)}</div>}
-                  <div className="mt-1 flex items-baseline gap-2"><div className="text-[26px] font-bold v2-num">{EUR(fare.price)}</div>{fare.was && <div className="text-[12px] text-ink-faint line-through">{EUR(fare.was)}</div>}</div>
+                  {payMilesOn && milesFor ? (() => { const m = milesFor(fare.price); return (
+                    <div className="mt-2">
+                      <div className="text-[18px] font-bold text-tap-greenDeep v2-num leading-tight">{m.full ? `${miles(m.miles)} mi` : `${miles(m.miles)} mi + ${EUR(m.cash)}`}</div>
+                      <div className="text-[11px] text-ink-faint v2-num">or {EUR(fare.price)} in cash</div>
+                    </div>); })() : (<>
+                    {fare.milesOpt && <div className="text-[11px] font-semibold text-tap-greenDeep mt-2">OR {miles(fare.milesOpt.mi)} MI + {EUR(fare.milesOpt.cash)}</div>}
+                    <div className="mt-1 flex items-baseline gap-2"><div className="text-[26px] font-bold v2-num">{EUR(fare.price)}</div>{fare.was && <div className="text-[12px] text-ink-faint line-through">{EUR(fare.was)}</div>}</div>
+                  </>)}
                   <ul className="mt-3 space-y-1.5 flex-1">
                     {fare.feats.map(([t, ok], i) => (
                       <li key={i} className={cx("flex items-center gap-2 text-[12px]", ok ? "text-ink-700" : "text-ink-faint")}>

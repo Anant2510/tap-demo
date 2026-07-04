@@ -676,6 +676,7 @@ app.get("/api/bookings", (req, res) => {
   // stored in meta at booking time. The snapshot guarantees the card renders the real route
   // and times even for generated flights whose rows were pruned or whose number collides.
   const resolve = (no, d, snap) => byNoDate(no, d) || flightByNo(no) || (snap && snap.origin ? { flight_no: no, flight_date: d, ...snap } : null);
+  const payOf = (bid) => db.prepare("SELECT total, voucher_amt, miles_used, miles_amt, card_amt FROM payments WHERE booking_id=? ORDER BY id DESC LIMIT 1").get(bid) || null;
   res.json(rows.map(r => {
     let meta = null; try { meta = JSON.parse(r.meta_json || "null"); } catch {}
     const snap = meta ? { origin: meta.origin, dest: meta.dest, dep: meta.dep, arr: meta.arr, duration: meta.duration, aircraft: meta.aircraft } : null;
@@ -685,6 +686,7 @@ app.get("/api/bookings", (req, res) => {
       items: JSON.parse(r.items_json || "[]"),
       flight: resolve(r.flight_no, r.flight_date, snap),
       meta,
+      payment: payOf(r.id),   // payment split (miles / voucher / card) so My Trip can show how it was paid
       inboundFlight: inb ? resolve(meta.inbound.flight_no, meta.inbound.date, null) : null,
       days_to_go: daysToGo(r.flight_date),
     };

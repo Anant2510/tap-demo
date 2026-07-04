@@ -198,6 +198,7 @@ export function ManageBooking({ shared, go }) {
                   <div className="text-right shrink-0">
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-lime-tint text-tap-greenDeep rounded-full px-2.5 py-1"><Icon name="check" size={10} /> Confirmed</span>
                     <div className="text-[11px] text-ink-faint mt-1">{(b.days_to_go ?? 0) > 0 ? `In ${b.days_to_go} day${b.days_to_go !== 1 ? "s" : ""}` : "Today"} · {b.pnr || b.flight_no}</div>
+                    {b.payment && (() => { const p = b.payment; const mode = [p.miles_used > 0 && "Miles", p.voucher_amt > 0 && "Voucher", (p.card_amt || 0) > 0 && "Card"].filter(Boolean).join(" + "); return mode ? <div className="text-[10px] font-semibold text-tap-greenDeep mt-1 inline-flex items-center gap-1 justify-end"><Icon name="spark" size={10} /> Paid: {mode}</div> : null; })()}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-3 flex-wrap text-[12px] text-ink-muted">

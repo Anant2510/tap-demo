@@ -2,11 +2,13 @@
 // passenger → payment → confirmation). Module-scoped so it persists across SPA
 // navigation within a session. The server stays the source of truth on /api/pay.
 export const trip = {
-  type: "round", pax: 1, cabin: "Economy",
+  type: "round", pax: 1, adults: 1, children: 0, infants: 0, cabin: "Economy", payMiles: false,
   origin: null, dest: null, date: null, ret: null,
   outbound: null, inbound: null,   // { flight, fare, price }
+  legs: [],                         // B1 — multi-city: ordered [{ flight, fare, price }] beyond outbound/inbound
   extras: [],                       // [{ code, name, price, qty, cat, source }]  source: recommended | auto | user
   passengers: [], contact: null, payment: null, pnr: null,
+  repriceDelta: 0,                  // H2 — accepted price change from a mid-booking revalidation (added to the total)
   seeded: false,                    // #18 — recommended extras are seeded once per fresh trip, never re-seeded
 };
 
@@ -24,10 +26,10 @@ export function setLeg(leg, choice) { trip[leg] = choice; notify(); }
 export function resetTrip() {
   _resetting = true;
   Object.assign(trip, {
-    type: "round", pax: 1, cabin: "Economy",
+    type: "round", pax: 1, adults: 1, children: 0, infants: 0, cabin: "Economy", payMiles: false,
     origin: null, dest: null, date: null, ret: null,
-    outbound: null, inbound: null, extras: [],
-    passengers: [], contact: null, payment: null, pnr: null, seeded: false,
+    outbound: null, inbound: null, legs: [], extras: [],
+    passengers: [], contact: null, payment: null, pnr: null, repriceDelta: 0, seeded: false,
   });
   try { localStorage.removeItem(TKEY); } catch {}
   _resetting = false;
@@ -110,6 +112,37 @@ export function restoreFromSaved(saved) {
   notify();
   return true;
 }
+// ── Multi-trip basket (Important #5) ─────────────────────────────────────────
+// A member can park several in-progress trips in the basket and resume any later.
+// The server keeps one "open" basket; this client layer holds the rest as an
+// array of trip snapshots so the Basket page can manage multiple trips at once.
+const BKEY = "flytap_basket_trips";
+function readBasket() { try { const r = localStorage.getItem(BKEY); const a = r ? JSON.parse(r) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
+function writeBasket(a) { try { localStorage.setItem(BKEY, JSON.stringify(a)); } catch { } notify(); }
+export function getBasketTrips() { return readBasket(); }
+export function saveTripToBasket() {
+  if (!trip.outbound) return null;
+  const snap = { ...tripSnapshot(), passengers: (trip.passengers || []).map(p => ({ ...p })) };
+  const id = "bt_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const key = (s) => (s.outbound?.flight?.flight_no || "") + "|" + (s.date || "");
+  const a = readBasket().filter(x => key(x.snap) !== key(snap));   // re-saving the same trip updates in place
+  a.unshift({ id, savedAt: Date.now(), snap });
+  writeBasket(a.slice(0, 12));
+  return id;
+}
+export function removeBasketTrip(id) { writeBasket(readBasket().filter(x => x.id !== id)); }
+export function resumeBasketTrip(id) {
+  const a = readBasket(); const found = a.find(x => x.id === id); if (!found) return false;
+  restoreFromSaved({ snapshot: found.snap });
+  if (found.snap.passengers) trip.passengers = found.snap.passengers.map(p => ({ ...p }));
+  writeBasket(a.filter(x => x.id !== id));   // resuming moves it out of the basket into the active trip
+  return true;
+}
+export function basketTripTotal(snap) {
+  const flights = (snap.outbound?.price || 0) + (snap.inbound?.price || 0);
+  const extras = (snap.extras || []).reduce((s, e) => s + (e.price || 0), 0);
+  return flights + extras;
+}
 // Source labels for the basket classification (recommended by system / auto-added / added by you).
 export const SOURCE_META = {
   recommended: { label: "Recommended for you", tag: "Recommended", tone: "green" },
@@ -137,11 +170,14 @@ export function bundleSavings() {
   return Math.round(base * 0.15 * 100) / 100;
 }
 export function tripTotals() {
-  const legPrice = (trip.outbound?.price || 0) + (trip.inbound?.price || 0);
+  // Round/one-way use outbound+inbound; multi-city sums every leg in trip.legs (B1).
+  const legList = (trip.legs && trip.legs.length) ? trip.legs : [trip.outbound, trip.inbound];
+  const legPrice = legList.reduce((s, l) => s + (l?.price || 0), 0);
   const flights = legPrice * (trip.pax || 1);
   const extras = trip.extras.reduce((s, x) => s + (x.price || 0) * (x.qty || 1), 0);
   const taxes = Math.round((flights + extras) * 0.085);
   const bundle = bundleSavings();
-  const total = flights + extras + taxes - bundle;
-  return { flights, extras, taxes, bundle, total };
+  const reprice = trip.repriceDelta || 0;   // H2 — mid-booking price change the passenger accepted
+  const total = flights + extras + taxes - bundle + reprice;
+  return { flights, extras, taxes, bundle, reprice, total };
 }

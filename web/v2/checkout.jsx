@@ -1412,7 +1412,7 @@ export function Payment({ shared, go }) {
   const u = shared.profile?.user || {};
   const voucher = (shared.profile?.vouchers || []).find(v => v.status === "active")?.amount || 0;
   const t = tripTotals();
-  const [method, setMethod] = useState("Card");
+  const [method, setMethod] = useState(trip.payMiles ? "Miles & Go" : "Card");   // honour the Pay-with-Miles toggle from search
   const [agree, setAgree] = useState(true);
   const [saveCard, setSaveCard] = useState(true);   // A#14 — custom save-card checkbox
   const [useContactBilling, setUseContactBilling] = useState(true);   // B#12 — use-contact-details banner toggle
@@ -1958,7 +1958,7 @@ export function Confirmation({ shared, go }) {
               <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
               <div className="space-y-1.5 text-[13px]"><Row label={`Fare x${trip.pax}`} v={eur2(t.flights)} /><Row label="Taxes & fees" v={eur2(t.taxes)} />{t.extras ? <Row label="Extras" v={eur2(t.extras)} /> : null}{t.bundle ? <Row label="Bundle savings" v={"−" + eur2(t.bundle)} green /> : null}{pay.voucher_amt ? <Row label="Voucher" v={"−" + eur2(pay.voucher_amt)} green /> : null}{pay.miles_amt ? <Row label={`Miles (${miles(pay.miles_used)})`} v={"−" + eur2(pay.miles_amt)} green /> : null}</div>
               <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
-              <div className="rounded-lg flex items-center justify-between gap-2" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5", padding: "18px 20px" }}><div className="text-[12px] font-semibold text-ink">Paid · {pay.method || "Card"} {u.card_last4 ? "••" + u.card_last4 : ""}</div><div className="text-[34px] font-bold text-tap-green v2-num">{eur2(pay.card_amt ?? t.total)}</div></div>
+              <div className="rounded-lg flex items-center justify-between gap-2" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5", padding: "18px 20px" }}><div className="text-[12px] font-semibold text-ink">Paid · {(() => { const parts = []; if (pay.miles_used > 0) parts.push(`${miles(pay.miles_used)} miles`); if (pay.voucher_amt > 0) parts.push(`voucher ${eur2(pay.voucher_amt)}`); if ((pay.card_amt ?? t.total) > 0) parts.push(`${eur2(pay.card_amt ?? t.total)} card${u.card_last4 ? " ••" + u.card_last4 : ""}`); return parts.length ? parts.join(" + ") : (pay.method || "Card"); })()}</div><div className="text-[34px] font-bold text-tap-green v2-num">{eur2(pay.card_amt ?? t.total)}</div></div>
               <div className="mt-3 rounded-xl bg-lime-tint" style={{ border: "1px solid #A6D926", padding: "18px 22px" }}><div className="text-[13px] font-bold text-ink flex items-center gap-1.5"><Icon name="spark" size={13} className="text-tap-green" /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] text-ink-muted mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
               <button onClick={() => go("basket")} className="w-full mt-3 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold hover:brightness-95" style={{ height: "42px", borderRadius: "9999px", background: "#FFFFFF", border: "1px solid #E8E8E5", color: "#0A0A0A" }}>Download invoice (PDF) →</button>
             </Card>
