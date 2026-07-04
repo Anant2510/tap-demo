@@ -12,12 +12,91 @@ import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddEx
 import { DemoConsole } from "./demo.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
+const ASSET = "/v2/assets/homepage/";   // #14/#5 — approved design assets
 
 /* deterministic gradient "photo" header per city/route (real imagery can be added via AEM) */
 const GRADS = [["#2e7d33", "#9efd38"], ["#1a1f29", "#46a41a"], ["#0a3d2e", "#c7f21f"], ["#163a4a", "#5ec6c0"], ["#3a2a1f", "#e8a23a"]];
 function gradFor(seed) { let h = 0; for (const c of String(seed)) h = (h * 31 + c.charCodeAt(0)) >>> 0; const g = GRADS[h % GRADS.length]; return { background: `linear-gradient(135deg, ${g[0]}, ${g[1]})` }; }
 
 /* ─────────────────────────── shared: search widget ─────────────────────────── */
+// #13 — passenger configuration panel: separate Adults / Children / Infants counters (replaces adult-only dropdown).
+function PaxPanel({ adults, children, infants, onChange, buttonClassName }) {
+  const [open, setOpen] = useState(false);
+  const summary = [
+    `${adults} adult${adults !== 1 ? "s" : ""}`,
+    children ? `${children} child${children !== 1 ? "ren" : ""}` : "",
+    infants ? `${infants} infant${infants !== 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(" · ");
+  const step = (k, delta, min, max) => {
+    const cur = { adults, children, infants };
+    cur[k] = Math.max(min, Math.min(max, cur[k] + delta));
+    if (cur.infants > cur.adults) cur.infants = cur.adults;   // one lap infant per adult
+    onChange(cur);
+  };
+  const Row = ({ label, sub, val, k, min = 0, max = 9 }) => (
+    <div className="flex items-center justify-between py-2">
+      <div><div className="text-[13px] font-semibold text-ink">{label}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>
+      <div className="flex items-center gap-2.5">
+        <button type="button" disabled={val <= min} onClick={() => step(k, -1, min, max)} className="w-7 h-7 rounded-full border border-line-strong inline-flex items-center justify-center text-[16px] leading-none text-ink disabled:opacity-30 hover:border-tap-green">−</button>
+        <span className="w-5 text-center text-[14px] font-bold v2-num">{val}</span>
+        <button type="button" disabled={val >= max} onClick={() => step(k, 1, min, max)} className="w-7 h-7 rounded-full border border-line-strong inline-flex items-center justify-center text-[16px] leading-none text-ink disabled:opacity-30 hover:border-tap-green">+</button>
+      </div>
+    </div>
+  );
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>{summary}<span className="text-ink-faint text-[10px] ml-2">▾</span></button>
+      {open && <>
+        <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+        <div className="absolute left-0 mt-2 w-64 bg-white rounded-xl border border-line shadow-pop z-30 p-3">
+          <Row label="Adults" sub="12+ years" val={adults} k="adults" min={1} />
+          <div className="h-px bg-line" />
+          <Row label="Children" sub="2–11 years" val={children} k="children" />
+          <div className="h-px bg-line" />
+          <Row label="Infants" sub="Under 2 · on lap" val={infants} k="infants" max={adults} />
+          <button type="button" onClick={() => setOpen(false)} className="w-full mt-2 rounded-full bg-tap-green text-white py-2 text-[13px] font-semibold">Done</button>
+        </div>
+      </>}
+    </div>
+  );
+}
+// #10 — airport picker: opens BELOW the field, with a search box that filters by code, city or country.
+function AirportPicker({ value, onChange, airports = [], placeholder = "Select airport", buttonClassName }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const sel = airports.find(a => a.code === value);
+  const ql = q.trim().toLowerCase();
+  const list = (ql
+    ? airports.filter(a => a.code.toLowerCase().includes(ql) || (a.city || "").toLowerCase().includes(ql) || (a.country || "").toLowerCase().includes(ql))
+    : airports).slice(0, 80);
+  const pick = (code) => { onChange(code); setOpen(false); setQ(""); };
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>
+        {sel ? <span className="truncate"><span className="font-bold">{sel.code}</span><span className="text-ink-muted"> · {sel.city}</span></span> : <span className="text-ink-faint">{placeholder}</span>}
+        <span className="text-ink-faint text-[10px] ml-2 shrink-0">▾</span>
+      </button>
+      {open && <>
+        <div className="fixed inset-0 z-20" onClick={() => { setOpen(false); setQ(""); }} />
+        <div className="absolute left-0 top-full mt-2 w-72 max-w-[88vw] bg-white rounded-xl border border-line shadow-pop z-30 overflow-hidden">
+          <div className="p-2 border-b border-line">
+            <div className="relative"><Icon name="search" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" /><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search city, airport or country" className="w-full bg-surface border border-line rounded-lg pl-8 pr-3 py-2 text-[13px] outline-none focus:border-tap-green" /></div>
+          </div>
+          <div className="max-h-64 overflow-y-auto v2-track">
+            {list.length === 0 && <div className="px-3 py-4 text-[12px] text-ink-faint text-center">No airports match "{q}"</div>}
+            {list.map(a => (
+              <button key={a.code} type="button" onClick={() => pick(a.code)} className={cx("w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-surface-mute transition-colors", a.code === value && "bg-lime-tint/40")}>
+                <span className="w-9 shrink-0 text-[12px] font-bold text-ink v2-num">{a.code}</span>
+                <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold truncate">{a.city}</span>{a.country && <span className="block text-[11px] text-ink-faint truncate">{a.country}</span>}</span>
+                {a.code === value && <Icon name="check" size={14} className="text-tap-green shrink-0" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      </>}
+    </div>
+  );
+}
 function SearchWidget({ airports = [], onSearch, defaults = {} }) {
   const [tab, setTab] = useState("Flights");
   const [type, setType] = useState("round");
@@ -26,6 +105,8 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
   const [date, setDate] = useState(defaults.date || "");
   const [ret, setRet] = useState(defaults.ret || "");
   const [pax, setPax] = useState(1);
+  const [kids, setKids] = useState(0);
+  const [infants, setInfants] = useState(0);
   const [cabin, setCabin] = useState("Economy");
   const [stopover, setStopover] = useState(false);
   return (
@@ -47,12 +128,12 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
         ))}
       </div>
       <div className="grid lg:grid-cols-12 gap-3">
-        <Field label="From" className="lg:col-span-3"><Input list="ap" value={from} onChange={e => setFrom(e.target.value.toUpperCase())} placeholder="OPO" /></Field>
-        <Field label="To" className="lg:col-span-3"><Input list="ap" value={to} onChange={e => setTo(e.target.value.toUpperCase())} placeholder="Where to?" /></Field>
+        <Field label="From" className="lg:col-span-3"><AirportPicker value={from} onChange={setFrom} airports={airports} placeholder="Origin" /></Field>
+        <Field label="To" className="lg:col-span-3"><AirportPicker value={to} onChange={setTo} airports={airports} placeholder="Where to?" /></Field>
         <Field label="Depart" className="lg:col-span-2"><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
         {type === "round" && <Field label="Return" className="lg:col-span-2"><Input type="date" value={ret} onChange={e => setRet(e.target.value)} /></Field>}
         <Field label="Travellers" className="lg:col-span-2">
-          <select value={pax} onChange={e => setPax(+e.target.value)} className="w-full bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px]">{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} {n === 1 ? "traveller" : "travellers"}</option>)}</select>
+          <PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} />
         </Field>
       </div>
       <datalist id="ap">{airports.map(a => <option key={a.code} value={a.code}>{a.city} ({a.code})</option>)}</datalist>
@@ -62,7 +143,7 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
       </div>
       {/* F6 — the Search flight CTA is a separate component, outside the grouped Route/Date/Passenger/Cabin container */}
       <div className="flex justify-end px-1 pt-3">
-        <Btn size="lg" className="w-full sm:w-auto" onClick={() => onSearch({ origin: from, dest: to, date, ret, pax, cabin, type, stopover })}><Icon name="search" /> Search flights</Btn>
+        <Btn size="lg" className="w-full sm:w-auto" onClick={() => onSearch({ origin: from, dest: to, date, ret, pax: pax + kids, adults: pax, children: kids, infants, cabin, type, stopover })}><Icon name="search" /> Search flights</Btn>
       </div>
     </div>
   );
@@ -150,6 +231,8 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
   const [date, setDate] = useState(pat.recommendedDate || "");
   const [ret, setRet] = useState(retDefault);
   const [pax, setPax] = useState(1);
+  const [kids, setKids] = useState(0);
+  const [infants, setInfants] = useState(0);
   const [cabin, setCabin] = useState("Economy");
   const [payMiles, setPayMiles] = useState(false);
   const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
@@ -159,9 +242,9 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
       // B1 — build the leg list; step through them one at a time in Results.
       const legs = [{ origin: from, dest: to, date }];
       if (leg2.to) legs.push({ origin: leg2.from, dest: leg2.to, date: leg2.date });
-      return go("results", { type: "multi", legs, legIndex: 0, pax, cabin, payMiles, origin: from, dest: legs[legs.length - 1].dest, date });
+      return go("results", { type: "multi", legs, legIndex: 0, pax: pax + kids, adults: pax, children: kids, infants, cabin, payMiles, origin: from, dest: legs[legs.length - 1].dest, date });
     }
-    return go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax, cabin, payMiles });
+    return go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax: pax + kids, adults: pax, children: kids, infants, cabin, payMiles });
   };
   const lbl = "text-[10px] font-semibold uppercase tracking-[1px] text-[rgba(139,142,134,1)]";
   const bare = "w-full min-w-0 bg-transparent text-[15px] font-bold outline-none";
@@ -180,8 +263,8 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
       {/* #6 inner search module — 18px radius, soft shadow, status row contained inside */}
       <div className="rounded-[18px] bg-surface overflow-hidden" style={{ boxShadow: "0px 8px 24px -16px rgba(15,20,16,0.12)" }}>
         {/* #7 service tabs — flat, integrated into the bar */}
-        <div className="flex overflow-x-auto v2-track text-[13.5px] font-bold border-b border-line px-1">
-          {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-5 py-3.5 border-b -mb-px transition-colors whitespace-nowrap", i === 0 ? "" : "border-transparent text-ink-muted hover:text-ink")} style={i === 0 ? { background: "rgba(242,255,219,1)", color: "rgba(70,164,26,1)", borderBottomWidth: "1px", borderBottomColor: "rgba(70,164,26,1)" } : {}}>{t}</button>)}
+        <div className="flex overflow-x-auto v2-track font-bold border-b border-line px-1">
+          {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-4 py-3 border-b-2 -mb-px transition-colors whitespace-nowrap text-[13.5px]", i === 0 ? "font-bold" : "border-transparent text-ink-muted hover:text-ink font-semibold")} style={i === 0 ? { color: "rgba(70,164,26,1)", borderBottomColor: "rgba(70,164,26,1)" } : {}}>{t}</button>)}
         </div>
         <div className="p-4 sm:p-5">
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -194,22 +277,24 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             {/* #9 pay-with-miles — toggle first, then label + filled star */}
             <button onClick={() => setPayMiles(v => !v)} className="inline-flex items-center gap-2.5 text-[12px] font-semibold text-ink-muted">
               <span className={cx("w-9 h-5 rounded-full relative transition-colors shrink-0", payMiles ? "bg-tap-green" : "bg-surface-mute")}><span className={cx("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", payMiles ? "right-0.5" : "left-0.5")} /></span>
-              Pay with Miles <Icon name="star" size={14} className={payMiles ? "text-tap-green" : "text-ink-faint"} />
+              Pay with Miles <span className={cx("text-[14px] leading-none", payMiles ? "text-tap-green" : "text-ink-faint")}>✦</span>
             </button>
           </div>
 
           <div className="mt-3 rounded-2xl border border-line overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-line">
             {/* #10 #13 route — single container, location icons + circular swap between */}
             <div className="lg:col-span-4 p-4">
-              <div className={lbl}>Frequent route · prefilled</div>
               <div className="flex items-center gap-2 mt-1.5">
-                <Icon name="plane" size={14} className="text-tap-green shrink-0" />
-                <select value={from} onChange={e => setFrom(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select>
-                <button onClick={swap} title="Swap" className="shrink-0 w-[30px] h-[30px] rounded-full inline-flex items-center justify-center" style={{ border: "1px solid rgba(217,230,203,1)", background: "rgba(241,245,236,1)" }}><Icon name="swap" size={13} className="text-tap-greenDeep" /></button>
-                <Icon name="home" size={14} className="text-ink-muted shrink-0" />
-                <select value={to} onChange={e => setTo(e.target.value)} className={cx(bare, "appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select>
+                <div className="flex-1 min-w-0">
+                  <div className={lbl}>From</div>
+                  <div className="flex items-center gap-1.5 mt-1"><Icon name="plane" size={14} className="text-tap-green shrink-0" /><AirportPicker value={from} onChange={setFrom} airports={airports} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div>
+                </div>
+                <button onClick={swap} title="Swap origin & destination" aria-label="Swap origin and destination" className="shrink-0 w-[34px] h-[34px] rounded-full inline-flex items-center justify-center self-end mb-0.5 hover:brightness-95 transition-[filter]" style={{ border: "1px solid rgba(217,230,203,1)", background: "rgba(241,245,236,1)" }}><Icon name="swap" size={14} className="text-tap-greenDeep" /></button>
+                <div className="flex-1 min-w-0">
+                  <div className={lbl}>To</div>
+                  <div className="flex items-center gap-1.5 mt-1"><Icon name="globe" size={14} className="text-tap-greenDeep shrink-0" /><AirportPicker value={to} onChange={setTo} airports={airports} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div>
+                </div>
               </div>
-              <div className="text-[10px] text-ink-faint mt-1">{cityOf(from)} → {cityOf(to)}</div>
             </div>
             {/* #14 dates — compact range + calendar icon (dynamic, still selectable) */}
             <div className="lg:col-span-3 p-4">
@@ -221,7 +306,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
               </div>
             </div>
             {/* #15 passenger — traveler icon before count */}
-            <div className="lg:col-span-2 p-4"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><select value={pax} onChange={e => setPax(+e.target.value)} className={cx(bare)}>{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Adult{n > 1 ? "s" : ""}</option>)}</select></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
+            <div className="lg:col-span-2 p-4"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
             <div className="lg:col-span-1 p-4"><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1.5")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select></div>
             {/* #11 search CTA — 161×92 rounded green button */}
             <div className="lg:col-span-2 p-2 flex items-stretch">
@@ -347,13 +432,13 @@ export function Home({ shared, go }) {
             </div>
             <div className="grid sm:grid-cols-3 gap-3 mt-5">
               {(offerTiles && offerTiles.length ? offerTiles : [
-                { icon: "home", badge: "Because you're " + u.tier, title: "Use miles to discount your Lisbon hotel", detail: "Apply 8,000 mi to any 3-night stay · save up to €80 instantly.", value: "8,000 mi", cta: "Apply", reason: `${u.tier} member · ${miles(u.miles)} tap.miles available (users)` },
-                { icon: "plane", badge: "Limited · next trip", title: "Upgrade " + cityOf(pat.origin || "LIS") + "–" + cityOf(pat.dest || "OPO") + " to Business with miles", detail: "20% mileage discount when upgrading on your existing booking.", value: "42,000 mi", cta: "Upgrade", reason: `${cityOf(pat.origin || "LIS")}–${cityOf(pat.dest || "OPO")} is your most-flown route (travel_history)` },
-                { icon: "star", badge: "Partner offer · Nov", title: "Earn 3× miles at Memmo Príncipe Real", detail: "Triple miles when booking your favourite hotel through voa stay.", value: "3× MI", cta: "Activate", reason: "Memmo Príncipe Real is in your recent stays (bookings)" },
+                { icon: "home", img: ASSET + "because-you-are-gold.png", badge: "Because you're " + u.tier, title: "Use miles to discount your Lisbon hotel", detail: "Apply 8,000 mi to any 3-night stay · save up to €80 instantly.", value: "8,000 mi", cta: "Apply", reason: `${u.tier} member · ${miles(u.miles)} tap.miles available (users)` },
+                { icon: "plane", img: ASSET + "limited-next-trip.png", badge: "Limited · next trip", title: "Upgrade " + cityOf(pat.origin || "LIS") + "–" + cityOf(pat.dest || "OPO") + " to Business with miles", detail: "20% mileage discount when upgrading on your existing booking.", value: "42,000 mi", cta: "Upgrade", reason: `${cityOf(pat.origin || "LIS")}–${cityOf(pat.dest || "OPO")} is your most-flown route (travel_history)` },
+                { icon: "star", img: ASSET + "partner-offer.png", badge: "Partner offer · Nov", title: "Earn 3× miles at Memmo Príncipe Real", detail: "Triple miles when booking your favourite hotel through voa stay.", value: "3× MI", cta: "Activate", reason: "Memmo Príncipe Real is in your recent stays (bookings)" },
               ]).slice(0, 3).map((o, i) => (
                 <div key={o.id || i} className="rounded-[14px] p-[18px] flex flex-col text-left" style={{ background: "rgba(15,26,17,1)", border: "1px solid rgba(46,77,52,1)" }}>
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="w-11 h-11 rounded-xl inline-flex items-center justify-center text-lime shrink-0" style={{ background: "linear-gradient(135deg, rgba(158,253,56,0.18), rgba(46,125,51,0.25))", border: "1px solid rgba(158,253,56,0.25)" }}><Icon name={o.icon} size={20} /></span>
+                    <span className="w-11 h-11 rounded-xl inline-flex items-center justify-center text-lime shrink-0 overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(158,253,56,0.18), rgba(46,125,51,0.25))", border: "1px solid rgba(158,253,56,0.25)" }}>{o.img ? <img src={o.img} alt="" className="w-6 h-6 object-contain" onError={e => { e.currentTarget.style.display = "none"; }} /> : <Icon name={o.icon} size={20} />}</span>
                     <span className="inline-flex items-center gap-1 rounded-full bg-lime-tint px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep"><Icon name="spark" size={9} /> {o.badge}</span>
                   </div>
                   <div className="text-[14px] font-bold mt-3">{o.title}</div>
@@ -376,7 +461,7 @@ export function Home({ shared, go }) {
           <div className="grid md:grid-cols-3 gap-4">
             {/* usual trip */}
             <Card className="overflow-hidden flex flex-col">
-              <div className="h-40 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} src={imageFor("usual-" + (pat.dest || "LIS"), cityOf(pat.dest || "LIS"))} className="absolute inset-0 w-full h-full" /><span className={cx(overlayBadge, "text-tap-greenDeep")}><Icon name="home" size={11} /> Usual trip</span></div>
+              <div className="h-40 relative overflow-hidden"><Img seed={"dest-" + (pat.dest || "LIS")} src={ASSET + "book-lisbon-porto.jpg"} className="absolute inset-0 w-full h-full" /><span className={cx(overlayBadge, "text-tap-greenDeep")}><Icon name="home" size={11} /> Usual trip</span></div>
               <div className="p-4 flex flex-col flex-1">
                 <div className="font-bold text-[15px]">Book {cityOf(pat.origin || "OPO")} → {cityOf(pat.dest || "LIS")}</div>
                 <div className="text-[12px] text-ink-muted mt-1">{pat.recommendedLabel} {pat.usualDep} · fare from {EUR(pat.usualPrice)} · hand bag only.</div>
@@ -387,7 +472,7 @@ export function Home({ shared, go }) {
             </Card>
             {/* resume */}
             <Card className="overflow-hidden flex flex-col">
-              <div className="h-40 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} src={imageFor("resume-" + (journey?.dest || "OPO"), cityOf(journey?.dest || "OPO"))} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, resumable ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {resumable ? "In-progress" : "No draft"}</span></div>
+              <div className="h-40 relative overflow-hidden"><Img seed={"resume-" + (journey?.dest || "OPO")} src={ASSET + "continue-booking.jpg"} className="absolute inset-0 w-full h-full" /><span className="absolute inset-0 bg-black/15" /><span className={cx(overlayBadge, resumable ? "text-tap-greenDeep" : "text-ink-muted")}><Icon name="clock" size={11} /> {resumable ? "In-progress" : "No draft"}</span></div>
               <div className="p-4 flex flex-col flex-1">
                 {resumable ? <>
                   <div className="font-bold text-[15px]">Resume booking</div>
@@ -477,22 +562,22 @@ export function Home({ shared, go }) {
             <div className="grid md:grid-cols-3 gap-4">
               {anc.slice(0, 3).map((a, i) => {
                 const s = ((a.code || "") + " " + (a.name || "")).toLowerCase();
+                const ancImg = /upgrad|cabin|business/.test(s) ? "business-upgrade.jpg" : /secur|priorit|fast/.test(s) ? "fast-track-security.jpg" : /chang|flex/.test(s) ? "flexible-change.jpg" : null;   // #14 — approved asset photo
                 const ancIcon = /seat/.test(s) ? "seat" : /bag|lugg/.test(s) ? "bag" : /meal|food|veg|kid/.test(s) ? "leaf" : /loung/.test(s) ? "star" : /wifi|internet/.test(s) ? "bolt" : /upgrad|cabin|business/.test(s) ? "plane" : /insur|secur|protect/.test(s) ? "shield" : "spark";
                 return (
-                  <Card key={a.code || i} className="overflow-hidden flex flex-col" style={{ borderRadius: "16px" }}>
-                    <div className="h-[96px] flex items-center justify-center" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
-                      <span className="w-12 h-12 rounded-2xl bg-white/70 inline-flex items-center justify-center text-tap-greenDeep"><Icon name={ancIcon} size={22} /></span>
+                  <Card key={a.code || i} className="overflow-hidden flex" style={{ borderRadius: "16px" }}>
+                    <div className="w-[92px] shrink-0 self-stretch flex items-center justify-center overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
+                      {ancImg ? <Img seed={"anc-" + (a.code || i)} src={ASSET + ancImg} className="w-full h-full" /> : <span className="w-12 h-12 rounded-2xl bg-white/70 inline-flex items-center justify-center text-tap-greenDeep"><Icon name={ancIcon} size={22} /></span>}
                     </div>
-                    <div className="p-4 flex flex-col flex-1">
-                      <div className="flex items-center justify-between">
+                    <div className="p-3.5 flex flex-col flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {a.recommended
                           ? <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide" style={{ background: "rgba(241,245,236,1)", color: "rgba(46,122,14,1)" }}><span className="w-1.5 h-1.5 rounded-full bg-tap-green inline-block" /> Recommended</span>
                           : <Pill tone="slate">{i === 1 ? "Cash + miles" : "Popular · " + u.tier}</Pill>}
                       </div>
-                      <div className="text-[15px] font-bold mt-2">{a.name}</div>
-                      <div className="text-[11px] text-ink-muted mt-1 flex-1">{a.reason || a.desc || "Add before you fly."}</div>
-                      {a.recommended && a.reason && <WhyChip reason={a.reason} signals={a.signals} className="mt-1.5" />}
-                      <div className="flex items-center justify-between mt-3"><div className="text-[13px] font-bold v2-num">{EUR(a.price)} <span className="text-[11px] font-medium text-ink-faint">or {miles(Math.round(a.price / MILES_RATE))} mi</span></div><Btn size="sm" variant={i === 1 ? "outline" : "primary"} onClick={() => go("cart")}>{i === 1 ? "Review" : "Add"}</Btn></div>
+                      <div className="text-[14px] font-bold mt-1.5 truncate">{a.name}</div>
+                      <div className="text-[11px] text-ink-muted mt-0.5 flex-1">{a.reason || a.desc || "Add before you fly."}</div>
+                      <div className="flex items-center justify-between mt-2.5 gap-2"><div className="text-[13px] font-bold v2-num shrink-0">{EUR(a.price)} <span className="text-[11px] font-medium text-ink-faint">or {miles(Math.round(a.price / MILES_RATE))} mi</span></div><Btn size="sm" variant={i === 1 ? "outline" : "primary"} className="shrink-0" onClick={() => go("cart")}>{i === 1 ? "Review" : "Add"}</Btn></div>
                     </div>
                   </Card>
                 );
