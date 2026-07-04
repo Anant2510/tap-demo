@@ -127,15 +127,16 @@ const daysToGo = (iso) => { if (!iso) return null; const d = Math.round((new Dat
 
 // Persist generated flights so basket / pay / disrupt all keep working on real rows
 function persistFlights(list) {
-  const ins = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,status)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'scheduled')`);
+  const ins = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,cabin_prices,status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled')`);
   for (const f of list) {
+    const cp = f.cabin_prices ? (typeof f.cabin_prices === "string" ? f.cabin_prices : JSON.stringify(f.cabin_prices)) : null;
     const exists = db.prepare("SELECT id FROM flights WHERE flight_no=? AND flight_date=? AND origin=? AND dest=?").get(f.flight_no, f.flight_date, f.origin, f.dest);
     if (exists) {
-      db.prepare("UPDATE flights SET dep=?,arr=?,duration=?,aircraft=?,price=?,seats_left=?,recommended=?,lowest=? WHERE id=?")
-        .run(f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.recommended, f.lowest, exists.id);
+      db.prepare("UPDATE flights SET dep=?,arr=?,duration=?,aircraft=?,price=?,seats_left=?,recommended=?,lowest=?,cabin_prices=COALESCE(cabin_prices,?) WHERE id=?")
+        .run(f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.recommended, f.lowest, cp, exists.id);
     } else {
-      ins.run(f.flight_no, f.origin, f.dest, f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.flight_date, f.recommended, f.lowest);
+      ins.run(f.flight_no, f.origin, f.dest, f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.flight_date, f.recommended, f.lowest, cp);
     }
   }
 }

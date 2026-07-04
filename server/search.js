@@ -21,8 +21,35 @@ const pad = (n) => String(n).padStart(2, "0");
 const hhmm = (mins) => `${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
 const durLabel = (m) => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? pad(m % 60) : ""}` : `${m}m`;
 
+// Realistic haul estimate (minutes) by unordered region pair, used to synthesize a
+// route for any served-airport pair that isn't in the curated network — so round-trip
+// inbound legs and arbitrary multi-city legs always return flights.
+const REGION_MIN = {
+  "Europe|Europe": 120, "North America|North America": 300, "South America|South America": 180,
+  "Africa|Africa": 200, "Asia|Asia": 240, "Middle East|Middle East": 120,
+  "Africa|Europe": 330, "Europe|Middle East": 330, "Asia|Europe": 690,
+  "Europe|South America": 630, "Europe|North America": 480, "Africa|Middle East": 300,
+  "Africa|North America": 660, "Africa|South America": 600, "Africa|Asia": 600,
+  "Middle East|North America": 720, "Middle East|South America": 780, "Asia|Middle East": 420,
+  "Asia|North America": 720, "North America|South America": 510, "Asia|South America": 900,
+};
+function synthRoute(origin, dest) {
+  const A = AIRPORTS[origin], B = AIRPORTS[dest];
+  if (!A || !B || origin === dest) return null;   // only synthesize between served airports
+  const base = REGION_MIN[[A.region, B.region].sort().join("|")] || 240;
+  let h = 0; for (const c of origin + dest) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const duration_min = Math.round(base * (0.85 + (h % 30) / 100));   // deterministic ±15% per pair
+  const base_fare = Math.max(55, Math.round(duration_min * 0.86));
+  const region = A.region === "Europe" && B.region === "Europe" ? "Europe" : "Intercontinental";
+  return { origin, dest, duration_min, base_fare, region };
+}
+
 function getRoute(origin, dest) {
-  return db.prepare("SELECT * FROM routes WHERE origin=? AND dest=?").get(origin, dest);
+  const r = db.prepare("SELECT * FROM routes WHERE origin=? AND dest=?").get(origin, dest);
+  if (r) return r;
+  const syn = synthRoute(origin, dest);   // any served-airport pair becomes flyable (persisted once)
+  if (syn) { try { db.prepare("INSERT OR IGNORE INTO routes (origin,dest,duration_min,base_fare,region) VALUES (?,?,?,?,?)").run(syn.origin, syn.dest, syn.duration_min, syn.base_fare, syn.region); } catch { } }
+  return syn;
 }
 
 // The home shuttle has fixed, real flight numbers so the persona's history lines up
@@ -58,51 +85,73 @@ const PINNED = {
   ],
 };
 
-// Generate the day's flights for a route. Count & spread scale with haul length.
-function generateFlights(origin, dest, date) {
-  const route = getRoute(origin, dest);
-  if (!route) return [];
+// Cabin fares carried on every generated flight so a search in ANY class
+// (Economy / Premium / Business) always has authoritative pricing. Multipliers
+// match the client's deriveFares defaults (Premium ~3.6×, Business ~7.43×).
+function cabinPricesFor(price) {
+  return { Economy: Math.round(price), Premium: Math.round(price * 3.6), Business: Math.round(price * 7.43) };
+}
+const depToMin = (s) => { const [h, m] = String(s || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
 
-  // Pinned routes (the persona's commute) return stable, named flights
-  const pin = PINNED[`${origin}-${dest}`];
-  if (pin) {
-    return pin.map(p => ({
-      flight_no: p.flight_no, origin, dest, dep: p.dep, arr: p.arr,
-      duration: durLabel(route.duration_min), aircraft: p.aircraft,
-      price: p.price, seats_left: p.seats_left, flight_date: date,
-      recommended: p.recommended ? 1 : 0, lowest: p.lowest ? 1 : 0,
-      status: "scheduled", new_dep: null, new_arr: null,
-    }));
-  }
-
+// Build `count` deterministic flights spread across the day for a route.
+// `used` pre-seeds taken flight numbers (e.g. pinned) so the batch stays collision-free.
+function genRandom(origin, dest, date, route, count, rand, used = new Set()) {
   const long = route.duration_min >= 240;
-  const rand = rng(`${origin}-${dest}-${date}`);
-  const count = long ? 2 + Math.floor(rand() * 2) : 4 + Math.floor(rand() * 3); // long-haul 2-3, short 4-6
-  // Spread departures across a realistic daytime window. Short-haul stays same-day
-  // (last departure early enough that arrival doesn't spill past midnight); long-haul
-  // may legitimately arrive overnight (red-eye), which hhmm() wraps correctly.
   const depStart = long ? 8 * 60 : 6 * 60;
-  const depEnd   = long ? 22 * 60 : Math.min(21 * 60, 23 * 60 + 30 - route.duration_min);
+  const depEnd = long ? 22 * 60 : Math.min(21 * 60, 23 * 60 + 30 - route.duration_min);
   const span = Math.max(60, depEnd - depStart);
-
   const flights = [];
   for (let i = 0; i < count; i++) {
     const base = count > 1 ? depStart + Math.round((span / (count - 1)) * i) : depStart + Math.floor(span / 2);
-    const depMin = Math.min(depEnd, Math.max(depStart, base + Math.floor((rand() - 0.5) * 30))); // ±15m jitter, clamped to the window
+    const depMin = Math.min(depEnd, Math.max(depStart, base + Math.floor((rand() - 0.5) * 30))); // ±15m jitter
     const arrMin = depMin + route.duration_min;
-    const priceJitter = 0.8 + rand() * 0.6;          // ±
-    const price = Math.round(route.base_fare * priceJitter);
+    const price = Math.round(route.base_fare * (0.8 + rand() * 0.6));   // ±
     const ac = (long ? AIRCRAFT_LONG : AIRCRAFT_SHORT)[Math.floor(rand() * 4)];
     const seats = 6 + Math.floor(rand() * 60);
-    const flightNo = "TP" + (100 + Math.floor(rand() * 1899));
+    let flightNo, guard = 0;
+    do { flightNo = "TP" + (100 + Math.floor(rand() * 1899)); } while (used.has(flightNo) && ++guard < 50);
+    used.add(flightNo);
     flights.push({
-      flight_no: flightNo, origin, dest,
-      dep: hhmm(depMin), arr: hhmm(arrMin), _depMin: depMin,
+      flight_no: flightNo, origin, dest, dep: hhmm(depMin), arr: hhmm(arrMin), _depMin: depMin,
       duration: durLabel(route.duration_min), aircraft: ac,
-      price, seats_left: seats, flight_date: date,
+      price, seats_left: seats, flight_date: date, cabin_prices: cabinPricesFor(price),
       recommended: 0, lowest: 0, status: "scheduled", new_dep: null, new_arr: null,
     });
   }
+  return flights;
+}
+
+// Generate the day's flights for a route. Every route returns at least MIN_FLIGHTS
+// options, each priced in Economy / Premium / Business. Same route+date is stable.
+const MIN_FLIGHTS = 6;
+function generateFlights(origin, dest, date) {
+  const route = getRoute(origin, dest);
+  if (!route) return [];
+  const rand = rng(`${origin}-${dest}-${date}`);
+
+  let flights = [];
+  const pin = PINNED[`${origin}-${dest}`];
+  if (pin) {
+    // Pinned routes keep their named persona flights, then pad up to MIN_FLIGHTS with
+    // generated options so even the commute routes offer a full choice across cabins.
+    flights = pin.map(p => ({
+      flight_no: p.flight_no, origin, dest, dep: p.dep, arr: p.arr,
+      duration: durLabel(route.duration_min), aircraft: p.aircraft,
+      price: p.price, seats_left: p.seats_left, flight_date: date, cabin_prices: cabinPricesFor(p.price),
+      recommended: p.recommended ? 1 : 0, lowest: p.lowest ? 1 : 0,
+      status: "scheduled", new_dep: null, new_arr: null, _depMin: depToMin(p.dep),
+    }));
+    if (flights.length < MIN_FLIGHTS) {
+      const used = new Set(flights.map(p => p.flight_no));
+      const extra = genRandom(origin, dest, date, route, (MIN_FLIGHTS - flights.length) + 2, rand, used);
+      flights = flights.concat(extra).slice(0, Math.max(MIN_FLIGHTS, flights.length));
+    }
+  } else {
+    const long = route.duration_min >= 240;
+    const count = MIN_FLIGHTS + Math.floor(rand() * (long ? 2 : 3));   // long-haul 6-7, short-haul 6-8
+    flights = genRandom(origin, dest, date, route, count, rand);
+  }
+
   flights.sort((a, b) => a._depMin - b._depMin);
 
   // Lowest fare flag
@@ -114,7 +163,6 @@ function generateFlights(origin, dest, date) {
   const hist = db.prepare("SELECT flight_no, dep_time, COUNT(*) c FROM travel_history WHERE user_id=1 AND route=? GROUP BY flight_no ORDER BY c DESC").all(route_str);
   let recIdx = -1;
   if (hist.length) {
-    // Prefer a generated flight near the customer's usual departure time
     const usualMin = (() => { const t = hist[0].dep_time?.split(":"); return t ? (+t[0]) * 60 + (+t[1]) : null; })();
     if (usualMin != null) {
       let best = Infinity;
@@ -122,7 +170,7 @@ function generateFlights(origin, dest, date) {
     }
   }
   if (recIdx === -1) recIdx = 0; // default: earliest departure (good for business)
-  flights[recIdx].recommended = 1;
+  if (flights[recIdx]) flights[recIdx].recommended = 1;
 
   flights.forEach(f => delete f._depMin);
   return flights;
