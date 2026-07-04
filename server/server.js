@@ -126,17 +126,29 @@ const todayISO = () => searchToday();
 const daysToGo = (iso) => { if (!iso) return null; const d = Math.round((new Date(iso + "T00:00:00Z") - new Date(todayISO() + "T00:00:00Z")) / 86400e3); return Number.isFinite(d) ? d : null; };
 
 // Persist generated flights so basket / pay / disrupt all keep working on real rows
+// Guarantee the cabin_prices column exists even on older DBs that predate it, so a
+// fresh server.js deploy doesn't require shipping db.js. Safe no-op if already present.
+try { db.exec("ALTER TABLE flights ADD COLUMN cabin_prices TEXT"); } catch { }
 function persistFlights(list) {
-  const ins = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,cabin_prices,status)
+  const insWith = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,cabin_prices,status)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled')`);
+  const insNo = db.prepare(`INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,lowest,status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'scheduled')`);
   for (const f of list) {
     const cp = f.cabin_prices ? (typeof f.cabin_prices === "string" ? f.cabin_prices : JSON.stringify(f.cabin_prices)) : null;
     const exists = db.prepare("SELECT id FROM flights WHERE flight_no=? AND flight_date=? AND origin=? AND dest=?").get(f.flight_no, f.flight_date, f.origin, f.dest);
-    if (exists) {
-      db.prepare("UPDATE flights SET dep=?,arr=?,duration=?,aircraft=?,price=?,seats_left=?,recommended=?,lowest=?,cabin_prices=COALESCE(cabin_prices,?) WHERE id=?")
-        .run(f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.recommended, f.lowest, cp, exists.id);
-    } else {
-      ins.run(f.flight_no, f.origin, f.dest, f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.flight_date, f.recommended, f.lowest, cp);
+    try {
+      if (exists) {
+        db.prepare("UPDATE flights SET dep=?,arr=?,duration=?,aircraft=?,price=?,seats_left=?,recommended=?,lowest=?,cabin_prices=COALESCE(cabin_prices,?) WHERE id=?")
+          .run(f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.recommended, f.lowest, cp, exists.id);
+      } else {
+        insWith.run(f.flight_no, f.origin, f.dest, f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.flight_date, f.recommended, f.lowest, cp);
+      }
+    } catch {
+      // Older DB without the cabin_prices column — persist the flight anyway (cabins derived client-side).
+      if (exists) db.prepare("UPDATE flights SET dep=?,arr=?,duration=?,aircraft=?,price=?,seats_left=?,recommended=?,lowest=? WHERE id=?")
+        .run(f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.recommended, f.lowest, exists.id);
+      else insNo.run(f.flight_no, f.origin, f.dest, f.dep, f.arr, f.duration, f.aircraft, f.price, f.seats_left, f.flight_date, f.recommended, f.lowest);
     }
   }
 }
