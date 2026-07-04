@@ -2,9 +2,9 @@
 // 8 modules) → Passenger details (identity + travel doc + loyalty + GDPR consents)
 // → Payment (card + secure banner + billing + grouped basket) → Confirmation.
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS, money, eurRef, getCurrency } from "./lib.js";
-import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS } from "./trip.js";
+import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS, getBasketTrips, saveTripToBasket, removeBasketTrip, resumeBasketTrip, basketTripTotal } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
@@ -13,6 +13,11 @@ const CAT_ORDER = ["Hotels", "Cars & transfers", "Insurance", "Lounge & services
 const CAT_ICON = { Hotels: "home", "Cars & transfers": "arrow", Insurance: "shield", "Lounge & services": "star", Onboard: "bag", Experiences: "star", "Seats & baggage": "seat", "Carbon offset": "leaf", Extras: "cart" };
 const CAT_SUB = (pax = 1, nights = 8) => ({ Hotels: `${nights} night${nights !== 1 ? "s" : ""} · ${pax} adult${pax > 1 ? "s" : ""}`, "Cars & transfers": "Private sedan · 1-way", Insurance: `${pax} traveler${pax > 1 ? "s" : ""}`, "Lounge & services": `Pre-flight · ${pax} adult${pax > 1 ? "s" : ""}`, Onboard: "Both flights", Experiences: `${pax} traveler${pax > 1 ? "s" : ""}`, "Seats & baggage": "Both flights", "Carbon offset": "This trip" });
 const CAT_QTY = { Insurance: true, "Lounge & services": true, Experiences: true };
+// V&C #1 — selected/unselected add-on CTA styling shared across all modules (hotels, transfers, experiences, cross-sell).
+const ADDED_CTA = { background: "rgba(255,255,255,1)", border: "1.5px solid rgba(158,253,56,1)", color: "rgba(51,102,20,1)", borderRadius: "9999px" };
+const ADD_CTA = { background: "rgba(255,255,255,1)", border: "1px solid rgba(51,102,20,1)", color: "rgba(51,102,20,1)", borderRadius: "9999px" };
+// My Trip Cart UI-17 — enhance-card default add button is a solid black pill (selected state still uses ADDED_CTA).
+const BLACK_CTA = { background: "#0A0A0A", color: "#FFFFFF", border: "none", borderRadius: "9999px", padding: "8px 12px" };
 
 // Live session countdown — ticks every second so "price locked" reflects real remaining time (Split #4).
 function SessionTimer({ minutes = 15, prefix = "price locked", suffix = "", className }) {
@@ -73,10 +78,10 @@ function Stepper({ active }) {
   );
 }
 const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-[8px] bg-surface border border-line text-[12px] font-semibold inline-flex items-center gap-1.5">{dot && <span className="w-1.5 h-1.5 rounded-full bg-lime" />}{children}</span>;
-const Req = () => <span className="text-tap-red">*</span>;
+const Req = () => <span className="text-tap-red ml-0.5">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
-function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped, footer }) {
+function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped, footer, bigTotal }) {
   const t = tripTotals();
   const u = milesSwitch || {};
   const tier = u.tier || user?.tier || "Gold";
@@ -119,7 +124,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
               <div className="rounded-xl border border-line overflow-hidden mt-3">
                 <div className="bg-surface-soft px-3 py-2 flex items-baseline gap-1.5"><span className="text-[10px] font-bold uppercase tracking-wide text-ink">Anchor</span><span className="text-[11px] text-ink-faint">· Locked in from Step 1</span></div>
                 <div className="px-3 py-1.5">
-                  <SummaryItem icon="plane" name={`Flights · ${trip.origin}–${trip.dest}`} sub={`${trip.outbound?.flight?.flight_no || ""}${trip.inbound ? " / " + trip.inbound.flight.flight_no : ""} · ${trip.outbound?.fare || "Classic"}`} price={t.flights} qty={`${trip.pax} traveler${trip.pax > 1 ? "s" : ""}`} />
+                  <SummaryItem big={bigTotal} icon="plane" name={`Flights · ${trip.origin}–${trip.dest}`} sub={`${trip.outbound?.flight?.flight_no || ""}${trip.inbound ? " / " + trip.inbound.flight.flight_no : ""} · ${trip.outbound?.fare || "Classic"}`} price={t.flights} qty={`${trip.pax} traveler${trip.pax > 1 ? "s" : ""}`} />
                 </div>
               </div>
               {SOURCE_ORDER.filter(s => groups[s] && groups[s].length).map(s => (
@@ -128,11 +133,11 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
                     <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{SOURCE_META[s].label} · {groups[s].length}</div>
                     <span className={cx("inline-flex items-center text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full", s === "user" ? "bg-lime text-ink" : s === "recommended" ? "bg-tap-green/10 text-tap-greenDeep" : "bg-surface-mute text-ink-muted")}>{SOURCE_META[s].tag}</span>
                   </div>
-                  {groups[s].map(e => <SummaryItem key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB(trip.pax, gnights)[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
+                  {groups[s].map(e => <SummaryItem big={bigTotal} key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB(trip.pax, gnights)[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
                 </div>
               ))}
               {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-3 w-full rounded-full border border-line-strong py-2 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center gap-1.5"><Icon name="x" size={12} /> Clear basket</button>}
-              <div className="mt-2.5 space-y-1 text-[12px]">
+              <div className="mt-2.5 space-y-1 text-[12px] rounded-lg px-3 py-2.5" style={{ background: "rgba(250,250,247,1)" }}>
                 <div className="flex items-center justify-between"><span className="text-ink-muted">Subtotal extras</span><span className="font-semibold v2-num text-ink">{eur2(t.extras)}</span></div>
                 <div className="flex items-center justify-between"><span className="text-ink-muted">Taxes & fees</span><span className="font-semibold v2-num text-ink">{eur2(t.taxes)}</span></div>
                 {t.bundle > 0 && <div className="flex items-center justify-between"><span className="text-tap-greenDeep font-semibold flex items-center gap-1"><Icon name="spark" size={12} /> Bundle savings</span><span className="font-semibold v2-num text-tap-greenDeep">−{eur2(t.bundle)}</span></div>}
@@ -143,7 +148,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         </div>
 
         <Divider className="my-3.5" />
-        <div className="flex items-end justify-between"><div><div className="text-[13px] text-ink font-bold">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right"><div className="text-[24px] font-black v2-num text-ink">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
+        <div className={cx("flex items-end justify-between", bigTotal && "mt-5")}><div><div className="text-[13px] text-ink font-bold">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right"><div className={cx("v2-num text-ink", bigTotal ? "text-[48px] font-bold leading-none" : "text-[24px] font-black")}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
         <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
         {breakdown && <div className="mt-3 rounded-lg bg-surface-soft border border-line px-3 py-2.5 flex items-center justify-between gap-2"><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-tap-greenDeep hover:border-tap-green">Save mix</button></div>}
 
@@ -173,11 +178,11 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
     </aside>
   );
 }
-const SummaryItem = ({ icon, name, sub, price, qty, isNew }) => (
-  <div className={cx("flex items-center gap-3 py-2.5 border-b border-line last:border-0", isNew && "bg-lime-tint/50 -mx-2 px-2 rounded-lg border-0")}>
-    <span className="w-8 h-8 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0 text-ink-muted"><Icon name={icon} size={16} /></span>
-    <div className="flex-1 min-w-0"><div className="text-[12.5px] font-semibold flex items-center gap-1.5 truncate">{name}{isNew && <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-lime text-ink shrink-0">New</span>}</div><div className="text-[10px] text-ink-faint truncate">{sub}</div></div>
-    <div className="text-right shrink-0"><div className="text-[12.5px] font-bold v2-num">{eur2(price)}</div>{qty && <div className="text-[9px] text-ink-faint v2-num">{qty}</div>}</div>
+const SummaryItem = ({ icon, name, sub, price, qty, isNew, big }) => (
+  <div className={cx("flex items-center gap-3 border-b border-line last:border-0", big ? "" : "py-2.5", isNew && "bg-lime-tint/50 -mx-2 px-2 rounded-lg border-0")} style={big ? { minHeight: "72px", paddingTop: "12px", paddingBottom: "12px", borderColor: "#E8E8E5" } : undefined}>
+    <span className={cx("rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0 text-ink-muted", big ? "w-9 h-9" : "w-8 h-8")}><Icon name={icon} size={big ? 18 : 16} /></span>
+    <div className="flex-1 min-w-0"><div className={cx("font-semibold flex items-center gap-1.5 truncate", big ? "text-[15px]" : "text-[12.5px]")}>{name}{isNew && <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-lime text-ink shrink-0">New</span>}</div><div className={cx("text-ink-faint truncate", big ? "text-[12px] mt-0.5" : "text-[10px]")}>{sub}</div></div>
+    <div className="text-right shrink-0"><div className={cx("v2-num", big ? "text-[14px] font-semibold" : "text-[12.5px] font-bold")}>{eur2(price)}</div>{qty && <div className="text-[9px] text-ink-faint v2-num">{qty}</div>}</div>
   </div>
 );
 
@@ -464,12 +469,14 @@ function ItemEditModal({ item, link, onClose, onApply }) {
 // give any route sensible, destination-specific content; the hotel/exp codes embed the city so
 // imageFor() also resolves a city-relevant photo.
 const slugCity = (c) => String(c || "city").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const PIMG = "/v2/assets/photos/";   // #14 — approved photos
+const AIC = "/v2/assets/icons/";     // #14 — approved icons
 function destHotels(city) {
   const s = slugCity(city);
   return [
-    { code: `htl-${s}-1`, name: `${city} Grand Hotel`, stars: 5, tags: ["City centre", "Free cancellation", "Breakfast"], rating: "9.2", reviews: "1,284", pn: 120, rec: true },
-    { code: `htl-${s}-2`, name: `${city} Boutique Suites`, stars: 4, tags: ["Central", "Free cancellation"], rating: "8.7", reviews: "962", pn: 88 },
-    { code: `htl-${s}-3`, name: `${city} Riverside Resort`, stars: 4, tags: ["Pool", "Spa", "Resort"], rating: "9.0", reviews: "538", pn: 150 },
+    { code: `htl-${s}-1`, name: `${city} Grand Hotel`, stars: 5, tags: ["City centre", "Free cancellation", "Breakfast"], rating: "9.2", reviews: "1,284", pn: 120, rec: true, img: PIMG + "memmo-principe.jpg" },
+    { code: `htl-${s}-2`, name: `${city} Boutique Suites`, stars: 4, tags: ["Central", "Free cancellation"], rating: "8.7", reviews: "962", pn: 88, img: PIMG + "bairro-alto.jpg" },
+    { code: `htl-${s}-3`, name: `${city} Riverside Resort`, stars: 4, tags: ["Pool", "Spa", "Resort"], rating: "9.0", reviews: "538", pn: 150, img: PIMG + "quinta-marinha.jpg" },
     { code: `htl-${s}-4`, name: `${city} Park Plaza`, stars: 5, tags: ["Landmark", "Spa", "Free cancellation"], rating: "9.4", reviews: "2,015", pn: 210 },
     { code: `htl-${s}-5`, name: `${city} Old Town Inn`, stars: 4, tags: ["Historic", "City view"], rating: "8.5", reviews: "744", pn: 96 },
   ];
@@ -477,8 +484,8 @@ function destHotels(city) {
 function destExp(city) {
   const s = slugCity(city);
   return [
-    [`xp-${s}-1`, `${city} food walking tour`, "Small group · local tastings · English guide", 65, "Food"],
-    [`xp-${s}-2`, `${city} highlights full-day`, "Top sights · skip-the-line · guided", 89, "Day trip · popular"],
+    [`xp-${s}-1`, `${city} food walking tour`, "Small group · local tastings · English guide", 65, "Food", PIMG + "wine-tour.jpg"],
+    [`xp-${s}-2`, `${city} highlights full-day`, "Top sights · skip-the-line · guided", 89, "Day trip · popular", PIMG + "sintra.jpg"],
     [`xp-${s}-3`, `${city} sunset experience`, "Evening tour · welcome drink included", 75, "Evening"],
     [`xp-${s}-4`, `${city} museums & art pass`, "Priority entry · flexible full day", 45, "Culture"],
     [`xp-${s}-5`, `${city} day-trip by rail`, "Nearby gems · 1st class · day-trip ready", 55, "Excursion"],
@@ -557,11 +564,11 @@ function CartView({ go, mode = "cart", shared }) {
     </div>
   ); };
   const featBadge = (t) => <span key={t} className="inline-flex items-center justify-center rounded-[4px]" style={{ background: "rgba(242,242,238,1)", color: "rgba(107,107,107,1)", padding: "3px 8px", fontSize: "10px", fontWeight: 400, letterSpacing: "0.2px", lineHeight: 1 }}>{t}</span>;
-  const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec }) => { const on = hasExtra(code); const nn = tripDays; const tot = pn > 0 ? pn * nn : total; return (
+  const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec, img }) => { const on = hasExtra(code); const nn = tripDays; const tot = pn > 0 ? pn * nn : total; return (
     <div className="flex rounded-[14px] overflow-hidden max-w-[808px]" style={on ? { background: "rgba(250,250,247,1)", border: "2px solid rgba(158,253,56,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>
-      <Img seed={"hotel-" + code} src={imageFor("hotel-" + code)} alt={name} className="w-[168px] self-stretch shrink-0 object-cover" />
+      <Img seed={"hotel-" + code} src={img || imageFor("hotel-" + code)} alt={name} className="w-[168px] self-stretch shrink-0 object-cover" />
       <div className="flex-1 min-w-0 flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
           <div className="flex flex-wrap gap-1.5 mt-1.5">{tags.map(featBadge)}</div>
           <div className="text-[11px] text-ink-muted mt-1.5">★ {rating} Excellent · {reviews} reviews</div>
@@ -588,7 +595,7 @@ function CartView({ go, mode = "cart", shared }) {
         <div className="text-right shrink-0">
           <div className="text-[14px] font-bold v2-num">{eur2(rate)}</div>
           {multLabel && <div className="text-[10px] text-ink-faint v2-num">{multLabel}</div>}
-          <Btn size="sm" variant="outline" className="mt-1" onClick={() => add(code, name, total, cat)}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
+          <Btn size="sm" variant="outline" className="mt-1" style={on ? ADDED_CTA : ADD_CTA} onClick={() => add(code, name, total, cat)}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
         </div>
       </div>
     );
@@ -680,7 +687,7 @@ function CartView({ go, mode = "cart", shared }) {
 
             <Module n="03" icon="home" kicker="Hotels" title={`Stay in ${destCity}`} badge={catBadge("Hotels")} sub={`Recommended hotels in ${destCity} for your dates.`} right={<button onClick={() => setAllHotels(v => !v)} className="text-[12px] font-semibold text-tap-greenDeep">{allHotels ? "Show less ↑" : "View all hotels →"}</button>}>
               <div className="space-y-2">
-                {(allHotels ? HOTELS : HOTELS.slice(0, 3)).map(h => <HotelRow key={h.code} code={h.code} name={h.name} stars={h.stars} tags={h.tags} rating={h.rating} reviews={h.reviews} pn={h.pn} total={h.pn * tripDays} rec={h.rec} />)}
+                {(allHotels ? HOTELS : HOTELS.slice(0, 3)).map(h => <HotelRow key={h.code} code={h.code} name={h.name} stars={h.stars} tags={h.tags} rating={h.rating} reviews={h.reviews} pn={h.pn} total={h.pn * tripDays} rec={h.rec} img={h.img} />)}
               </div>
             </Module>
 
@@ -729,10 +736,10 @@ function CartView({ go, mode = "cart", shared }) {
 
             <Module n="08" icon="globe" kicker="Experiences" title={`Experiences in ${destCity}`} badge={catBadge("Experiences")} sub="Curated tours and tastings for your dates. Skip the lines.">
               <div className="grid sm:grid-cols-3 gap-3">
-                {destExp(destCity).map(([code, name, sub, price, tag]) => {
+                {destExp(destCity).map(([code, name, sub, price, tag, img]) => {
                   const on = hasExtra(code); const tot = price * (trip.pax || 2);
                   const parts = String(tag).split("·").map(s => s.trim()); const popular = parts.some(p => /popular/i.test(p)); const catLabel = parts.filter(p => !/popular/i.test(p)).join(" · ") || parts[0];
-                  return <div key={code} className={cx("rounded-xl overflow-hidden", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}><Img seed={"exp-" + code} src={imageFor(code)} alt={name} className="h-28 w-full object-cover" /><div className="p-3"><div className="flex items-center gap-1.5"><Pill tone="slate">{catLabel}</Pill>{popular && <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-surface-dark text-lime">Popular</span>}</div><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-end justify-between mt-2 gap-2"><div><div className="text-[14px] font-bold v2-num">{eur2(price)}</div><div className="text-[10px] text-ink-faint">per person</div>{on && <div className="text-[10px] text-ink-faint v2-num">× {trip.pax || 2} = {eur2(tot)}</div>}</div><Btn size="sm" variant="outline" className="shrink-0" onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add to cart"}</Btn></div></div></div>;
+                  return <div key={code} className={cx("rounded-xl overflow-hidden", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}><Img seed={"exp-" + code} src={img || imageFor(code)} alt={name} className="h-28 w-full object-cover" /><div className="p-3"><div className="flex items-center gap-1.5"><Pill tone="slate">{catLabel}</Pill>{popular && <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-[4px] bg-surface-dark text-lime">Popular</span>}</div><div className="text-[13px] font-bold mt-1">{name}</div><div className="text-[10px] text-ink-faint">{sub}</div><div className="flex items-end justify-between mt-2 gap-2"><div><div className="text-[14px] font-bold v2-num">{eur2(price)}</div><div className="text-[10px] text-ink-faint">per person</div>{on && <div className="text-[10px] text-ink-faint v2-num">× {trip.pax || 2} = {eur2(tot)}</div>}</div><Btn size="sm" variant="outline" className="shrink-0" style={on ? ADDED_CTA : ADD_CTA} onClick={() => add(code, name, price * (trip.pax || 2), "Experiences")}>{on ? "✓ Added" : "+ Add to cart"}</Btn></div></div></div>;
                 })}
               </div>
             </Module>
@@ -755,6 +762,7 @@ export function Cart(props) { return <CartView {...props} mode="cart" />; }
 export function Basket({ shared, go }) {
   const [, force] = useState(0); const r = () => force(x => x + 1);
   const [editItem, setEditItem] = useState(null);   // #22 — { item, link } for the active line-item editor (hook must precede any early return)
+  const enhanceRef = useRef(null);   // UI-18 — carousel scroll target for nav controls
   useEffect(() => { if (trip.pnr) resetTrip(); }, []);   // #32 — a confirmed booking must not linger as a stale basket on a direct revisit
   if (!trip.outbound) return noTrip(go);
   const t = tripTotals();
@@ -782,6 +790,12 @@ export function Basket({ shared, go }) {
   const remove = (e) => { toggleExtra(e); persist(); r(); };
   const setQty = (e, d) => { e.qty = Math.max(1, (e.qty || 1) + d); pingBasket(); persist(); r(); };
   const applyEdit = (item, changes) => { Object.assign(item, changes); pingBasket(); persist(); r(); };   // #22 — mutate the basket line in place
+  // Important #5 — multi-trip basket: park the current trip and manage several at once.
+  const savedTrips = getBasketTrips();
+  const park = () => { if (saveTripToBasket()) { resetTrip(); go("home"); } };
+  const resumeSaved = (id) => { resumeBasketTrip(id); r(); };
+  const removeSaved = (id) => { removeBasketTrip(id); r(); };
+  const basketAllTotal = t.total + savedTrips.reduce((s, x) => s + basketTripTotal(x.snap), 0);
   const dateRange = `${fmtDate(trip.date).replace(/ \d{4}/, "")} – ${fmtDate(trip.ret).replace(/ \d{4}/, "")}`;
   const dateOne = fmtDate(trip.date).replace(/ \d{4}/, "");
   // per-category card detail (sub, chips, action links, per-unit price, quantity-editable) — Tab 6 #3/#5
@@ -819,24 +833,54 @@ export function Basket({ shared, go }) {
       {editItem && <ItemEditModal item={editItem.item} link={editItem.link} onClose={() => setEditItem(null)} onApply={applyEdit} />}
       <Stepper active={2} />
       <div className="mx-auto max-w-content px-6 py-6">
-        <div className="flex items-center gap-3"><h1 className="text-[28px] font-bold">My trip cart</h1><Pill tone="slate">{itemCount} items</Pill></div>
-        <p className="text-[13px] text-ink-muted mt-1">Review and customize everything in your basket before continuing.</p>
-        <div className="flex flex-wrap gap-2 mt-3">
+        <div className="flex items-center gap-3"><h1 className="text-[36px] font-bold">My trip cart</h1><span className="inline-flex items-center font-semibold" style={{ borderRadius: "9999px", padding: "6px 12px", fontSize: "13px", background: "#F2F2EE", color: "#1A1F29" }}>{itemCount} items</span></div>
+        <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Review and customize everything in your basket before continuing.</p>
+        <div className="flex flex-wrap gap-2 mt-3 items-center">
           <Chip dot>{trip.dest ? `${cityOf(trip.dest)} trip` : "Your trip"}</Chip>
           <Chip>{cityOf(trip.origin)}–{cityOf(trip.dest)}</Chip>
           <Chip>{trip.pax} adult{trip.pax > 1 ? "s" : ""}</Chip>
           <Chip>{dateRange}</Chip>
+          <button onClick={park} title="Save this trip to your basket and start a new search" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-tap-greenDeep rounded-full border px-3 py-1 hover:bg-lime-tint transition-colors" style={{ borderColor: "rgba(70,164,26,0.4)", background: "rgba(242,255,219,0.5)" }}><span className="text-[14px] leading-none">＋</span> Park trip &amp; start another</button>
         </div>
 
+        {savedTrips.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-line p-4" style={{ background: "rgba(250,250,247,1)" }}>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div className="flex items-center gap-2"><Icon name="cart" size={15} className="text-tap-greenDeep" /><h2 className="text-[15px] font-bold">Your saved trips</h2><span className="text-[11px] font-semibold text-ink-faint">{savedTrips.length} parked · resume anytime</span></div>
+              <div className="text-right"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Basket total · all trips</div><div className="text-[16px] font-bold v2-num">{eur2(basketAllTotal)}</div></div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {savedTrips.map(x => {
+                const s = x.snap, of = s.outbound?.flight || {}, nX = (s.extras || []).length;
+                return (
+                  <div key={x.id} className="rounded-xl border border-line bg-white p-3 flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-lg bg-lime-tint inline-flex items-center justify-center text-tap-greenDeep shrink-0"><Icon name="plane" size={16} /></span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-bold truncate">{cityOf(s.origin)} → {cityOf(s.dest)}</div>
+                      <div className="text-[11px] text-ink-faint truncate">{of.flight_no || "Flight"} · {s.date ? fmtDate(s.date).replace(/ \d{4}/, "") : ""} · {s.pax || 1} pax · {nX} extra{nX !== 1 ? "s" : ""}</div>
+                    </div>
+                    <div className="text-[13px] font-bold v2-num shrink-0">{eur2(basketTripTotal(s))}</div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button onClick={() => resumeSaved(x.id)} className="text-[11px] font-semibold text-white bg-tap-green rounded-full px-3 py-1 hover:opacity-90 transition-opacity">Resume</button>
+                      <button onClick={() => removeSaved(x.id)} className="text-[11px] font-semibold text-ink-muted hover:text-tap-red transition-colors">Remove</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-ink-faint mt-3">Resuming loads that trip here for checkout. Your current trip stays in the basket if you park it first.</p>
+          </div>
+        )}
+
         {/* two-column: scrollable content + right-side sticky basket panel (Tab 6 #6) */}
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
+        <div className="grid lg:grid-cols-[1fr_376px] gap-8 mt-6 items-start">
           <div className="space-y-6 min-w-0">
             {/* flights anchor — tinted header (#1) + zebra benefits row (#2) */}
             <div>
               <div className="flex items-center gap-2 mb-2"><h2 className="text-[15px] font-bold">Your flights</h2><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">1 item · Anchor</span></div>
-              <Card className="overflow-hidden">
-                <div className="bg-surface-soft px-5 py-3 border-b border-line flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 text-[12px]"><span className="font-black text-tap-green">TAP</span><span className="text-ink-muted">· {ob?.fare || "Classic"} · Economy</span><span className="inline-flex items-center gap-1 text-[11px] text-ink-muted px-2 py-1 rounded-full bg-surface"><Icon name="globe" size={11} /> Stopover included</span></div>
+              <Card className="overflow-hidden" style={{ borderRadius: "18px" }}>
+                <div className="flex items-center justify-between flex-wrap gap-2 px-5 border-b border-line" style={{ background: "#F2F2EE", paddingTop: "12px", paddingBottom: "12px" }}>
+                  <div className="flex items-center gap-2 text-[12px]"><Icon name="lock" size={12} className="text-ink-muted" /><span className="font-bold uppercase tracking-wide text-[11px] text-ink">Pinned</span><span className="text-ink-muted">— your core flight stays in the cart · {ob?.fare || "Classic"} · Economy</span></div>
                   <button onClick={() => go("cart")} className="text-[12px] font-semibold text-tap-greenDeep inline-flex items-center gap-1 hover:underline"><Icon name="search" size={12} /> Change flight</button>
                 </div>
                 <div className="px-5 pt-1 pb-2">
@@ -893,48 +937,84 @@ export function Basket({ shared, go }) {
               );
             })}
 
+            {/* UI-09 — empty-state prompts for high-value extras not yet in the cart */}
+            {(!hasExtra("xsell-xfer-return") || !hasExtra(`xsell-${slugCity(xCity)}-tour`)) && (
+              <div className="grid sm:grid-cols-2 gap-4">
+                {!hasExtra("xsell-xfer-return") && (
+                  <div className="flex items-center justify-between gap-3 p-4" style={{ borderRadius: "18px", border: "1.5px dashed #DCDCD8" }}>
+                    <div className="flex items-center gap-2.5 min-w-0"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="swap" size={15} className="text-ink-faint" /></span><div className="min-w-0"><div className="text-[13px] font-bold">No return transfer added yet</div><div className="text-[11px] text-ink-faint">Private door-to-airport ride from €25</div></div></div>
+                    <span className="text-[12px] font-semibold text-tap-greenDeep shrink-0">Add →</span>
+                  </div>
+                )}
+                {!hasExtra(`xsell-${slugCity(xCity)}-tour`) && (
+                  <div className="flex items-center justify-between gap-3 p-4" style={{ borderRadius: "18px", border: "1.5px dashed #DCDCD8" }}>
+                    <div className="flex items-center gap-2.5 min-w-0"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="globe" size={15} className="text-ink-faint" /></span><div className="min-w-0"><div className="text-[13px] font-bold">No {xCity} day-trip added yet</div><div className="text-[11px] text-ink-faint">Guided highlights tour from €89</div></div></div>
+                    <span className="text-[12px] font-semibold text-tap-greenDeep shrink-0">Add →</span>
+                  </div>
+                )}
+              </div>
+            )}
             {/* Enhance your trip — curated cross-sell, image-on-top vertical cards: image → badges → title → desc → price/CTA (#4) */}
             <div>
-              <div className="flex items-center gap-2 mb-1"><h2 className="text-[15px] font-bold">Enhance your trip</h2><span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5">Cross-sell</span></div>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2"><h2 className="text-[15px] font-bold">Enhance your trip</h2><span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5">Cross-sell</span></div>
+                <div className="hidden sm:flex items-center gap-2">
+                  <button onClick={() => enhanceRef.current?.scrollBy({ left: -336, behavior: "smooth" })} className="w-10 h-10 rounded-full border border-line-strong bg-surface inline-flex items-center justify-center hover:border-tap-green" aria-label="Previous"><Icon name="arrow" size={16} className="rotate-180" /></button>
+                  <button onClick={() => enhanceRef.current?.scrollBy({ left: 336, behavior: "smooth" })} className="w-10 h-10 rounded-full border border-line-strong bg-surface inline-flex items-center justify-center hover:border-tap-green" aria-label="Next"><Icon name="arrow" size={16} /></button>
+                </div>
+              </div>
               <p className="text-[12px] text-ink-muted mb-3">Hand-picked extras that pair well with your trip. Each adds to your cart instantly.</p>
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div ref={enhanceRef} className="flex gap-4 overflow-x-auto v2-track pb-1 -mx-1 px-1">
                 {[
-                  [`xsell-${slugCity(xCity)}-tour`, `${xCity} highlights full-day`, `Top sights · skip-the-line · guided.`, 89, "per person", "Day trip", "Experiences", `${slugCity(xCity)},city`, null],
-                  [`xsell-${slugCity(xCity)}-food`, `${xCity} food & flavours tour`, `Local tastings & market visit. Half day.`, 65, "per person", "Food", "Experiences", `${slugCity(xCity)},food`, null],
-                  ["xsell-xfer-return", `Return transfer hotel → ${xCode}`, "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "Cars & transfers", "car,sedan", "Bundle −10%"],
-                  ["xsell-late-checkout", "Guaranteed late checkout", "Stay until 16:00 on departure day.", 40, "one-time", "Hotel add-on", "Extras", "hotel,room", null],
+                  [`xsell-${slugCity(xCity)}-tour`, `${xCity} highlights full-day`, `Top sights · skip-the-line · guided.`, 89, "per person", "Day trip", "Experiences", PIMG + "sintra.jpg", null],
+                  [`xsell-${slugCity(xCity)}-food`, `${xCity} food & flavours tour`, `Local tastings & market visit. Half day.`, 65, "per person", "Food", "Experiences", PIMG + "wine-tour.jpg", null],
+                  ["xsell-xfer-return", `Return transfer hotel → ${xCode}`, "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "Cars & transfers", PIMG + "return-transfer.jpg", "Bundle −10%"],
+                  ["xsell-late-checkout", "Guaranteed late checkout", "Stay until 16:00 on departure day.", 40, "one-time", "Hotel add-on", "Extras", PIMG + "late-checkout.jpg", null],
                 ].map(([code, name, sub, base, unit, badge, cat, imgkey, accent]) => {
                   const on = hasExtra(code);
                   const px = trip.pax || 1;
                   const addX = () => { toggleExtra({ code, name, price: unit === "per person" ? base * px : base, cat }); persist(); r(); };
                   return (
-                    <div key={code} className={cx("rounded-xl border overflow-hidden flex flex-col transition-colors", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-tap-green/50")}>
-                      <div className="relative h-32 w-full overflow-hidden bg-surface-mute">
-                        <Img seed={code} src={imageFor(imgkey)} alt={name} className="w-full h-full object-cover" />
+                    <div key={code} className={cx("overflow-hidden flex flex-col transition-colors shrink-0", on ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green" : "border-line hover:border-tap-green/50")} style={{ width: "312px", height: "340px", borderRadius: "18px", borderWidth: "1px", borderStyle: "solid" }}>
+                      <div className="relative h-[148px] w-full overflow-hidden bg-surface-mute shrink-0">
+                        <Img seed={code} src={imgkey} alt={name} className="w-full h-full object-cover" />
                         <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
                           <span className="text-[10px] font-bold uppercase tracking-wide text-ink bg-white/90 backdrop-blur-sm rounded px-2 py-0.5 shadow-sm">{badge}</span>
                           {accent && <span className="text-[10px] font-bold uppercase tracking-wide text-white bg-tap-green rounded px-2 py-0.5 shadow-sm">{accent}</span>}
                         </div>
                       </div>
-                      <div className="flex flex-col flex-1 p-3">
+                      <div className="flex flex-col flex-1 p-4">
                         <div className="text-[14px] font-bold leading-tight">{name}</div>
                         <div className="text-[11px] text-ink-faint mt-1 flex-1">{sub}</div>
                         <div className="flex items-end justify-between gap-2 mt-3">
                           <div className="leading-tight"><span className="text-[15px] font-bold v2-num">{eurC(base)}</span> <span className="text-[10px] text-ink-faint">{unit}</span></div>
-                          <Btn size="sm" variant="outline" className="shrink-0" onClick={addX}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
+                          <Btn size="sm" variant="outline" className="shrink-0" style={on ? ADDED_CTA : BLACK_CTA} onClick={addX}>{on ? "✓ Added" : "+ Add to cart"}</Btn>
                         </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
+              {/* UI-19 — secondary "also popular" mini-card rail */}
+              <div className="mt-4">
+                <div className="text-[12px] font-bold text-ink mb-2">Also popular for {xCity} trips</div>
+                <div className="flex gap-3 overflow-x-auto v2-track pb-1 -mx-1 px-1">
+                  {[["eSIM data · 5GB", "Stay connected on arrival", 12], ["Airport fast-track", "Skip security queues", 18], ["Extra 23kg bag", "More room for souvenirs", 38]].map(([ti, de, pr]) => (
+                    <div key={ti} className="shrink-0 flex items-center gap-3 rounded-[12px] border border-line px-3" style={{ width: "318px", height: "72px" }}>
+                      <span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="spark" size={15} className="text-tap-greenDeep" /></span>
+                      <div className="min-w-0 flex-1"><div className="text-[12px] font-bold truncate">{ti}</div><div className="text-[10px] text-ink-faint truncate">{de}</div></div>
+                      <div className="text-[13px] font-bold v2-num shrink-0">{eurC(pr)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <div className="mt-4 rounded-xl bg-lime-tint/60 text-tap-greenDark text-[12px] font-semibold px-4 py-2.5 inline-flex items-center gap-2"><Icon name="clock" size={13} /> Price locked for 15 min</div>
             </div>
           </div>
 
           {/* RIGHT — sticky basket summary (#6) */}
-          <div className="lg:sticky lg:top-6">
-            <Card className="p-5">
+          <div className="lg:sticky lg:top-6 space-y-4">
+            <Card style={{ padding: "24px", borderRadius: "18px" }}>
               <div className="flex items-start justify-between">
                 <div><h2 className="text-[16px] font-bold">My trip basket</h2><div className="text-[11px] text-ink-muted">All amounts in EUR (€)</div></div>
                 <span className="text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded px-2 py-1">Step 3/5</span>
@@ -954,17 +1034,24 @@ export function Basket({ shared, go }) {
               <Divider className="my-3" />
               <div className="flex items-end justify-between">
                 <div><div className="text-[14px] font-bold">Total <span className="text-ink-muted font-medium">(in EUR)</span></div><div className="text-[11px] text-ink-muted">No charge yet</div></div>
-                <div className="text-right"><div className="text-[26px] font-black v2-num">{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div>
+                <div className="text-right"><div className="text-[28px] font-bold v2-num" style={{ letterSpacing: "-0.03em" }}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div>
               </div>
               <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
               <div className="text-[11px] text-ink-faint mt-3 flex items-center gap-1.5"><Icon name="lock" size={12} /> Secure checkout · Payments by Stripe · Encrypted card data</div>
-              <Btn size="lg" className="w-full mt-3" onClick={() => go("passenger")}>Continue to passenger details →</Btn>
+              <Btn size="lg" className="w-full mt-3" style={{ height: "56px", borderRadius: "9999px", fontSize: "15px" }} onClick={() => go("passenger")}>Continue to passenger details →</Btn>
               <div className="text-[11px] text-ink-faint text-center mt-2">We won't charge you anything yet · <SessionTimer prefix="price locked" /></div>
               <div className="flex gap-2 mt-2">
                 <button onClick={() => go("cart")} className="flex-1 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">Continue browsing flights →</button>
                 {trip.extras.length > 0 && <button onClick={clear} title="Clear all extras" className="rounded-full border border-line-strong px-3 py-2.5 text-[13px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center"><Icon name="x" size={13} /></button>}
               </div>
             </Card>
+            <Card className="p-4 text-[12px] space-y-2.5" style={{ borderRadius: "14px" }}>
+              {[["lock", "Price lock", "Total held for 15 min while you decide."], ["shield", "Free cancellation", "24h free cancellation on flights & most extras."], ["heart", "24/7 support", "Chat with TAP Care anytime."]].map(([ic, ti, de]) => <div key={ti} className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name={ic} size={15} /></span><div><div className="font-semibold" style={{ color: "#0A0A0A" }}>{ti}</div><div style={{ color: "#667080" }}>{de}</div></div></div>)}
+            </Card>
+            <div className="rounded-2xl p-4 text-white flex items-center justify-between gap-3" style={{ background: "#0A0A0A" }}>
+              <div><div className="text-[13px] font-bold">Need a hand?</div><div className="text-[11px] text-white/60">Our team replies in ~2 min.</div></div>
+              <button className="shrink-0 inline-flex items-center gap-1.5 font-bold text-[12px] rounded-full px-3.5 py-2" style={{ background: "#D4F25E", color: "#0A0A0A" }}><Icon name="send" size={13} /> Chat</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1017,10 +1104,10 @@ const LANGS = ["Português (PT)", "Português (BR)", "English", "Español", "Fra
 const PaxSectionTitle = ({ title, sub, info, className }) => (
   <div className={cx("mb-3", className)}>
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-[12px] font-black uppercase tracking-[0.12em] text-tap-greenDeep leading-none">{title}</span>
+      <span className="text-[16px] font-semibold leading-none" style={{ color: "#1F1F1F" }}>{title}</span>
       {info && <Icon name="info" size={12} className="text-ink-faint" />}
-      {sub && <span className="text-[11px] text-ink-faint leading-none normal-case tracking-normal font-medium">· {sub}</span>}
     </div>
+    {sub && <div className="text-[13px] leading-snug mt-1" style={{ color: "#8A8F98" }}>{sub}</div>}
   </div>
 );
 
@@ -1090,7 +1177,7 @@ function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPaySh
   );
 }
 
-function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
+function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange, paxType }) {
   const [p, setP] = useState(lead && prefill ? prefill : {});
   const [saveDoc, setSaveDoc] = useState(true);
   const [reqs, setReqs] = useState([]);
@@ -1106,10 +1193,10 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange }) {
     <Card className="p-5 border-2" style={{ borderRadius: "18px", borderColor: "#e8e8e5", boxShadow: "0px 4px 16px rgba(0,0,0,0.06)" }}>
       <div className="flex items-start justify-between gap-3 -mx-5 -mt-5 mb-4 px-5 py-4 bg-surface-soft rounded-t-2xl border-b border-line">
         <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full bg-surface-dark text-white inline-flex items-center justify-center text-[12px] font-bold">{(p.first || "P")[0]}{(p.last || String(idx + 1))[0]}</span>
-          <div><div className="font-bold text-[15px] flex items-center gap-2">Passenger {idx + 1}{p.first ? " · " + p.first + " " + (p.last || "") : " · Add details"}<Pill tone="slate">Adult</Pill>{lead && <Pill tone="gold">{src.tier}</Pill>}</div><div className="text-[11px] text-ink-faint">{lead ? "Lead traveler · contact for this booking" : "Required to issue ticket"}</div></div></div>
+          <div><div className="font-bold text-[15px] flex items-center gap-2">Passenger {idx + 1}{p.first ? " · " + p.first + " " + (p.last || "") : " · Add details"}{(() => { const ty = paxType || "Adult"; const col = ty === "Child" ? { bg: "#E8F0FE", fg: "#2C5AA0" } : ty === "Infant" ? { bg: "#FDEAF2", fg: "#A03B6F" } : { bg: "#F2F2EE", fg: "#667080" }; return <span className="inline-flex items-center" style={{ height: "22px", padding: "0 8px", fontSize: "10px", fontWeight: 700, borderRadius: "6px", background: col.bg, color: col.fg }}>{ty}</span>; })()}{lead && <span className="inline-flex items-center" style={{ height: "22px", padding: "0 8px", fontSize: "10px", fontWeight: 700, borderRadius: "6px", background: "#FBEFD0", color: "#8A6D1F" }}>{src.tier}</span>}</div><div className="text-[11px] text-ink-faint">{lead ? "Lead traveler · contact for this booking" : paxType === "Child" ? "Child fare (2–11 yrs) · required to issue ticket" : paxType === "Infant" ? "Infant on lap (under 2) · required to issue ticket" : "Required to issue ticket"}</div></div></div>
         <div className="flex items-center gap-2">
           <button onClick={doPrefill} className="inline-flex items-center gap-1.5 rounded-[8px] border h-8 px-2.5 text-[12px] font-medium text-ink hover:border-tap-green" style={{ borderColor: "#e8e8e5" }}><Icon name="refresh" size={12} /> Prefill from profile</button>
-          {!lead && <button onClick={() => onRemove && onRemove(idx)} className="inline-flex items-center gap-1.5 rounded-[8px] border h-8 px-2.5 text-[12px] font-medium text-ink-muted hover:border-tap-red hover:text-tap-red" style={{ borderColor: "#e8e8e5" }}><Icon name="x" size={12} /> Remove</button>}
+          {!lead && onRemove && <button onClick={() => onRemove(idx)} className="inline-flex items-center gap-1.5 rounded-[8px] border h-8 px-2.5 text-[12px] font-medium text-ink-muted hover:border-tap-red hover:text-tap-red" style={{ borderColor: "#e8e8e5" }}><Icon name="x" size={12} /> Remove</button>}
         </div>
       </div>
       <PaxSectionTitle title="Identity" sub="as shown on passport" />
@@ -1171,6 +1258,8 @@ export function Passenger({ shared, go }) {
   const allComplete = completeN === paxCount && contactComplete;
   const firstIncomplete = Array.from({ length: paxCount }).findIndex((_, i) => !paxComplete(i));
   const missingCount = (() => { let n = 0; for (let i = 0; i < paxCount; i++) { const d = trip.passengers[i] || {}; n += REQ.filter(k => !(d[k] && String(d[k]).trim())).length; } if (!contactComplete) n += 1; return n; })();
+  const infN = trip.infants || 0;
+  const paxType = (i) => { const a = trip.adults || trip.pax || 1, c = trip.children || 0; return i >= paxCount ? "Infant" : i < a ? "Adult" : i < a + c ? "Child" : "Adult"; };   // #13 — per-passenger type from search breakdown
   const showErr = !allComplete;
   const addPax = () => { setPaxCount(c => c + 1); setTab("all"); };
   const removePax = (i) => { trip.passengers.splice(i, 1); setPaxCount(c => Math.max(1, c - 1)); setTab("all"); };
@@ -1184,12 +1273,12 @@ export function Passenger({ shared, go }) {
         <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Enter passenger information exactly as it appears on travel documents. We'll use this to issue tickets and send trip updates.</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{paxCount} adult{paxCount > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{paxCount > 1 ? " + " + (paxCount - 1) : ""}</Chip></div>
 
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-5 items-start">
-          <div className="space-y-5">
+        <div className="grid lg:grid-cols-[1fr_328px] gap-6 mt-5 items-start">
+          <div className="space-y-6">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="inline-flex items-center gap-1 rounded-full border" style={{ borderColor: "#E8E8E5", padding: "6px" }}>
                 {[["all", "All"], ...Array.from({ length: paxCount }).map((_, i) => ["p" + (i + 1), `Passenger ${i + 1}` + (i === 0 ? ` · ${u.first_name}` : "")])].map(([k, l]) => (
-                  <button key={k} onClick={() => setTab(k)} className="px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors" style={tab === k ? { background: "#0A0A0A", color: "#FFFFFF" } : { background: "#FFFFFF", color: "#0A0A0A" }}>{tab === k && k !== "all" && <span className="text-tap-green mr-1">●</span>}{l}</button>
+                  <button key={k} onClick={() => setTab(k)} className="px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors inline-flex items-center gap-1.5" style={tab === k ? { background: "#0A0A0A", color: "#FFFFFF" } : { background: "#FFFFFF", color: "#0A0A0A" }}>{k !== "all" && (() => { const pi = parseInt(k.slice(1), 10) - 1; return paxComplete(pi) ? <Icon name="check" size={12} className={tab === k ? "text-tap-green" : "text-tap-greenDeep"} /> : <span className={cx("w-1.5 h-1.5 rounded-full inline-block shrink-0", tab === k ? "bg-white/50" : "bg-ink-faint")} />; })()}{l}</button>
                 ))}
               </div>
               <span className="ml-auto text-[11px] text-ink-faint">{completeN} of {paxCount} complete · <span className="text-tap-greenDeep font-semibold">Autosaved</span></span>
@@ -1197,8 +1286,8 @@ export function Passenger({ shared, go }) {
 
             {showErr && <div className="rounded-xl border border-tap-red/40 bg-tap-red/5 px-4 py-3 flex items-start gap-3"><span className="w-5 h-5 rounded-full bg-tap-red text-white inline-flex items-center justify-center text-[12px] font-bold shrink-0">!</span><div><div className="text-[13px] font-bold text-tap-red">Please complete required passenger and contact details</div><div className="text-[12px] text-ink-muted">{missingCount} field{missingCount !== 1 ? "s" : ""} need attention — required fields are highlighted below.</div></div></div>}
 
-            {Array.from({ length: paxCount }).map((_, i) => ((tab === "all" || tab === "p" + (i + 1)) &&
-              <PaxCard key={i} idx={i} lead={i === 0} prefill={i === 0 ? p1 : undefined} profile={p1} onRemove={removePax} showErr={showErr} onChange={bump} />))}
+            {Array.from({ length: paxCount + infN }).map((_, i) => ((tab === "all" || tab === "p" + (i + 1)) &&
+              <PaxCard key={i} idx={i} lead={i === 0} prefill={i === 0 ? p1 : undefined} profile={p1} onRemove={i >= paxCount ? null : removePax} showErr={showErr && i < paxCount} onChange={bump} paxType={paxType(i)} />))}
 
             {tab === "all" && <button onClick={addPax} className="w-full rounded-xl border border-dashed border-line-strong py-3 text-[13px] font-semibold text-tap-greenDeep hover:border-tap-green hover:bg-lime-tint/30 inline-flex items-center justify-center gap-1.5"><span className="text-[15px] leading-none">+</span> Add another passenger</button>}
 
@@ -1231,7 +1320,7 @@ export function Passenger({ shared, go }) {
               </div>
             </Card>
           </div>
-          <BasketSummary step={4} grouped cta="Continue to payment →" onCta={() => go("payment")} disabled={!allComplete} note={allComplete ? "Final review again on Step 4." : (firstIncomplete >= 0 ? `Complete Passenger ${firstIncomplete + 1} details to continue.` : "Complete contact details to continue.")} secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
+          <BasketSummary step={4} grouped bigTotal cta="Continue to payment →" onCta={() => go("payment")} disabled={!allComplete} note={allComplete ? "Final review again on Step 4." : (firstIncomplete >= 0 ? `Complete Passenger ${firstIncomplete + 1} details to continue.` : "Complete contact details to continue.")} secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
         </div>
       </div>
     </div>
@@ -1325,6 +1414,8 @@ export function Payment({ shared, go }) {
   const t = tripTotals();
   const [method, setMethod] = useState("Card");
   const [agree, setAgree] = useState(true);
+  const [saveCard, setSaveCard] = useState(true);   // A#14 — custom save-card checkbox
+  const [useContactBilling, setUseContactBilling] = useState(true);   // B#12 — use-contact-details banner toggle
   const [useV, setUseV] = useState(false);
   const [milesUsed, setMilesUsed] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -1375,18 +1466,26 @@ export function Payment({ shared, go }) {
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
   const [billCtry, setBillCtry] = useState(trip.contact?.country || "Portugal");
+  const VOK = ({ defaultValue, ...p }) => <div className="relative"><Input defaultValue={defaultValue} className="pr-9" {...p} /><Icon name="check" size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-tap-green pointer-events-none" /></div>;
   const billing = (
-    <Card className="p-5">
-      <div className="flex items-start justify-between mb-3"><div className="flex items-center gap-2"><Icon name="doc" size={15} className="text-ink-faint" /><div><div className="font-bold text-[15px]">Billing details</div><div className="text-[11px] text-ink-muted">We use these only for payment authorisation and invoicing.</div></div></div></div>
-      <label className="flex items-center gap-2.5 rounded-xl border border-tap-green bg-lime-tint/50 px-3.5 py-2.5 mb-3 cursor-pointer w-fit"><span className="w-5 h-5 rounded-md bg-tap-green inline-flex items-center justify-center text-white"><Icon name="check" size={13} /></span><span className="text-[13px] font-semibold">Use contact details from this booking</span></label>
-      <div className="grid sm:grid-cols-2 gap-3"><Field label={<>Country <Req /></>}><FlagSelect value={billCtry} onChange={setBillCtry} options={FLAG_CTRY} /></Field><Field label={<>Street address <Req /></>}><Input defaultValue="Av. Paulista, 1842 · Apt 71" /></Field><Field label={<>City <Req /></>}><Input defaultValue={trip.contact?.city || "Porto"} /></Field><Field label="State / province"><Input defaultValue="SP" /></Field><Field label={<>Postal code <Req /></>}><Input defaultValue="01310-100" /></Field><Field label="CPF / Tax ID (optional)"><Input placeholder="000.000.000-00" /></Field></div>
-      <div className="h-px bg-line my-4" />
-      <div className="flex items-center gap-2 text-[12px] text-ink-muted"><Icon name="doc" size={13} className="text-ink-faint shrink-0" /> Invoice will be issued to this address. You can edit it before requesting a refund.</div>
+    <Card className="p-6" style={{ borderRadius: "12px", boxShadow: "none" }}>
+      <div className="flex items-start justify-between mb-4"><div className="flex items-center gap-2"><img src={AIC + "billing.png"} alt="" className="w-[18px] h-[18px] object-contain opacity-70 shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} /><div><div className="font-semibold text-[18px]">Billing details</div><div className="text-[12px] leading-4 text-ink-muted">We use these only for payment authorisation and invoicing.</div></div></div></div>
+      <label onClick={() => setUseContactBilling(v => !v)} className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-2.5 mb-4 cursor-pointer w-fit" style={{ background: "#F2FFDB", border: "1px solid #DCEFC6" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "18px", height: "18px", borderRadius: "5px", background: useContactBilling ? "#336614" : "#FFFFFF", border: useContactBilling ? "none" : "1px solid #DCEFC6" }}>{useContactBilling && <Icon name="check" size={11} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span><span className="text-[13px] font-semibold" style={{ color: "#336614" }}>Use contact details from this booking</span></label>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Field label={<>Country <Req /></>}><FlagSelect value={billCtry} onChange={setBillCtry} options={FLAG_CTRY} /></Field>
+        <Field label={<>Street address <Req /></>}><VOK defaultValue="Av. Paulista, 1842 · Apt 71" /></Field>
+        <Field label={<>City <Req /></>}><VOK defaultValue={trip.contact?.city || "Porto"} /></Field>
+        <Field label="State / province"><Input defaultValue="SP" /></Field>
+        <Field label={<>Postal code <Req /></>}><VOK defaultValue="01310-100" /></Field>
+        <Field label="CPF / Tax ID (optional)"><Input placeholder="000.000.000-00" /></Field>
+      </div>
+      <div className="h-px bg-line my-2" />
+      <div className="flex items-center gap-2 text-[12px] text-ink-muted pt-3 leading-[18px]"><Icon name="doc" size={13} className="text-ink-faint shrink-0" /> Invoice will be issued to this address. You can edit it before requesting a refund.</div>
     </Card>
   );
   const terms = (
     <Card className="p-5 space-y-3">
-      <div className="font-bold text-[15px] flex items-center gap-2"><Icon name="doc" size={15} className="text-ink-faint" /> Terms and consent</div>
+      <div className="font-bold text-[15px] flex items-center gap-2"><img src={AIC + "terms.png"} alt="" className="w-[15px] h-[15px] object-contain opacity-70 shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} /> Terms and consent</div>
       <label className={cx("flex items-start gap-2.5 text-[13px] rounded-xl border px-4 py-3", agree ? "border-tap-green bg-lime-tint/40" : "border-tap-red/40 bg-tap-red/5")}>
         <span className={cx("mt-0.5 w-5 h-5 rounded-md inline-flex items-center justify-center shrink-0 cursor-pointer", agree ? "bg-tap-green text-white" : "border-2 border-line-strong")} onClick={() => setAgree(!agree)}>{agree && <Icon name="check" size={13} />}</span>
         <span className="flex-1">I've read and accept the <b>fare conditions</b> · <b>baggage rules</b> · <b>privacy policy</b>.<div className="text-ink-faint font-normal">You'll receive your booking confirmation and e-ticket after successful payment.</div></span>
@@ -1405,8 +1504,8 @@ export function Payment({ shared, go }) {
         <p className="text-[13px] text-ink-muted mt-1">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
         <div className="flex flex-wrap items-center gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {trip.pax > 1 ? "+ " + (trip.pax - 1) : ""}</Chip><span className="ml-auto inline-flex items-center gap-2 rounded-lg bg-surface-mute px-3 py-1.5"><span className="w-2 h-2 rounded-full bg-tap-red inline-block" /><span className="leading-tight"><span className="block text-[9px] font-bold uppercase tracking-wide text-ink-faint">Price locked</span><SessionTimer prefix="" suffix=" remaining" className="block text-[12px] font-bold text-ink v2-num" /></span></span></div>
 
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-5 items-start">
-          <div className="space-y-5">
+        <div className="grid lg:grid-cols-[1fr_328px] gap-6 mt-5 items-start">
+          <div className="space-y-6">
             <div className="rounded-2xl p-4 text-white flex items-center justify-between flex-wrap gap-3" style={{ background: "linear-gradient(100deg,#1f5e23,#46a41a)" }}>
               <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-lg bg-white/15 inline-flex items-center justify-center"><Icon name="lock" size={16} /></span><div><div className="text-[14px] font-bold">Secure payment</div><div className="text-[11px] text-white/70">All card data is encrypted and tokenised. We never see your full card number.</div></div></div>
               <div className="flex flex-wrap gap-1.5">{["VISA", "MASTERCARD", "AMEX", "TAP MILES", "APPLE PAY"].map(b => <span key={b} className="text-[9px] font-bold bg-white/15 rounded px-1.5 py-1">{b}</span>)}<span className="text-[9px] font-bold bg-[#635bff] rounded px-1.5 py-1">stripe</span></div>
@@ -1415,25 +1514,33 @@ export function Payment({ shared, go }) {
             <div className="p-1.5 flex gap-1 overflow-x-auto v2-track border-b border-line">{METHODS.map(m => { const on = method === m; return <button key={m} onClick={() => setMethod(m)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-semibold inline-flex items-center gap-1.5", on ? "bg-tap-green text-white" : "text-ink-muted hover:bg-surface-mute")}>{m}{m === "Card" && on && <span className="flex gap-1 ml-0.5">{["VISA", "MC", "AMEX"].map(b => <span key={b} className="text-[8px] font-bold bg-white/25 rounded px-1 py-0.5 leading-none">{b}</span>)}</span>}</button>; })}</div>
             <div className="p-5">
               {method === "Card" && <>
-                <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Pay by card</div><span className="text-[11px] text-ink-faint flex items-center gap-1">Powered by <span className="text-[9px] font-bold bg-[#635bff] text-white rounded px-1.5 py-0.5">stripe</span></span></div>
-                <div className="text-[11px] text-ink-faint mb-3">Visa · Mastercard · American Express · Maestro · Elo</div>
+                <div className="mb-3"><div className="flex items-center justify-between"><div className="font-semibold text-[18px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Pay by card</div><span className="text-[11px] text-ink-faint flex items-center gap-1">Powered by <span className="text-[11px] font-bold text-white rounded-[6px] px-2 py-1" style={{ background: "#6B4DD9" }}>stripe</span></span></div>
+                  <div className="text-[11px] text-ink-faint mt-0.5">Visa · Mastercard · American Express · Maestro · Elo</div></div>
                 <div className="grid gap-3">
                   <Field label={<>Cardholder name <Req /></>}><Input defaultValue={(u.full_name || "Daniel Silva").toUpperCase()} /></Field>
                   <Field label={<>Card number <Req /></>}>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><svg width="22" height="14" viewBox="0 0 22 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.5" width="21" height="13" rx="2.5" fill="#fff" stroke="#dcdcd8"/><rect x="0" y="3" width="22" height="3" fill="#ed1c24"/><rect x="3" y="9.5" width="7" height="1.8" rx="0.9" fill="#9a9a9a"/></svg></span>
-                      <Input defaultValue={`XXXX XXXX XXXX ${u.card_last4 || "4242"}`} className="pl-11 v2-num tracking-wide" />
+                      <Input defaultValue={`XXXX XXXX XXXX ${u.card_last4 || "4242"}`} className="pl-11 pr-16 v2-num tracking-wide" />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 pointer-events-none"><span className="text-[10px] font-bold text-ink-slate">VISA</span><Icon name="check" size={13} className="text-tap-green" /></span>
                     </div>
                   </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={<>Expiry date (MM / YY) <Req /></>}><div className="relative"><Input defaultValue={u.card_exp || "09 / 28"} placeholder="MM / YY" className="pr-8 v2-num" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div></Field>
-                    <Field label={<span className="inline-flex items-center gap-1">CVC / CVV <Req /> <Icon name="info" size={11} className="text-ink-faint" /></span>}>
+                  <div className="grid grid-cols-3 gap-3">
+                    <Field label={<>Expiry (MM / YY) <Req /></>}><div className="relative"><Input defaultValue={u.card_exp || "09 / 28"} placeholder="MM / YY" className="pr-8 v2-num" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div></Field>
+                    <Field label={<span className="inline-flex items-center gap-1.5">CVC <Req /> <span className="w-3.5 h-3.5 rounded-full inline-flex items-center justify-center" style={{ background: "#F2F2EE" }}><Icon name="info" size={9} className="text-ink-faint" /></span></span>}>
                       <div className="relative"><Input defaultValue="•••" className="pr-8" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div>
-                      <div className="text-[10px] text-ink-faint mt-1">3 digits on back of card</div>
                     </Field>
+                    <Field label={<>Postal / ZIP <Req /></>}><Input defaultValue="01310-100" className="v2-num" /></Field>
                   </div>
                 </div>
-                <label className="flex items-center gap-2 mt-3 text-[12px] text-ink-muted"><input type="checkbox" defaultChecked className="accent-[#46a41a]" /> Save card securely for faster checkout next time <span className="ml-auto"><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded bg-lime-tint text-tap-greenDeep px-2 py-0.5"><Icon name="lock" size={10} /> Encrypted</span></span></label>
+                <div className="mt-3">
+                  <div onClick={() => setSaveCard(v => !v)} className="flex items-center gap-2.5 text-[13px] cursor-pointer">
+                    <span className="w-[18px] h-[18px] rounded-[5px] inline-flex items-center justify-center shrink-0" style={saveCard ? { background: "#336614" } : { background: "#FFFFFF", border: "1px solid #DCDCD8" }}>{saveCard && <Icon name="check" size={12} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span>
+                    <span className="font-semibold">Save card securely for faster checkout next time</span>
+                    <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide rounded-full px-2.5 py-1" style={{ background: "#F2FFDB", color: "#336614" }}><Icon name="lock" size={10} /> Encrypted</span>
+                  </div>
+                  <div className="text-[11px] mt-1 pl-[28px]" style={{ color: "#6B6B6B" }}>We store a Stripe token — never your full card number.</div>
+                </div>
               </>}
               {method === "Miles & Go" && <div className="text-[13px]"><div className="font-bold text-[15px] mb-2 flex items-center gap-2"><Icon name="spark" size={14} className="text-tap-green" /> Pay with Miles &amp; Go</div><div className="rounded-xl border border-tap-green bg-lime-tint/40 p-4"><div className="flex items-center justify-between"><span>Balance</span><span className="font-bold v2-num">{miles(u.miles)} miles</span></div><div className="flex items-center justify-between mt-1.5"><span>Using for this trip</span><span className="font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span></div>{voucher_amt > 0 && <div className="flex items-center justify-between mt-1.5"><span>Voucher applied</span><span className="font-bold v2-num text-tap-greenDeep">−{EUR(voucher_amt)}</span></div>}<Divider className="my-2" /><div className="flex items-center justify-between font-bold"><span>Remaining on saved card</span><span className="v2-num">{EUR(card_amt)}</span></div></div></div>}
               {method === "Mix Method" && (() => {
@@ -1490,7 +1597,7 @@ export function Payment({ shared, go }) {
                   {custom && <button onClick={() => setSplitAmts({})} className="mt-2 text-[11px] font-semibold text-ink-muted hover:text-tap-greenDeep">Reset to equal split</button>}
                 </div>;
               })()}
-              <div className="mt-4 rounded-xl border border-dashed border-line p-3 flex items-center gap-3 text-[12px]"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center"><Icon name="lock" size={14} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><Pill tone="slate"><Icon name="lock" size={10} /> 3-D Secure 2.0</Pill></div>
+              <div className="mt-4 rounded-xl border border-line flex items-center gap-3 text-[12px]" style={{ background: "#FAFAF7", padding: "18px" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#FFFFFF", border: "1px solid #E8E8E5" }}><Icon name="lock" size={16} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full shrink-0" style={{ border: "1px solid #E8E8E5", padding: "5px 10px" }}><Icon name="lock" size={10} /> 3-D Secure 2.0</span></div>
             </div>
             </Card>
             {billing}{terms}
@@ -1785,16 +1892,16 @@ export function Confirmation({ shared, go }) {
         <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center shrink-0"><Icon name="check" size={22} /></span><div><h1 className="text-[30px] font-black leading-tight">Booking Confirmed</h1><div className="text-[13px] text-ink-muted">PNR {trip.pnr} · Receipt sent to {pay.email || u.email}</div></div></div>
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-6">
-            <Card className="p-5">
-              <div className="flex items-center gap-2 mb-3"><div className="font-bold text-[16px]">Your itinerary</div><span className="text-[11px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1">PNR {trip.pnr}</span></div>
+            <Card className="p-6" style={{ borderRadius: "18px", background: "#FFFFFF", borderColor: "#E8E8E5" }}>
+              <div className="flex items-center gap-2 mb-3"><div className="font-semibold text-[16px]">Your itinerary</div><span className="text-[11px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1">PNR {trip.pnr}</span></div>
               {[o, i].filter(Boolean).map((c, idx) => (
-                <div key={idx} className="rounded-2xl p-5 mb-2 flex flex-wrap items-center gap-4" style={{ background: "#f2ffdb" }}>
-                  <div><div className="text-[26px] font-bold v2-num leading-none">{c.flight.dep}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.origin} · Terminal 1</div></div>
-                  <div className="flex-1 min-w-[170px] text-center text-[11px] text-ink-muted">{c.flight.duration} · nonstop<div className="h-px bg-ink/80 my-2" /><div className="font-bold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="mt-0.5">Seat {idx === 0 ? leadSeat : (inSeat || "22B")} · Gate info 90 min before</div></div>
-                  <div className="text-right"><div className="text-[26px] font-bold v2-num leading-none">{c.flight.arr}</div><div className="text-[11px] text-ink-faint mt-1">{c.flight.dest} · Terminal 1</div></div>
+                <div key={idx} className="rounded-[12px] px-5 mb-2 flex flex-wrap items-center gap-4" style={{ background: "#f2ffdb", minHeight: "108px" }}>
+                  <div><div className="text-[14px] font-bold" style={{ color: "#1A1F29" }}>{c.flight.origin}</div><div className="text-[26px] font-bold v2-num leading-none mt-0.5">{c.flight.dep}</div><div className="text-[11px] mt-1" style={{ color: "#667080" }}>Terminal 1</div></div>
+                  <div className="flex-1 min-w-[170px] text-center"><div className="text-[12px] font-medium text-ink-muted">{c.flight.duration} · nonstop</div><div className="h-0.5 bg-ink/80 my-2 mx-auto max-w-[340px]" /><div className="text-[12px] font-semibold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="text-[11px] mt-0.5" style={{ color: "#667080" }}>Seat {idx === 0 ? leadSeat : (inSeat || "22B")} · Gate info 90 min before</div></div>
+                  <div className="text-right"><div className="text-[14px] font-bold" style={{ color: "#1A1F29" }}>{c.flight.dest}</div><div className="text-[26px] font-bold v2-num leading-none mt-0.5">{c.flight.arr}</div><div className="text-[11px] mt-1" style={{ color: "#667080" }}>Terminal 1</div></div>
                 </div>
               ))}
-              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span>{/exec/i.test(o?.fare || "") && <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold bg-surface border border-line text-ink rounded-full px-3 py-1.5 shadow-sm"><Icon name="star" size={11} className="text-ink-muted" /> Lounge access</span>}</div>
+              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span>{/exec/i.test(o?.fare || "") && <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="star" size={11} className="text-ink-muted" /> Lounge access</span>}</div>
               <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} className="hover:underline">Add to Wallet</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
@@ -1804,8 +1911,11 @@ export function Confirmation({ shared, go }) {
               <div className="grid sm:grid-cols-3 gap-4">
                 {ancRecs.map(r => {
                   const on = addedRecs.has(r.code);
+                  const rImg = (() => { const t = ((r.code || "") + " " + (r.name || "") + " " + (r.tag || "")).toLowerCase(); return /tour|day|sintra|highlight|sight|excursion/.test(t) ? "sintra.jpg" : /food|wine|tast|flavou|dining/.test(t) ? "wine-tour.jpg" : /transfer|car|ride|pickup|shuttle/.test(t) ? "return-transfer.jpg" : /checkout|late|hotel|room|stay|lounge/.test(t) ? "late-checkout.jpg" : null; })();
                   return (
-                    <Card key={r.code} className={cx("p-4 flex flex-col", on && "ring-1 ring-tap-green bg-lime-tint/30")}>
+                    <Card key={r.code} className={cx("flex flex-col overflow-hidden", on && "ring-1 ring-tap-green bg-lime-tint/30")}>
+                      {rImg && <div className="h-[110px] w-full overflow-hidden bg-surface-mute"><Img seed={"crec-" + r.code} src={PIMG + rImg} alt={r.name} className="w-full h-full object-cover" /></div>}
+                      <div className="p-4 flex flex-col flex-1">
                       <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5 w-fit">{r.tag}</span>
                       <div className="font-bold text-[14px] mt-2">{r.name}</div>
                       <div className="text-[11px] text-ink-muted mt-1 flex-1">{r.sub}</div>
@@ -1813,26 +1923,27 @@ export function Confirmation({ shared, go }) {
                         <div className="text-[16px] font-bold v2-num">{EUR(r.price)}</div>
                         <Btn size="sm" variant={on ? "primary" : "outline"} className="rounded-full" disabled={on} onClick={() => addRec(r.code)}>{on ? "Added ✓" : "+ Add to trip"}</Btn>
                       </div>
+                      </div>
                     </Card>
                   );
                 })}
               </div>
               {recs.length > 0 && <>
-                <h2 className="text-[16px] font-bold mt-6">Where to next</h2>
-                <p className="text-[12px] text-ink-faint mb-3">Ideas for your next trip based on where you go.</p>
-                <div className="grid sm:grid-cols-2 gap-4">
+                <h2 className="text-[24px] font-bold mt-6">Where to next</h2>
+                <p className="text-[13px] mb-3" style={{ color: "#667080" }}>Ideas for your next trip based on where you go.</p>
+                <div className="grid sm:grid-cols-2 gap-6">
                   {recs.slice(0, 2).map(d => (
-                    <Card key={d.code} className="overflow-hidden flex flex-col">
+                    <Card key={d.code} className="overflow-hidden flex flex-col max-w-[388px]" style={{ borderRadius: "18px", borderColor: "#E8E8E5", boxShadow: "0px 4px 16px rgba(0,0,0,0.06)" }}>
                       <div className="relative">
-                        <Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-32 w-full object-cover" />
+                        <Img seed={"dest-" + d.code} src={d.image_url || imageFor(d.code, d.city)} alt={d.city} className="h-[148px] w-full object-cover rounded-t-[18px]" />
                         <span className="absolute top-3 left-3 text-[10px] font-bold uppercase tracking-wide bg-white/90 text-ink rounded-md px-2 py-1 shadow-sm">{d.tag || "Experience"}</span>
                       </div>
                       <div className="p-4 flex flex-col flex-1">
-                        <div className="font-bold text-[15px]">{d.city}</div>
-                        <div className="text-[12px] text-ink-muted mt-1 flex-1">{d.reason || d.tag}</div>
+                        <div className="font-semibold text-[16px]">{d.city}</div>
+                        <div className="text-[12px] text-ink-muted mt-1 flex-1 max-w-[280px]">{d.reason || d.tag}</div>
                         <div className="flex items-center justify-between mt-3">
-                          <div><div className="text-[18px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[10px] text-ink-faint">per person</div></div>
-                          <Btn size="sm" variant="outline" className="rounded-full" onClick={() => go("results", { origin: d.origin, dest: d.code })}>+ Add</Btn>
+                          <div><div className="text-[20px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[11px]" style={{ color: "#9A9A9A" }}>per person</div></div>
+                          <Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })} style={{ borderRadius: "20px", padding: "10px 14px", borderColor: "#46A41A" }}>+ Add</Btn>
                         </div>
                       </div>
                     </Card>
@@ -1842,16 +1953,16 @@ export function Confirmation({ shared, go }) {
             </section>
           </div>
           <aside className="space-y-4">
-            <Card className="p-5">
+            <Card className="p-5" style={{ borderRadius: "18px", borderColor: "#E8E8E5", boxShadow: "0px 8px 24px rgba(0,0,0,0.08)" }}>
               <div className="font-bold text-[16px]">Payment Receipt</div>
-              <Divider className="my-3" />
-              <div className="space-y-1.5 text-[13px]"><Row label={`Fare x${trip.pax}`} v={EUR(t.flights)} /><Row label="Taxes & fees" v={EUR(t.taxes)} />{t.extras ? <Row label="Extras" v={EUR(t.extras)} /> : null}{t.bundle ? <Row label="Bundle savings" v={"−" + EUR(t.bundle)} green /> : null}{pay.voucher_amt ? <Row label="Voucher" v={"−" + EUR(pay.voucher_amt)} green /> : null}{pay.miles_amt ? <Row label={`Miles (${miles(pay.miles_used)})`} v={"−" + EUR(pay.miles_amt)} green /> : null}</div>
-              <Divider className="my-3" />
-              <div className="rounded-lg bg-surface-soft border border-line px-3 py-2.5 flex items-center justify-between gap-2"><div className="text-[12px] font-semibold text-ink">Paid · {pay.method || "Card"} {u.card_last4 ? "••" + u.card_last4 : ""}</div><div className="text-[24px] font-black text-tap-green v2-num">{EUR(pay.card_amt ?? t.total)}</div></div>
-              <div className="mt-3 rounded-xl bg-lime-tint border border-tap-green/30 px-3 py-2.5"><div className="text-[13px] font-bold text-ink flex items-center gap-1.5"><Icon name="spark" size={13} className="text-tap-green" /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] text-ink-muted mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
-              <Btn variant="outline" className="w-full mt-3 rounded-full" onClick={() => go("basket")}>Download invoice (PDF) →</Btn>
+              <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
+              <div className="space-y-1.5 text-[13px]"><Row label={`Fare x${trip.pax}`} v={eur2(t.flights)} /><Row label="Taxes & fees" v={eur2(t.taxes)} />{t.extras ? <Row label="Extras" v={eur2(t.extras)} /> : null}{t.bundle ? <Row label="Bundle savings" v={"−" + eur2(t.bundle)} green /> : null}{pay.voucher_amt ? <Row label="Voucher" v={"−" + eur2(pay.voucher_amt)} green /> : null}{pay.miles_amt ? <Row label={`Miles (${miles(pay.miles_used)})`} v={"−" + eur2(pay.miles_amt)} green /> : null}</div>
+              <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
+              <div className="rounded-lg flex items-center justify-between gap-2" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5", padding: "18px 20px" }}><div className="text-[12px] font-semibold text-ink">Paid · {pay.method || "Card"} {u.card_last4 ? "••" + u.card_last4 : ""}</div><div className="text-[34px] font-bold text-tap-green v2-num">{eur2(pay.card_amt ?? t.total)}</div></div>
+              <div className="mt-3 rounded-xl bg-lime-tint" style={{ border: "1px solid #A6D926", padding: "18px 22px" }}><div className="text-[13px] font-bold text-ink flex items-center gap-1.5"><Icon name="spark" size={13} className="text-tap-green" /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] text-ink-muted mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
+              <button onClick={() => go("basket")} className="w-full mt-3 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold hover:brightness-95" style={{ height: "42px", borderRadius: "9999px", background: "#FFFFFF", border: "1px solid #E8E8E5", color: "#0A0A0A" }}>Download invoice (PDF) →</button>
             </Card>
-            <Card className="p-4 text-[12px] space-y-2.5"><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="shield" size={15} /></span><div><div className="font-semibold">Free 24h cancellation</div><div className="text-ink-faint">Full refund on flights & most extras.</div></div></div><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="heart" size={15} /></span><div><div className="font-semibold">24/7 TAP Care</div><div className="text-ink-faint">Need help? Chat with us 24/7.</div></div></div></Card>
+            <Card className="p-4 text-[12px] space-y-2.5" style={{ borderRadius: "14px" }}><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="shield" size={15} /></span><div><div style={{ fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}>Free 24h cancellation</div><div style={{ color: "#667080" }}>Full refund on flights &amp; most extras.</div></div></div><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="heart" size={15} /></span><div><div style={{ fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}>24/7 TAP Care</div><div style={{ color: "#667080" }}>Need help? Chat with us 24/7.</div></div></div></Card>
           </aside>
         </div>
       </div>
