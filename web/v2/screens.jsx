@@ -2,6 +2,7 @@
 // user), built to the approved Figma and wired to the live backend. Remaining
 // screens are scaffolded as a navigable map of the full program.
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
@@ -57,7 +58,7 @@ function PaxPanel({ adults, children, infants, onChange, buttonClassName }) {
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>{summary}<span className="text-ink-faint text-[10px] ml-2">▾</span></button>
-      {open && pos && <>
+      {open && pos && createPortal(<>
         <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
         <div className="fixed z-[61] bg-white rounded-xl border border-line shadow-pop p-3" style={{ left: pos.left, top: pos.top, width: "min(256px, calc(100vw - 24px))" }}>
           <Row label="Adults" sub="12+ years" val={adults} k="adults" min={1} />
@@ -67,7 +68,7 @@ function PaxPanel({ adults, children, infants, onChange, buttonClassName }) {
           <Row label="Infants" sub="Under 2 · on lap" val={infants} k="infants" max={adults} />
           <button type="button" onClick={() => setOpen(false)} className="w-full mt-2 rounded-full bg-tap-green text-white py-2 text-[13px] font-semibold">Done</button>
         </div>
-      </>}
+      </>, document.body)}
     </div>
   );
 }
@@ -100,7 +101,7 @@ function AirportPicker({ value, onChange, airports = [], placeholder = "Select a
         {sel ? <span className="truncate"><span className="font-bold">{sel.code}</span><span className="text-ink-muted"> · {sel.city}</span></span> : <span className="text-ink-faint">{placeholder}</span>}
         <span className="text-ink-faint text-[10px] ml-2 shrink-0">▾</span>
       </button>
-      {open && pos && <>
+      {open && pos && createPortal(<>
         <div className="fixed inset-0 z-[60]" onClick={() => { setOpen(false); setQ(""); }} />
         <div className="fixed z-[61] bg-white rounded-xl border border-line shadow-pop overflow-hidden" style={{ left: pos.left, top: pos.top, width: "min(288px, calc(100vw - 24px))" }}>
           <div className="p-2 border-b border-line">
@@ -117,7 +118,7 @@ function AirportPicker({ value, onChange, airports = [], placeholder = "Select a
             ))}
           </div>
         </div>
-      </>}
+      </>, document.body)}
     </div>
   );
 }
