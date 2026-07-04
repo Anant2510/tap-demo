@@ -56,10 +56,13 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
         </Field>
       </div>
       <datalist id="ap">{airports.map(a => <option key={a.code} value={a.code}>{a.city} ({a.code})</option>)}</datalist>
-      <div className="flex flex-wrap items-center gap-4 mt-4">
+      <div className="mt-4">
         <label className="flex items-center gap-2 text-[12px] font-medium text-ink-muted"><input type="checkbox" checked={stopover} onChange={e => setStopover(e.target.checked)} className="accent-[#46a41a]" /> Add Portugal Stopover <span className="text-ink-faint">· free, up to 10 days</span></label>
-        <Btn size="lg" className="ml-auto" onClick={() => onSearch({ origin: from, dest: to, date, ret, pax, cabin, type, stopover })}><Icon name="search" /> Search flights</Btn>
       </div>
+      </div>
+      {/* F6 — the Search flight CTA is a separate component, outside the grouped Route/Date/Passenger/Cabin container */}
+      <div className="flex justify-end px-1 pt-3">
+        <Btn size="lg" className="w-full sm:w-auto" onClick={() => onSearch({ origin: from, dest: to, date, ret, pax, cabin, type, stopover })}><Icon name="search" /> Search flights</Btn>
       </div>
     </div>
   );
@@ -390,7 +393,7 @@ export function Home({ shared, go }) {
                   <div className="font-bold text-[15px]">Resume booking</div>
                   <div className="text-[12px] text-ink-muted mt-1">{journey.origin} → {journey.dest} · stopped at {journey.stage}.{journey.seat ? ` Seat ${journey.seat} held.` : ""}</div>
                   <div className="flex flex-wrap gap-1.5 mt-2"><Pill tone="green">{["search", "results", "seat", "extras", "review"].indexOf(journey.stage) + 1} of 5 done</Pill><Pill tone="slate">Fare held</Pill></div>
-                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => { if (typeof window !== "undefined") window.__tapForceReval = true; api.post("/journey/resume", {}).catch(() => {}); go("results", { origin: journey.origin || pat.origin || u.home_airport, dest: journey.dest || pat.dest || "LIS", date: journey.date || journey.travel_date || pat.recommendedDate, type: "round", pax: 1, cabin: journey.cabin || "Economy" }); }}>Continue →</Btn></div></div>
+                  <div className="mt-auto"><div className="h-px bg-line my-3" /><div className="flex justify-end"><Btn size="sm" variant="outline" onClick={() => { if (typeof window !== "undefined") window.__tapForceReval = true; api.post("/journey/resume", {}).catch(() => {}); const _sr = { search: "results", results: "results", seat: "results", extras: "cart", review: "cart" }; go(_sr[journey.stage] || "results", { origin: journey.origin || pat.origin || u.home_airport, dest: journey.dest || pat.dest || "LIS", date: journey.date || journey.travel_date || pat.recommendedDate, type: "round", pax: 1, cabin: journey.cabin || "Economy" }); }}>Continue →</Btn></div></div>
                 </> : <>
                   <div className="font-bold text-[15px]">Nothing in progress</div>
                   <div className="text-[12px] text-ink-muted mt-1">Start a new search to begin a booking.</div>

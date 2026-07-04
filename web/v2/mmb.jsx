@@ -1276,11 +1276,14 @@ export function AddExtras({ shared, go, params }) {
   ];
   const sectionOf = (a) => (SECTIONS.find(sec => sec.match.some(k => `${a.code} ${a.name} ${a.icon}`.toLowerCase().includes(k))) || SECTIONS[0]).id;
   const sectioned = SECTIONS.map(sec => ({ ...sec, items: anc.filter(a => sectionOf(a) === sec.id) })).filter(sec => sec.items.length);
-  // Enhance · cross-sell — curated experiences/transfers that stage straight into the add-ons basket.
+  // Enhance · cross-sell — destination-aware experiences/transfers that stage into the add-ons basket.
+  const xCity = cityOf(airports, f.dest) || "your destination";
+  const xSlug = String(xCity).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  const xCode = f.dest || "airport";
   const XSELL = [
-    ["xsell-sintra", "Sintra full-day from Lisbon", "Pena Palace, Quinta da Regaleira & Cabo da Roca.", 89, "per person", "Day trip", "sintra,portugal", null],
-    ["xsell-douro", "Douro Valley wine tour", "Vineyards, tastings & a river cruise. Full day.", 120, "per person", "Wine", "douro,vineyard", null],
-    ["xsell-xfer-return", "Return transfer hotel → airport", "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "car,sedan", "Bundle −10%"],
+    [`xsell-${xSlug}-tour`, `${xCity} highlights full-day`, "Top sights · skip-the-line · guided.", 89, "per person", "Day trip", `${String(xCity).toLowerCase()},city`, null],
+    [`xsell-${xSlug}-food`, `${xCity} food & flavours tour`, "Local tastings & market visit. Half day.", 65, "per person", "Food", `${String(xCity).toLowerCase()},food`, null],
+    ["xsell-xfer-return", `Return transfer hotel → ${xCode}`, "Private sedan · save 10% when paired.", 25, "per car", "Transfer", "car,sedan", "Bundle −10%"],
     ["xsell-late-checkout", "Guaranteed late checkout", "Stay until 16:00 on departure day.", 40, "one-time", "Hotel add-on", "hotel,room", null],
   ];
 
