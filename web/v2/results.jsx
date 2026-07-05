@@ -369,7 +369,7 @@ export function Results({ shared, params, go }) {
                 <div className="rounded-2xl bg-surface-dark text-white px-5 py-4 flex flex-wrap items-center gap-4">
                   <div className="flex-1 min-w-[260px]">
                     <div className="text-[11px] font-bold uppercase tracking-wide text-lime">Smart re-rank · paired with your outbound</div>
-                    <div className="text-[14px] font-semibold mt-1">Re-ordered for the cheapest <span className="text-lime">{ob.fare}</span> pairing, best gate-to-gate time, and full {u.tier || "Gold"} benefits on both legs.</div>
+                    <div className="text-[14px] font-semibold mt-1">Re-ordered for the cheapest <span className="text-lime">{ob.fare}</span> pairing, best gate-to-gate time, and full {shared?.profile?.user?.tier || "Gold"} benefits on both legs.</div>
                     <div className="flex flex-wrap gap-2 mt-2.5">
                       {["+ Bundle bag −€15", "+ Same-day return", "+ Earn 2× miles"].map(t => <span key={t} className="text-[11px] font-semibold rounded-full border border-white/25 px-2.5 py-1 text-lime">{t}</span>)}
                     </div>
