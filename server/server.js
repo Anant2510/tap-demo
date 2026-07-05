@@ -6,6 +6,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 const { db, now, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedUser, KNOWN_USERS, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile } = require("./db");
 const cdp = require("./cdp");
 const cdpIngest = require("./cdp-ingest");
@@ -61,7 +62,26 @@ const session = require("./session");
 const SERVER_DEFAULT_UID = session.SERVER_DEFAULT_UID;
 const SYSTEM_UID = session.SYSTEM_UID;
 app.use((req, _res, next) => { req.uid = session.resolveUid(req); req.profileSource = session.sessionSource(req); req.isAdmin = session.isAdmin(req); const s = appCtx.getStore(); if (s) s.uid = req.uid; next(); });
-app.use(express.static(path.join(__dirname, "..", "public")));
+// Cache-bust the v2 SPA: serve the shell with a version stamp derived from app.js's
+// mtime, and force revalidation. When app.js changes on deploy, its version query
+// changes, so every browser fetches the fresh bundle on the next load — no hard-refresh
+// needed. This prevents "fixed but not showing" from a stale cached bundle.
+function v2Version() {
+  try { return Math.floor(fs.statSync(path.join(__dirname, "..", "public", "v2", "app.js")).mtimeMs).toString(36); }
+  catch { return Date.now().toString(36); }
+}
+app.get(["/v2", "/v2/", "/v2/index.html"], (_req, res) => {
+  try {
+    const ver = v2Version();
+    let html = fs.readFileSync(path.join(__dirname, "..", "public", "v2", "index.html"), "utf8");
+    html = html.replace(/\.\/app\.js(\?v=[^"']*)?/g, `./app.js?v=${ver}`).replace(/\.\/tokens\.css(\?v=[^"']*)?/g, `./tokens.css?v=${ver}`);
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.type("html").send(html);
+  } catch (e) { res.status(500).send("shell error"); }
+});
+app.use(express.static(path.join(__dirname, "..", "public"), {
+  setHeaders: (res, fp) => { if (/\.(js|css|html)$/.test(fp)) res.setHeader("Cache-Control", "no-cache, must-revalidate"); },
+}));
 
 // Events that must NOT auto-forward to Adobe RT-CDP:
 //  · system / data-source / infra noise (kept on-box)
