@@ -108,7 +108,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
   return (
     <aside className="space-y-4">
       <Card className="p-5" style={{ borderColor: "#e0e3e8", boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}>
-        <div className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="text-[17px] font-bold">{basket ? "Basket summary" : "My trip basket"}</div><span className="w-[22px] h-[22px] rounded-full bg-tap-red text-white text-[11px] font-bold inline-flex items-center justify-center">{trip.extras.length + 1}</span></div>{basket ? <Pill tone="slate">EUR</Pill> : <span className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-tap-red text-white">Step {step}/5</span>}</div>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="text-[20px] font-semibold">{basket ? "Basket summary" : "My trip basket"}</div><span className="w-[22px] h-[22px] rounded-full bg-tap-red text-white text-[11px] font-bold inline-flex items-center justify-center">{trip.extras.length + 1}</span></div>{basket ? <Pill tone="slate">EUR</Pill> : <span className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-tap-red text-white">Step {step}/5</span>}</div>
         <div className="text-[11px] text-ink-faint mt-0.5">{trip.origin}–{trip.dest} · {trip.pax} adult{trip.pax > 1 ? "s" : ""} · {fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</div>
 
         <div className="mt-4">
@@ -144,15 +144,15 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
               </div>
             </>
           )}
-          {breakdown && breakdown.length > 0 && <div className="mt-3 pt-3 border-t border-line space-y-1 text-[12px]"><div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-1">Payment breakdown</div>{breakdown.map(b => <div key={b.label} className="flex items-center justify-between"><span className="text-ink-muted">{b.label}</span><span className={cx("font-semibold v2-num", b.green ? "text-tap-greenDeep" : b.red ? "text-tap-red" : b.muted ? "text-ink-faint" : "text-ink")}>{b.text}</span></div>)}</div>}
+          {breakdown && breakdown.length > 0 && <div className="mt-3 pt-3 border-t border-line space-y-1 text-[12px]"><div className="text-[12px] mb-1" style={{ color: "#667080" }}>Payment breakdown</div>{breakdown.map(b => <div key={b.label} className="flex items-center justify-between"><span className="text-ink-muted">{b.label}</span><span className={cx("font-semibold v2-num", b.green ? "text-tap-greenDeep" : b.red ? "text-tap-red" : b.muted ? "text-ink-faint" : "text-ink")}>{b.text}</span></div>)}</div>}
         </div>
 
         <Divider className="my-3.5" />
-        <div className={cx("flex items-end justify-between", bigTotal && "mt-5")}><div><div className="text-[13px] text-ink font-bold">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right"><div className={cx("v2-num text-ink", bigTotal ? "text-[48px] font-bold leading-none" : "text-[24px] font-black")}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
-        <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
-        {breakdown && <div className="mt-3 rounded-lg bg-surface-soft border border-line px-3 py-2.5 flex items-center justify-between gap-2"><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-tap-greenDeep hover:border-tap-green">Save mix</button></div>}
+        <div className={cx("flex items-end justify-between", bigTotal && "mt-5")}><div><div className="text-[13px] text-ink font-bold">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right"><div className={cx("v2-num text-ink", bigTotal ? "text-[48px] font-bold leading-none" : "text-[34px] font-bold")}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
+        <div className="mt-3 bg-lime-tint text-tap-greenDark flex items-center justify-between" style={{ borderRadius: "10px", padding: "10px 12px" }}><span className="flex items-center gap-1.5 text-[12px] font-medium"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num text-[14px] font-bold">{miles(EARN(t.total))} tap.miles</span></div>
+        {breakdown && <div className="mt-3 flex items-center justify-between gap-2" style={{ background: "#F2FCD9", borderRadius: "12px", padding: "10px 12px", border: "1px solid #E8E8E5" }}><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 text-[11px] font-bold text-tap-greenDeep hover:brightness-95" style={{ borderRadius: "14px", border: "1px solid #2E7D33", padding: "7px 32px" }}>Save mix</button></div>}
 
-        <Btn size="lg" className="w-full mt-4" style={{ height: "46px", borderRadius: "10px" }} disabled={disabled} onClick={onCta}>{cta}</Btn>
+        <Btn size="lg" className="w-full mt-4 text-[15px] font-bold" style={{ height: "60px", borderRadius: "9999px" }} disabled={disabled} onClick={onCta}>{cta}</Btn>
         {step === 2 && <div className="text-[11px] text-ink-muted text-center mt-2 flex items-center justify-center gap-1"><Icon name="globe" size={11} className="text-ink-faint" /> You'll be able to adjust all items on the next step.</div>}
         {note && <div className="text-[11px] text-ink-faint text-center mt-2">{note}</div>}
         {secondary && <button onClick={onSecondary} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">{secondary}{!/^[←]/.test(String(secondary)) && <Icon name="arrow" size={13} />}</button>}
@@ -163,7 +163,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         <div className="rounded-2xl p-4 text-white shadow-card" style={{ background: "linear-gradient(135deg, #14331a, #2e7d33)" }}>
           <div className="flex items-center gap-2"><Pill tone="gold">{tier}</Pill> <span className="text-[14px] font-bold">Hi {firstName} — pay with miles?</span></div>
           <div className="text-[12px] text-white/85 mt-1.5">Cover this trip with <span className="font-bold text-white v2-num">{miles(milesNeeded)} TAP miles</span> + <span className="font-bold text-white v2-num">{EUR(milesTax)}</span> in taxes.</div>
-          <button onClick={onMilesSwitch || (() => { })} className="mt-3 w-full rounded-xl bg-white/10 border border-white/20 py-2.5 text-[13px] font-semibold inline-flex items-center justify-between px-4 hover:bg-white/15"><span>Compare cash vs miles</span><Icon name="arrow" size={14} /></button>
+          <button onClick={onMilesSwitch || (() => { })} className="mt-3 w-full rounded-xl bg-white/10 border border-white/20 py-2.5 text-[13px] font-semibold inline-flex items-center justify-between px-4 hover:bg-white/15"><span>Pay with miles</span><Icon name="arrow" size={14} /></button>
         </div>
       )}
 
@@ -565,13 +565,13 @@ function CartView({ go, mode = "cart", shared }) {
   ); };
   const featBadge = (t) => <span key={t} className="inline-flex items-center justify-center rounded-[4px]" style={{ background: "rgba(242,242,238,1)", color: "rgba(107,107,107,1)", padding: "3px 8px", fontSize: "10px", fontWeight: 400, letterSpacing: "0.2px", lineHeight: 1 }}>{t}</span>;
   const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec, img }) => { const on = hasExtra(code); const nn = tripDays; const tot = pn > 0 ? pn * nn : total; return (
-    <div className="flex rounded-[14px] overflow-hidden max-w-[808px]" style={on ? { background: "rgba(250,250,247,1)", border: "2px solid rgba(158,253,56,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>
-      <Img seed={"hotel-" + code} src={img || imageFor("hotel-" + code)} alt={name} className="w-[168px] self-stretch shrink-0 object-cover" />
-      <div className="flex-1 min-w-0 flex items-center justify-between gap-3 p-4">
+    <div className="flex rounded-[14px] overflow-hidden w-full" style={on ? { background: "rgba(250,250,247,1)", border: "2px solid rgba(158,253,56,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>
+      <Img seed={"hotel-" + code} src={img || imageFor("hotel-" + code)} alt={name} className="w-[200px] self-stretch shrink-0 object-cover" />
+      <div className="flex-1 min-w-0 flex items-center justify-between gap-6 p-4 pl-5">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap"><span className="text-[14px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
-          <div className="flex flex-wrap gap-1.5 mt-1.5">{tags.map(featBadge)}</div>
-          <div className="text-[11px] text-ink-muted mt-1.5">★ {rating} Excellent · {reviews} reviews</div>
+          <div className="flex items-center gap-2 flex-wrap"><span className="text-[15px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
+          <div className="flex flex-wrap gap-1.5 mt-2">{tags.map(featBadge)}</div>
+          <div className="text-[11px] text-ink-muted mt-2">★ {rating} Excellent · {reviews} reviews</div>
         </div>
         <div className="text-right shrink-0 flex flex-col items-end">
           <div className="v2-num"><span className="text-[11px] font-bold text-ink">From </span><span className="text-[16px] font-bold text-ink">{eur2(pn)}</span><span className="text-[11px] font-medium text-ink-faint"> / night</span></div>
@@ -1115,8 +1115,8 @@ const PaxSectionTitle = ({ title, sub, info, className }) => (
 // slider input it wraps keeps a stable identity across re-renders — re-creating this
 // component on every keystroke remounted the <input type=range> and broke drag (#11).
 const MixComp = ({ on, title, sub, right, onToggle, onEdit, children }) => (
-  <div className={cx("rounded-xl border p-3.5", on ? "border-tap-green bg-lime-tint/40" : "border-line")}>
-    <div className="flex items-center gap-3"><button onClick={onToggle} className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[11px]", on ? "bg-tap-green" : "bg-surface-mute text-ink-faint")}>{on ? "✓" : ""}</button><div className="flex-1"><div className="text-[13px] font-bold">{title}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>{right}<button onClick={onEdit || onToggle} className="text-[12px] font-bold text-tap-greenDeep ml-1 shrink-0 hover:underline">Edit</button></div>
+  <div className={cx("rounded-xl border", on ? "border-tap-green bg-lime-tint/40" : "border-line")} style={{ padding: "16px" }}>
+    <div className="flex items-center gap-3"><button onClick={onToggle} className={cx("w-6 h-6 rounded-full inline-flex items-center justify-center text-white text-[11px] shrink-0", on ? "bg-tap-green" : "bg-surface-mute text-ink-faint")}>{on ? "✓" : ""}</button><div className="flex-1 min-w-0"><div className="text-[15px] font-bold truncate">{title}</div><div className="text-[11px] text-ink-faint">{sub}</div></div>{right && <span className="inline-flex items-center shrink-0" style={{ border: "1px solid #E0E3E8", background: "#fff", borderRadius: "8px", padding: "8px 12px" }}>{right}</span>}<button onClick={onEdit || onToggle} className="text-[12px] font-bold shrink-0 hover:underline" style={{ color: "#E00A0A", marginLeft: "16px" }}>Edit</button></div>
     {children}
   </div>
 );
@@ -1546,7 +1546,7 @@ export function Payment({ shared, go }) {
               {method === "Mix Method" && (() => {
                 const milesMax = Math.min(u.miles || 0, Math.round(t.total / MILES_RATE));
                 const clampMiles = v => Math.max(0, Math.min(milesMax, Math.round((+v || 0) / 100) * 100));
-                return <div className="space-y-3"><div className="font-bold text-[15px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Payment Composer</div><p className="text-[12px] text-ink-muted">Mix card · miles · voucher · cashback. Live total updates as you adjust.</p>
+                return <div className="space-y-3"><div className="font-semibold text-[18px] flex items-center gap-2" style={{ color: "#0A0A0A" }}><Icon name="lock" size={14} className="text-ink-faint" /> Payment Composer</div><p className="text-[12px] text-ink-muted">Mix card · miles · voucher · cashback. Live total updates as you adjust.</p>
                   <MixComp on={card_amt > 0} title={`Card · Visa •••• ${u.card_last4 || "4242"}`} sub="Available: unlimited" right={<span className="text-[13px] font-bold v2-num">{EUR(card_amt)}</span>} onToggle={() => { }} onEdit={() => setMethod("Card")} />
                   <MixComp on={mix.miles > 0} title="TAP miles" sub={`Balance ${miles(u.miles)} · 1mi=${EUR(MILES_RATE)}`} onToggle={() => setMix(m => ({ ...m, miles: m.miles > 0 ? 0 : milesMax }))} onEdit={() => setEditMiles(v => !v)} right={<span className="text-[13px] font-bold v2-num">{miles(miles_used)} mi ({EUR(miles_amt)})</span>}>
                     <div className="px-1 mt-3"><input type="range" min="0" max={milesMax} step="100" value={mix.miles} onChange={e => setMix(m => ({ ...m, miles: +e.target.value }))} className="w-full accent-[#46a41a]" /></div>
@@ -1597,12 +1597,12 @@ export function Payment({ shared, go }) {
                   {custom && <button onClick={() => setSplitAmts({})} className="mt-2 text-[11px] font-semibold text-ink-muted hover:text-tap-greenDeep">Reset to equal split</button>}
                 </div>;
               })()}
-              <div className="mt-4 rounded-xl border border-line flex items-center gap-3 text-[12px]" style={{ background: "#FAFAF7", padding: "18px" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#FFFFFF", border: "1px solid #E8E8E5" }}><Icon name="lock" size={16} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold">Bank verification (3-D Secure) appears here when required</div><div className="text-ink-faint">Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full shrink-0" style={{ border: "1px solid #E8E8E5", padding: "5px 10px" }}><Icon name="lock" size={10} /> 3-D Secure 2.0</span></div>
+              <div className="mt-4 rounded-xl border border-line flex items-center gap-3 text-[12px]" style={{ background: "#FAFAF7", padding: "18px" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#FFFFFF", border: "1px solid #E8E8E5" }}><Icon name="lock" size={16} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold text-[13px]" style={{ color: "#0A0A0A" }}>Bank verification (3-D Secure) appears here when required</div><div className="text-[11px]" style={{ color: "#6B6B6B" }}>Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full shrink-0" style={{ border: "1px solid #E8E8E5", padding: "5px 10px" }}><Icon name="lock" size={10} /> 3-D Secure 2.0</span></div>
             </div>
             </Card>
             {billing}{terms}
             <Card className="p-3.5 flex flex-wrap items-center justify-between gap-3 text-[12px] text-ink font-medium">
-              {[["lock", "PCI-DSS Level 1 · Stripe", "text-[#caa53d]"], ["shield", "3-D Secure 2.0", "text-tap-red"], ["clock", "Free 24h cancellation", "text-ink-muted"], ["star", "24/7 TAP Care", "text-tap-greenDeep"]].map(([ic, t2, col]) => <span key={t2} className="flex items-center gap-1.5"><Icon name={ic} size={14} className={col} /> {t2}</span>)}
+              {[["lock", "PCI-DSS Level 1"], ["clock", "Free 24h cancellation"], ["star", "24/7 customer care"], ["check", "Instant confirmation"]].map(([ic, t2]) => <span key={t2} className="flex items-center gap-2"><span className="inline-flex items-center justify-center shrink-0" style={{ width: "28px", height: "28px", borderRadius: "8px", background: "#F5FFEB" }}><Icon name={ic} size={14} className="text-tap-greenDeep" /></span> {t2}</span>)}
             </Card>
           </div>
           {method === "Split Payment"

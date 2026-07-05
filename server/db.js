@@ -120,6 +120,7 @@ try { db.exec("ALTER TABLE emails ADD COLUMN app TEXT DEFAULT 'v1'"); } catch (e
 //  • pss_ingest_log — one row per processed PSS event so re-delivered webhooks are no-ops
 try { db.exec("ALTER TABLE bookings ADD COLUMN source TEXT DEFAULT 'web'"); } catch {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN pss_ref TEXT"); } catch {}
+try { db.exec("ALTER TABLE flights ADD COLUMN cabin_prices TEXT"); } catch {}   // ops demo: per-cabin price override (JSON)
 try { db.exec("ALTER TABLE events ADD COLUMN source TEXT DEFAULT 'web'"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN delivery TEXT"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN idem_key TEXT"); } catch {}

@@ -125,6 +125,7 @@ export function Results({ shared, params, go }) {
 
   const [flights, setFlights] = useState(null);
   const [week, setWeek] = useState([]);
+  const [weekAnchor, setWeekAnchor] = useState(date);   // #20 — window anchor, independent of the selected date
   const [expanded, setExpanded] = useState(null);
   const [sort, setSort] = useState("Best");
   const [clearNonce, setClearNonce] = useState(0);   // #6 — force-remount filter controls on Clear all
@@ -154,12 +155,15 @@ export function Results({ shared, params, go }) {
 
   // date strip — cheapest per day for the visible week (parallel, real engine prices)
   useEffect(() => {
-    if (!date) return;
-    const base = new Date(date + "T00:00:00");
+    const anchor = weekAnchor || date;
+    if (!anchor) return;
+    const base = new Date(anchor + "T00:00:00");
     const days = [-3, -2, -1, 0, 1, 2, 3].map(o => { const d = new Date(base); d.setDate(d.getDate() + o); return d.toISOString().slice(0, 10); });
     Promise.all(days.map(d => api.get(`/search?origin=${origin}&dest=${dest}&date=${d}&bg=1`).then(r => ({ d, p: (r.flights || []).reduce((m, f) => Math.min(m, f.price), Infinity) })).catch(() => ({ d, p: Infinity }))))
       .then(rows => setWeek(rows.map(r => ({ date: r.d, price: isFinite(r.p) ? r.p : null }))));
-  }, [origin, dest, date]);
+  }, [origin, dest, weekAnchor]);
+  // #20 — selecting a date keeps the window fixed (the tile stays put); only recenter if the date lands outside the visible week.
+  useEffect(() => { if (date && week.length && !week.some(d => d.date === date)) setWeekAnchor(date); }, [date]); // eslint-disable-line
 
   const counts = useMemo(() => {
     const c = { direct: 0, oneStop: 0, twoStop: 0, airline: {}, brand: {}, wifi: 0, useMiles: 0, refundable: 0, bag: 0 };
@@ -253,7 +257,7 @@ export function Results({ shared, params, go }) {
       <div className="bg-surface border-b border-line">
         <div className="mx-auto max-w-page px-6 py-3 flex flex-wrap items-center gap-2">
           <Chip label="From" value={`${cityOf(origin)} · ${origin}`} />
-          <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="px-1.5 text-ink hover:text-tap-greenDeep" title="Swap origin and destination" aria-label="Swap"><Icon name="swap" size={18} /></button>
+          <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="px-1.5 hover:text-tap-greenDeep" style={{ color: "#232323" }} title="Swap origin and destination" aria-label="Swap"><Icon name="swap" size={18} /></button>
           <Chip label="To" value={`${cityOf(dest)} · ${dest}`} />
           <Chip label="Dates" value={
             type !== "round"
@@ -294,7 +298,7 @@ export function Results({ shared, params, go }) {
             </React.Fragment>
           ))}
         </div>
-        <div className="mx-auto max-w-page px-6 pb-3 -mt-1 text-[12px] text-ink-muted text-right">Step 1 of 5 · <span className="font-bold text-ink">Pick your flight</span></div>
+        <div className="mx-auto max-w-page px-6 pb-3 -mt-1 text-right"><div className="text-[12px] text-ink-muted">Step 1 of 5</div><div className="text-[13px] font-bold text-ink">Pick your flight</div></div>
       </div>
 
       <div className="mx-auto max-w-page px-6 py-6 grid lg:grid-cols-[260px_1fr] gap-6">
@@ -347,7 +351,7 @@ export function Results({ shared, params, go }) {
                         <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.arr}</div><div className="text-[11px] text-ink-faint mt-1">{of.dest}</div></div>
                       </div>
                       <div className="flex-1 min-w-[160px]">
-                        <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-white border border-line-strong px-2 py-1 text-[12px] font-black leading-none tracking-tight shrink-0"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+                        <div className="flex items-center gap-2"><span className="inline-flex items-center justify-center text-[12px] font-black leading-none tracking-tight shrink-0"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
                         <div className="text-[11px] text-ink-faint mt-0.5">{of.aircraft} · Bag included</div>
                       </div>
                       <div className="text-right rounded-xl bg-surface border border-line px-4 py-2.5 min-w-[148px]">
@@ -365,14 +369,14 @@ export function Results({ shared, params, go }) {
                 <div className="rounded-2xl bg-surface-dark text-white px-5 py-4 flex flex-wrap items-center gap-4">
                   <div className="flex-1 min-w-[260px]">
                     <div className="text-[11px] font-bold uppercase tracking-wide text-lime">Smart re-rank · paired with your outbound</div>
-                    <div className="text-[14px] font-semibold mt-1">Re-ranked for your <span className="text-lime">{ob.fare}</span> outbound — cheapest <span className="text-lime">{ob.fare}</span> pairings first, best gate-to-gate time, full benefits on both legs.</div>
+                    <div className="text-[14px] font-semibold mt-1">Re-ordered for the cheapest <span className="text-lime">{ob.fare}</span> pairing, best gate-to-gate time, and full {u.tier || "Gold"} benefits on both legs.</div>
                     <div className="flex flex-wrap gap-2 mt-2.5">
                       {["+ Bundle bag −€15", "+ Same-day return", "+ Earn 2× miles"].map(t => <span key={t} className="text-[11px] font-semibold rounded-full border border-white/25 px-2.5 py-1 text-lime">{t}</span>)}
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-[10px] uppercase tracking-wide text-white/50 mb-1.5">Why this order?</div>
-                    <Btn size="sm" variant="lime" onClick={() => go("ai")}>Explain ranking</Btn>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: "#B2B2BF" }}>Why this order?</div>
+                    <button onClick={() => go("ai")} className="inline-flex items-center justify-center text-[12px] font-bold text-white hover:brightness-95" style={{ padding: "8px 14px", borderRadius: "9999px", background: "#47A41B" }}>Explain ranking</button>
                   </div>
                 </div>
               </>
@@ -380,18 +384,18 @@ export function Results({ shared, params, go }) {
           })()}
           {/* date strip */}
           <Card className="p-1.5 flex items-stretch gap-1">
-            <button onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: shiftISO(date, -7) })} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Previous week">‹</button>
+            <button onClick={() => setWeekAnchor(shiftISO(weekAnchor || date, -7))} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Previous week">‹</button>
             <div className="flex-1 flex gap-1 overflow-x-auto v2-track">
             {week.map(d => {
               const on = d.date === date;
               return <button key={d.date} onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: d.date })}
-                className={cx("flex-1 min-w-[88px] px-3 text-center transition-colors", on ? "bg-lime-tint rounded-lg" : "rounded-xl py-2 hover:bg-surface-mute")} style={on ? { paddingTop: "18px", paddingBottom: "18px", borderBottom: "2px solid #2E7D33" } : undefined}>
-                <div className={cx("text-[11px]", on ? "text-tap-greenDark font-bold" : "text-ink-muted")}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}</div>
-                <div className={cx("text-[15px] font-bold v2-num", on ? "text-tap-greenDark" : "text-ink")}>{d.price ? EUR(d.price) : "—"}</div>
+                className={cx("flex-1 min-w-[88px] px-3 text-center transition-colors", on ? "" : "rounded-xl py-2 hover:bg-surface-mute")} style={on ? { background: "#F2FFDB", paddingTop: "18px", paddingBottom: "18px", borderBottom: "2px solid #2E7D33" } : undefined}>
+                <div className={cx("text-[11px]", on ? "font-bold" : "text-ink-muted")} style={on ? { color: "#111111" } : undefined}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}</div>
+                <div className={cx("text-[15px] font-bold v2-num", !on && "text-ink")} style={on ? { color: "#46A41A" } : undefined}>{d.price ? EUR(d.price) : "—"}</div>
               </button>;
             })}
             </div>
-            <button onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: shiftISO(date, 7) })} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Next week">›</button>
+            <button onClick={() => setWeekAnchor(shiftISO(weekAnchor || date, 7))} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Next week">›</button>
           </Card>
 
           {/* sort tabs — borderless, label-only, green active state */}
@@ -400,7 +404,7 @@ export function Results({ shared, params, go }) {
             {["All flights", "Best", "Cheapest", "Fastest", "Earliest", "Eco-friendly"].map(k => {
               const key = k === "Eco-friendly" ? "Eco" : k === "All flights" ? "All" : k;
               const on = sort === key;
-              const label = k === "Best" && leg === "inbound" ? "Best pairing" : k;
+              const label = leg === "inbound" ? ({ "All flights": "All Flights", "Best": "Best Pairing", "Cheapest": "Cheapest", "Fastest": "Quickest", "Earliest": "Latest Return", "Eco-friendly": "Same Day" }[k] || k) : k;
               return <button key={k} onClick={() => setSort(key)} className={cx("shrink-0 px-3.5 py-1.5 rounded-full text-[13px] font-bold transition-colors", on ? "bg-tap-green text-white shadow-sm" : "text-ink-muted hover:bg-surface-mute")}>
                 {label}
               </button>;
@@ -411,8 +415,8 @@ export function Results({ shared, params, go }) {
                 <span className={cx("w-7 h-4 rounded-full relative transition-colors shrink-0", showMiles ? "bg-tap-green" : "bg-line-strong")}><span className={cx("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", showMiles ? "left-3.5" : "left-0.5")} /></span>
                 <span className="whitespace-nowrap">Show in miles ✦</span>
               </button>
-              <button onClick={() => setHoldOpen(true)} className={cx("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-[12px] font-semibold transition-colors", held ? "border-tap-green bg-lime-tint text-tap-greenDeep" : "border-tap-green/50 bg-lime-tint/40 text-tap-greenDeep hover:bg-lime-tint")}>
-                <Icon name={held ? "check" : "lock"} size={13} /> {held ? "Fare held · 72h" : "Hold your fare"}
+              <button onClick={() => setHoldOpen(true)} className="inline-flex items-center justify-center gap-1 text-[12px] font-semibold transition-colors hover:brightness-95" style={{ height: "28px", padding: "5px 8px", borderRadius: "9999px", border: "1px solid #C7F21F", background: "#F2FFDB", color: "#2E7D33" }}>
+                <span className="inline-flex items-center justify-center shrink-0" style={{ width: "16px", height: "16px", borderRadius: "8px", background: "#46A41A" }}><Icon name={held ? "check" : "lock"} size={10} className="text-white" /></span> {held ? "Fare held · 72h" : "Hold your fare"}
               </button>
             </div>
           </div>
@@ -452,13 +456,13 @@ export function Results({ shared, params, go }) {
                   ? <div className="text-[13px] font-semibold truncate">{String(trip.outbound.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {trip.outbound.flight.origin}→{trip.outbound.flight.dest} {EUR(trip.outbound.price)} &nbsp;+&nbsp; {String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} {EUR(sel.price)} &nbsp;=&nbsp; <span className="text-lime">{EUR(trip.outbound.price + sel.price - 15)}</span> <span className="text-white/60 font-normal">(bundle saved €15)</span></div>
                   : <div className="text-[13px] font-semibold">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} · {new Date((leg === "inbound" ? retDate : date) + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} · {sel.flight.dep} → {sel.flight.arr} · {EUR(sel.price)}</div>}
               </> : <>
-                <div className="text-[10px] font-bold tracking-widest text-white/50 uppercase">{isMulti ? `Select flight ${legIndex + 1} of ${mLegs.length}` : (leg === "inbound" ? "Select your inbound flight" : "Select your outbound flight")}</div>
+                <div className={cx("text-[10px] font-bold tracking-widest uppercase", leg !== "inbound" && "text-white/50")} style={leg === "inbound" ? { color: "#9EFC38", letterSpacing: "1px" } : undefined}>{isMulti ? `Select flight ${legIndex + 1} of ${mLegs.length}` : (leg === "inbound" ? "OUTBOUND ✓ · INBOUND: select to continue" : "Select your outbound flight")}</div>
                 <div className="text-[13px] font-semibold text-white/80">Choose a flight and fare above to continue.</div>
               </>}
             </div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
-              {!isMulti && <button onClick={() => go("express")} className="rounded-full border border-white/40 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-white/10 transition-colors shrink-0">Express Checkout</button>}
-              <Btn variant="lime" disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Continue to cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Continue to cart")} <Icon name="arrow" size={14} /></Btn>
+              {!isMulti && <button onClick={() => go("express")} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", background: "#FFFFFF", color: "#0A0A0A", fontSize: "13px" }}>Express Checkout</button>}
+              <Btn variant="lime" className="text-[14px] font-bold" style={{ height: "41px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Customize your cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Customize your cart")} <Icon name="arrow" size={14} /></Btn>
             </div>
           </div>
         </div>
@@ -565,7 +569,7 @@ const FGroup = ({ title, children, last }) => (
 const Chk = ({ label, count, on, set }) => (
   <label className="flex items-center gap-2 text-[13px] cursor-pointer">
     <input type="checkbox" checked={on} onChange={e => set(e.target.checked)} className="peer sr-only" />
-    <span className={cx("w-[18px] h-[18px] rounded-md border-2 inline-flex items-center justify-center shrink-0 transition-colors", on ? "bg-lime-tint border-tap-green text-tap-green" : "bg-surface border-line-strong text-transparent")}><Icon name="check" size={12} className="stroke-[3]" /></span>
+    <span className={cx("w-[18px] h-[18px] rounded-[6px] border-2 inline-flex items-center justify-center shrink-0 transition-colors", on ? "bg-[#F2FFDB] border-tap-green text-tap-green" : "bg-surface border-line-strong text-transparent")}><Icon name="check" size={12} className="stroke-[3]" /></span>
     <span className="flex-1">{label}</span><span className="text-[11px] text-ink-faint v2-num">{count}</span>
   </label>
 );
@@ -704,15 +708,15 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
   const milesEarn = 1000 + (h % 520);   // stable per-flight earn estimate
   return (
     <div className={cx("relative", pairing && "pt-3")}>
-      {pairing && <span className="absolute top-0 left-4 z-10 text-[10px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-md px-2 py-1 inline-flex items-center gap-1">★ Best pairing · recommended for you</span>}
-      <Card style={{ borderRadius: "16px", borderColor: "#E2E2E5" }} className={cx("overflow-hidden", pairing && "ring-2 ring-tap-green bg-lime-tint/40", !pairing && expanded && !isSelected && "ring-2 ring-lime", !pairing && isSelected && "ring-2 ring-lime")}>
+      {pairing && <span className="absolute top-0 left-4 z-10 text-[10px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-md px-2 py-1 inline-flex items-center gap-1">★ Best pairing • recommended for you</span>}
+      <Card style={{ borderRadius: "16px", borderColor: isSelected ? "#9EFD38" : "#E2E2E5", borderWidth: isSelected ? "2px" : undefined }} className={cx("overflow-hidden", pairing && "ring-2 ring-tap-green bg-lime-tint/40", !pairing && expanded && !isSelected && "ring-2 ring-lime")}>
       {/* header row — compact single-line layout per design */}
       <div className="p-5 flex flex-wrap items-center gap-4">
         {/* times + route — airport under time, no arrow */}
         <div className="flex items-center gap-4 min-w-[230px]">
-          <div className="text-center"><div className="text-[22px] font-bold leading-none v2-num">{f.dep}</div><div className="text-[11px] text-ink-faint mt-1">{f.origin}</div></div>
+          <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-center">{f.dep}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.origin}</div></div>
           <div className="text-center text-ink-faint min-w-[60px]"><div className="text-[11px]">{f.duration}</div><div className="w-16 h-px bg-line-strong my-1.5 mx-auto" /><div className="text-[11px]">{m.stops ? `1 stop · ${m.hub}` : "Direct"}</div></div>
-          <div className="text-center"><div className="text-[22px] font-bold leading-none v2-num">{f.arr}</div><div className="text-[11px] text-ink-faint mt-1">{f.dest}</div></div>
+          <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-center">{f.arr}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.dest}</div></div>
         </div>
         {/* status — vertical, centered, light weight */}
         <div className="text-center min-w-[92px]">
@@ -730,12 +734,12 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
           {pairing && <div className="text-[11px] text-tap-greenDeep font-medium mt-1.5 flex items-start gap-1.5"><span className="text-amber-500 leading-none mt-0.5">●</span> Home in {f.dest} by {f.arr} · same fare brand → bundle €15 off</div>}
         </div>
         {/* price panel — light grey, right-aligned */}
-        <div className="text-right rounded-xl bg-surface-soft px-4 py-3 min-w-[148px]">
+        <div className="text-right rounded-xl min-w-[151px]" style={{ background: "#F9F9FA", padding: "22px 24px 22px 20px" }}>
           {pairing && <div className="text-[11px] font-bold text-tap-greenDeep">BUNDLE −€15</div>}
           {payMilesOn && milesFor ? (() => { const mm = milesFor(selFare.price); return (
             <><div className="text-[18px] font-bold text-tap-greenDeep v2-num leading-tight">{mm.full ? `${miles(mm.miles)} mi` : `${miles(mm.miles)} mi + ${EUR(mm.cash)}`}</div>
             <div className="text-[10px] text-ink-faint v2-num">or {EUR(selFare.price)} cash</div></>); })() : (<>
-            {selFare.milesOpt && <div className="text-[11px] font-semibold text-amber-600">OR {miles(selFare.milesOpt.mi)} MI + {EUR(selFare.milesOpt.cash)}</div>}
+            {selFare.milesOpt && <div className="text-[11px] font-semibold" style={{ color: "#795B0A", letterSpacing: "0.5px" }}>OR {miles(selFare.milesOpt.mi)} MI + {EUR(selFare.milesOpt.cash)}</div>}
             <div className="text-[24px] font-bold v2-num leading-tight">{EUR(selFare.price)}</div>
           </>)}
           <div className="text-[10px] text-ink-faint">1 adult · {isSelected ? sel.fare : `${CABIN_LABEL[cab] || "Economy"} ${headline.key}`}</div>
@@ -745,7 +749,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
                   ? <Btn size="sm" variant="primary" className="w-full" onClick={() => onPick(f, sel.fare)}>Selected ✓</Btn>
                   : <div className="text-[10px] text-ink-faint text-center py-1">Choose a fare below ↓</div>)
               : isSelected
-                ? <Btn size="sm" variant="primary" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
+                ? <Btn size="sm" variant="primary" className="w-full text-[13px] font-semibold" style={{ height: "36px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
                 : <Btn size="sm" variant="outline" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : `See ${cabinFares.length} fare${cabinFares.length !== 1 ? "s" : ""} ↓`}</Btn>}
           </div>
         </div>

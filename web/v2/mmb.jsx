@@ -94,6 +94,16 @@ const SuccessHead = ({ title, sub }) => (
   </div>
 );
 
+// #2 — derive an adjacent seat per traveller from the booking's assigned seat, so
+// multi-passenger bookings show a seat for every traveller (grouped by passenger).
+function seatForPax(base, i) {
+  const m = String(base || "14F").match(/^(\d+)\s*([A-F])$/i);
+  if (!m) return base || "—";
+  const row = +m[1], cols = "ABCDEF", col = cols.indexOf(m[2].toUpperCase());
+  const nc = ((col - i) % 6 + 6) % 6;                 // step left through the row, wrapping
+  const rowAdj = row + Math.floor((i - col) / 6 > 0 ? Math.floor((i - col) / 6) : 0);
+  return `${col - i >= 0 ? row : rowAdj}${cols[nc]}`;
+}
 const Crumb = ({ go, label = "Manage booking", trail }) => {
   if (trail && trail.length) return (
     <nav className="flex items-center gap-1.5 text-[12px] text-ink-muted mb-3 flex-wrap">
@@ -102,7 +112,7 @@ const Crumb = ({ go, label = "Manage booking", trail }) => {
           {i > 0 && <Icon name="chevR" size={12} className="text-ink-faint" />}
           {t.page && i < trail.length - 1
             ? <button onClick={() => go(t.page)} className="hover:text-ink transition-colors">{t.label}</button>
-            : <span className={i === trail.length - 1 ? "font-bold text-ink" : ""}>{t.label}</span>}
+            : <span className={i === trail.length - 1 ? "font-medium" : ""} style={i === trail.length - 1 ? { color: "#0A0A0A" } : undefined}>{t.label}</span>}
         </span>
       ))}
     </nav>
@@ -192,7 +202,7 @@ export function ManageBooking({ shared, go }) {
                     </div>
                     <div className="text-[12px] text-ink-muted mt-1">{cityOf(airports, f.origin)}–{cityOf(airports, f.dest)} · {fmtDate(b.flight_date)} · {f.duration || "1h05"} · Direct</div>
                     <div className="text-[12px] text-ink-muted mt-0.5">{paxN} traveller{paxN > 1 ? "s" : ""} · {f.flight_no || b.flight_no} · {fareName}</div>
-                    {paxNames.length > 0 && <div className="text-[12px] text-ink mt-0.5 flex items-center gap-1.5 flex-wrap"><Icon name="user" size={11} className="text-ink-faint" />{paxNames.map((nm, i) => <span key={i} className="font-medium">{nm}{i < paxNames.length - 1 ? "," : ""}</span>)}</div>}
+                    {paxNames.length > 0 && <div className="mt-1.5 flex flex-col gap-1">{paxNames.map((nm, i) => <span key={i} className="text-[12px] text-ink inline-flex items-center gap-1.5"><Icon name="user" size={11} className="text-ink-faint" /><span className="font-medium">{nm}</span><span className="text-ink-faint">·</span><span className="inline-flex items-center gap-1 text-tap-greenDeep font-semibold"><Icon name="seat" size={10} /> {(paxNames.length > 1) ? seatForPax(b.seat, i) : (b.seat || "—")}</span></span>)}</div>}
                     {inb && <div className="text-[12px] text-ink-muted mt-0.5">Return · {inb.origin}<span className="text-ink-faint"> → </span>{inb.dest} · {fmtDate(meta.inbound?.date || inb.flight_date)} · {inb.flight_no}</div>}
                   </div>
                   <div className="text-right shrink-0">
@@ -203,7 +213,7 @@ export function ManageBooking({ shared, go }) {
                 </div>
                 <div className="flex items-center gap-2 mt-3 flex-wrap text-[12px] text-ink-muted">
                   <span>Includes:</span>
-                  <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="seat" size={11} /> Seat {b.seat || "—"}</span>
+                  {paxN <= 1 && <span className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink"><Icon name="seat" size={11} /> Seat {b.seat || "—"}</span>}
                   {(() => { const xs = (b.items || []).filter(c => c !== "seat"); return <>
                     {xs.slice(0, 8).map((c, i) => <span key={i} className="inline-flex items-center gap-1 border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink">{extraLabel(c)}</span>)}
                     {xs.length > 8 && <span className="inline-flex items-center border border-line rounded-full px-2.5 py-1 text-[11px] font-semibold text-ink-muted">+{xs.length - 8} more</span>}
@@ -229,7 +239,7 @@ export function ManageBooking({ shared, go }) {
                 <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
                   <button onClick={() => go("rebook", { pnr: b.pnr })} className="inline-flex items-center gap-1.5 rounded-full bg-tap-green text-white px-3.5 py-1.5 text-[12px] font-bold hover:bg-tap-greenDeep transition-colors"><Icon name="refresh" size={12} /> Update flight</button>
                   {ACTIONS.map(([lbl, page, ic]) => (
-                    <button key={lbl} onClick={() => go(page, page === "addextras" ? { pnr: b.pnr } : undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name={ic} size={12} /> {lbl}</button>
+                    <button key={lbl} onClick={() => go(page, { pnr: b.pnr })} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name={ic} size={12} /> {lbl}</button>
                   ))}
                   {paxN > 1 && <button onClick={() => go("split", { pnr: b.pnr })} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold text-ink hover:border-tap-green hover:text-tap-greenDeep transition-colors"><Icon name="swap" size={12} /> Change / split travellers</button>}
                 </div>
@@ -405,7 +415,7 @@ export function CabinUpgrade({ shared, go }) {
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
   if (done) return (
-    <div className="mx-auto max-w-content px-6 py-8">
+    <div className="bg-white min-h-screen"><div className="mx-auto max-w-content px-6 py-8">
       <SuccessHead title={`Upgraded to ${chosen.name}`} sub={`PNR ${booking.pnr} · confirmation on its way`} />
       <Card className="p-5 mt-6 v2-in">
         <BookingBand booking={booking} airports={shared.airports} />
@@ -414,6 +424,7 @@ export function CabinUpgrade({ shared, go }) {
         <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Upgrade charged</span><span className="text-[20px] font-black text-tap-green v2-num">{EUR(fareDiff)}</span></div>
       </Card>
       <div className="flex gap-3 mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn><Btn variant="outline" onClick={() => go("checkin")}>Check in →</Btn></div>
+    </div>
     </div>
   );
   return (
@@ -426,7 +437,7 @@ export function CabinUpgrade({ shared, go }) {
         </div>
         <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold shrink-0" style={{ borderRadius: "14px", padding: "8px 16px", background: "#F2FCD9", color: "#2E7D33" }}><Icon name="check" size={12} /> Checked in</span>
       </div>
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[1fr_420px] gap-6 mt-6 items-start">
         <div>
           <div className="rounded-xl text-[13px] flex items-center gap-2 flex-wrap" style={{ background: "#FAFAF7", border: "1px solid #DCDCD8", padding: "18px" }}>
             <span className="text-ink-muted">Current:</span><span className="font-semibold">{curCabin} · Seat {booking.seat || "—"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
@@ -971,8 +982,8 @@ const ciPaxDoc = (p, i, baseDoc) => {
   const seed = String(p.first || p.last || p.name || ("P" + i)).toUpperCase().split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   return "Passport PT" + (2438200 + (seed * 7 + i * 131) % 9000);      // co-passengers get a distinct, deterministic number
 };
-export function CheckInIndirect({ shared, go }) {
-  const { booking, loading, err } = useActiveBooking();
+export function CheckInIndirect({ shared, go, params }) {
+  const { booking, loading, err } = useActiveBooking(params?.pnr);
   const [doc, setDoc] = useState("");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
@@ -1554,8 +1565,8 @@ export function SplitBooking({ shared, params, go }) {
   );
 }
 
-export function Refund({ shared, go }) {
-  const { booking, loading, err } = useActiveBooking();
+export function Refund({ shared, go, params }) {
+  const { booking, loading, err } = useActiveBooking(params?.pnr);   // #1 — cancel the trip the user selected, not the soonest
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
@@ -1616,27 +1627,29 @@ export function Refund({ shared, go }) {
   // (with the euro equivalent shown alongside), so the summary matches the selection.
   const isMiles = dest === "miles";
   const milesFor = (e) => Math.round(e / MILES_RATE);            // €→miles via the shared rate
-  const fmtRefund = (e) => isMiles ? `${miles(milesFor(e))} mi` : eur2(e);  // miles when miles is selected
+  const eurC = (n) => eur2(n).replace(".", ",");                 // #20 — European format (€592,00)
+  const fmtRefund = (e) => isMiles ? `${miles(milesFor(e))} mi` : eurC(e);  // miles when miles is selected
   const refundTotalMi = milesFor(refundTotal);
   return (
+    <div className="bg-white min-h-full">
     <div className="mx-auto max-w-page px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr}${booking.flight_no ? " — " + booking.flight_no : ""}`, page: "manage" }, { label: "Refund request" }]} />
-      <h1 className="text-[26px] font-black">Refund request</h1>
-      <p className="text-[13px] text-ink-muted mt-1">Flight cancelled by airline. Choose how to receive each item refund. Travel-bank gets +10% bonus.</p>
+      <h1 className="text-[36px] font-bold" style={{ color: "#0A0A0A" }}>Refund request</h1>
+      <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Flight cancelled by airline. Choose how to receive each item refund. Travel-bank gets +10% bonus.</p>
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
         <div className="space-y-5">
           {/* Refundable items (#4) */}
-          <Card className="p-5">
-            <div className="font-bold text-[15px] mb-3">Refundable items</div>
+          <Card className="p-6" style={{ borderRadius: "18px" }}>
+            <div className="font-bold text-[18px] mb-3">Refundable items</div>
             <div className="divide-y divide-line">
               {refundItems.map(it => {
                 const on = isOn(it), can = it.refund > 0;
                 return (
-                  <label key={it.id} className={cx("flex items-center gap-3 py-3 cursor-pointer", !can && "opacity-55")}>
-                    <input type="checkbox" checked={on} disabled={!can} onChange={() => setPicks(p => ({ ...p, [it.id]: !(p[it.id] ?? it.on) }))} className="accent-ink w-4 h-4 shrink-0" />
-                    <div className="flex-1"><div className="text-[13px] font-semibold">{it.name}</div><div className="text-[11px] text-ink-faint">Paid {eur2(it.paid)}</div></div>
-                    <div className={cx("text-[13px] font-bold v2-num shrink-0", can ? "text-tap-greenDeep" : "text-ink-faint")}>{eur2(it.refund)}{it.status && <span className="font-medium text-ink-faint"> ({it.status})</span>}</div>
+                  <label key={it.id} className="flex items-center gap-3 py-3 cursor-pointer">
+                    <button type="button" disabled={!can} onClick={() => setPicks(p => ({ ...p, [it.id]: !(p[it.id] ?? it.on) }))} className="inline-flex items-center justify-center shrink-0" style={{ width: "22px", height: "22px", borderRadius: "5px", background: on && can ? "#1A1F29" : "#fff", border: on && can ? "none" : `1px solid ${can ? "#C9CDD3" : "#E0E3E8"}` }}>{on && can && <Icon name="check" size={13} className="stroke-[3]" style={{ color: "#C7F21F" }} />}</button>
+                    <div className="flex-1"><div className="text-[13px] font-semibold" style={{ color: can ? undefined : "#667080" }}>{it.name}</div><div className="text-[11px]" style={{ color: can ? "#9AA0A6" : "#667080" }}>Paid {eurC(it.paid)}</div></div>
+                    <div className="text-[13px] font-bold v2-num shrink-0" style={{ color: can ? "#1A7333" : "#667080" }}>{eurC(it.refund)}{it.status && <span className="font-medium" style={{ color: "#667080" }}> ({it.status})</span>}</div>
                   </label>
                 );
               })}
@@ -1644,15 +1657,15 @@ export function Refund({ shared, go }) {
           </Card>
 
           {/* Refund destination selector (#5) */}
-          <Card className="p-5">
-            <div className="font-bold text-[15px] mb-3">Refund destination</div>
-            <div className="grid sm:grid-cols-2 gap-2.5">
+          <Card className="p-6" style={{ borderRadius: "18px" }}>
+            <div className="font-bold text-[18px] mb-3">Refund destination</div>
+            <div className="flex flex-wrap gap-2.5">
               {REFUND_DESTS.map(d => {
                 const on = dest === d.id;
                 return (
-                  <button key={d.id} onClick={() => setDest(d.id)} className={cx("text-left rounded-xl border p-3 flex items-center gap-2.5 transition-colors", on ? "border-tap-green bg-lime-tint/40" : "border-line hover:border-tap-green/40")}>
-                    <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 bg-tap-green rounded-full" />}</span>
-                    <div><div className="text-[13px] font-bold">{d.name}</div><div className="text-[11px] text-ink-faint">{d.sub}</div></div>
+                  <button key={d.id} onClick={() => setDest(d.id)} className="text-left rounded-xl p-3 flex items-center gap-2.5 transition-colors flex-1 min-w-[180px]" style={{ border: on ? "2px solid #A6D926" : "1px solid #E0E3E8", background: on ? "#F5FCD9" : "#fff" }}>
+                    <span className="rounded-full inline-flex items-center justify-center shrink-0" style={{ width: "20px", height: "20px", border: `2px solid ${on ? "#1A1F29" : "#C9CDD3"}` }}>{on && <span className="rounded-full" style={{ width: "10px", height: "10px", background: "#1A1F29" }} />}</span>
+                    <div><div className="text-[13px] font-bold">{d.name}</div><div className="text-[10px] text-ink-faint">{d.sub}</div></div>
                   </button>
                 );
               })}
@@ -1663,27 +1676,28 @@ export function Refund({ shared, go }) {
 
         {/* Sticky refund summary panel (#6) */}
         <aside className="lg:sticky lg:top-6">
-          <Card className="p-5">
-            <div className="font-bold text-[16px] mb-3">Refund summary</div>
+          <Card className="p-5" style={{ borderRadius: "18px", boxShadow: "0 8px 24px rgba(0,0,0,0.08)" }}>
+            <div className="font-semibold text-[20px] mb-3">Refund summary</div>
             <div className="space-y-2 text-[13px]">
-              <div className="flex justify-between"><span className="text-ink-muted">Original paid</span><span className="font-semibold v2-num">{eur2(totalPaid)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-muted">Original paid</span><span className="font-semibold v2-num">{eurC(totalPaid)}</span></div>
               <div className="flex justify-between"><span className="text-ink-muted">Items selected</span><span className="font-semibold v2-num">{selItems.length} of {refundItems.length}</span></div>
             </div>
-            <Divider className="my-3" />
+            <div style={{ height: "1px", background: "#E0E3E8" }} className="my-3" />
             <div className="space-y-2 text-[13px]">
               <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · fare</span><span className="font-semibold v2-num">{fmtRefund(fareRef)}</span></div>
               <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · extras</span><span className="font-semibold v2-num">{fmtRefund(extrasRef)}</span></div>
               <div className="flex justify-between"><span className="text-ink-muted">Sub-refund · taxes</span><span className="font-semibold v2-num">{fmtRefund(taxRef)}</span></div>
             </div>
-            <Divider className="my-3" />
-            <div className="flex justify-between items-center"><span className="font-bold">Refund to {destName}</span><span className="font-black v2-num text-tap-greenDeep text-[16px]">{isMiles ? `${miles(refundTotalMi)} mi` : eur2(refundTotal)}</span></div>
-            {isMiles && refundTotal > 0 && <div className="text-[11px] text-ink-faint text-right mt-0.5 v2-num">≈ {eur2(refundTotal)} value</div>}
-            <div className="mt-3 rounded-lg bg-[#eef4ff] border border-[#d6e3ff] px-3 py-2.5 text-[12px]"><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="text-[#3b6fd6]" /> Why these amounts?</div><div className="text-ink-muted mt-0.5">Discount fare: non-refundable. 20% admin fee on refundable items. See full policy.</div></div>
-            <Btn size="lg" className="w-full mt-4" disabled={busy || refundTotal <= 0} onClick={cancel}>{busy ? "Processing…" : `Process refund · ${isMiles ? miles(refundTotalMi) + " mi" : eur2(refundTotal)} →`}</Btn>
-            <button onClick={() => go("manage")} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors">Cancel request</button>
+            <div style={{ height: "1px", background: "#E0E3E8" }} className="my-3" />
+            <div className="flex justify-between items-center"><span className="font-bold">Refund to {destName}</span><span className="font-black v2-num text-[16px]" style={{ color: "#1A7333" }}>{isMiles ? `${miles(refundTotalMi)} mi` : eurC(refundTotal)}</span></div>
+            {isMiles && refundTotal > 0 && <div className="text-[11px] text-ink-faint text-right mt-0.5 v2-num">≈ {eurC(refundTotal)} value</div>}
+            <div className="mt-3 px-3 py-2.5 text-[12px]" style={{ background: "#F5FAFF", border: "1px solid #C7D6F5", borderRadius: "12px" }}><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={16} className="text-[#3b6fd6]" /> Why these amounts?</div><div className="text-ink-muted mt-0.5">Discount fare: non-refundable. 20% admin fee on refundable items. See full policy.</div></div>
+            <button disabled={busy || refundTotal <= 0} onClick={cancel} style={{ height: "42px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} className="w-full mt-4 font-semibold text-[14px] inline-flex items-center justify-center disabled:opacity-60 transition-opacity">{busy ? "Processing…" : `Process refund · ${isMiles ? miles(refundTotalMi) + " mi" : eurC(refundTotal)}`}</button>
+            <button onClick={() => go("manage")} className="w-full mt-2 rounded-full bg-surface text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors inline-flex items-center justify-center" style={{ height: "42px", border: "1px solid #E8E8E5" }}>Cancel request</button>
           </Card>
         </aside>
       </div>
+    </div>
     </div>
   );
 }

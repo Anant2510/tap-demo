@@ -587,12 +587,12 @@ export function Home({ shared, go }) {
             <div className="grid md:grid-cols-3 gap-4">
               {anc.slice(0, 3).map((a, i) => {
                 const s = ((a.code || "") + " " + (a.name || "")).toLowerCase();
-                const ancImg = /upgrad|cabin|business/.test(s) ? "business-upgrade.jpg" : /secur|priorit|fast/.test(s) ? "fast-track-security.jpg" : /chang|flex/.test(s) ? "flexible-change.jpg" : null;   // #14 — approved asset photo
+                const ancImg = /upgrad|cabin|business/.test(s) ? "business-upgrade.jpg" : /secur|priorit|fast/.test(s) ? "fast-track-security.jpg" : /chang|flex/.test(s) ? "flexible-change.jpg" : /seat/.test(s) ? "business-upgrade.jpg" : null;   // #14/#7 — approved asset photo; seat reuses the cabin-seat shot
                 const ancIcon = /seat/.test(s) ? "seat" : /bag|lugg/.test(s) ? "bag" : /meal|food|veg|kid/.test(s) ? "leaf" : /loung/.test(s) ? "star" : /wifi|internet/.test(s) ? "bolt" : /upgrad|cabin|business/.test(s) ? "plane" : /insur|secur|protect/.test(s) ? "shield" : "spark";
                 return (
                   <Card key={a.code || i} className="overflow-hidden flex" style={{ borderRadius: "16px" }}>
                     <div className="w-[92px] shrink-0 self-stretch flex items-center justify-center overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
-                      {ancImg ? <Img seed={"anc-" + (a.code || i)} src={ASSET + ancImg} className="w-full h-full" /> : <span className="w-12 h-12 rounded-2xl bg-white/70 inline-flex items-center justify-center text-tap-greenDeep"><Icon name={ancIcon} size={22} /></span>}
+                      {ancImg ? <Img seed={"anc-" + (a.code || i)} src={ASSET + ancImg} className="w-full h-full" /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
                     </div>
                     <div className="p-3.5 flex flex-col flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
