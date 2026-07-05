@@ -81,7 +81,7 @@ const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-[8px] b
 const Req = () => <span className="text-tap-red ml-0.5">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
-function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped, footer, bigTotal }) {
+function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped, footer, bigTotal, carded }) {
   const t = tripTotals();
   const u = milesSwitch || {};
   const tier = u.tier || user?.tier || "Gold";
@@ -128,12 +128,12 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
                 </div>
               </div>
               {SOURCE_ORDER.filter(s => groups[s] && groups[s].length).map(s => (
-                <div key={s} className="mt-3">
-                  <div className="flex items-center justify-between mb-0.5">
+                <div key={s} className={cx("mt-3", carded && "rounded-xl border border-line overflow-hidden")}>
+                  <div className={cx("flex items-center justify-between", carded ? "bg-surface-soft px-3 py-2" : "mb-0.5")}>
                     <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{SOURCE_META[s].label} · {groups[s].length}</div>
                     <span className={cx("inline-flex items-center text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full", s === "user" ? "bg-lime text-ink" : s === "recommended" ? "bg-tap-green/10 text-tap-greenDeep" : "bg-surface-mute text-ink-muted")}>{SOURCE_META[s].tag}</span>
                   </div>
-                  {groups[s].map(e => <SummaryItem big={bigTotal} key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB(trip.pax, gnights)[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}
+                  <div className={carded ? "px-3 py-1.5" : ""}>{groups[s].map(e => <SummaryItem big={bigTotal} key={e.code} icon={CAT_ICON[e.cat] || "cart"} name={e.name} sub={CAT_SUB(trip.pax, gnights)[e.cat] || e.cat} price={e.price} qty={CAT_QTY[e.cat] ? `× ${trip.pax}` : ""} isNew={e.code === lastCode && e.source === "user"} />)}</div>
                 </div>
               ))}
               {onClear && trip.extras.length > 0 && <button onClick={onClear} className="mt-3 w-full rounded-full border border-line-strong py-2 text-[12px] font-semibold text-ink-muted hover:text-tap-red hover:border-tap-red inline-flex items-center justify-center gap-1.5"><Icon name="x" size={12} /> Clear basket</button>}
@@ -1275,7 +1275,7 @@ export function Passenger({ shared, go }) {
         <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Enter passenger information exactly as it appears on travel documents. We'll use this to issue tickets and send trip updates.</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{paxCount} adult{paxCount > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{paxCount > 1 ? " + " + (paxCount - 1) : ""}</Chip></div>
 
-        <div className="grid lg:grid-cols-[1fr_328px] gap-6 mt-5 items-start">
+        <div className="grid lg:grid-cols-[1fr_360px] gap-8 mt-5 items-start">
           <div className="space-y-6">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="inline-flex items-center gap-1 rounded-full border" style={{ borderColor: "#E8E8E5", padding: "6px" }}>
@@ -1322,7 +1322,7 @@ export function Passenger({ shared, go }) {
               </div>
             </Card>
           </div>
-          <BasketSummary step={4} grouped bigTotal cta="Continue to payment →" onCta={() => go("payment")} disabled={!allComplete} note={allComplete ? "Final review again on Step 4." : (firstIncomplete >= 0 ? `Complete Passenger ${firstIncomplete + 1} details to continue.` : "Complete contact details to continue.")} secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
+          <BasketSummary step={4} grouped bigTotal carded cta="Continue to payment →" onCta={() => go("payment")} disabled={!allComplete} note={allComplete ? "Final review again on Step 4." : (firstIncomplete >= 0 ? `Complete Passenger ${firstIncomplete + 1} details to continue.` : "Complete contact details to continue.")} secondary="← Back to My Trip Cart" onSecondary={() => go("cart")} />
         </div>
       </div>
     </div>
