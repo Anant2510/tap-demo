@@ -1049,7 +1049,7 @@ export function CheckInIndirect({ shared, go, params }) {
               <div className="flex items-start gap-3">
                 <span className="w-11 h-11 rounded-full bg-lime-tint inline-flex items-center justify-center text-[20px] font-bold shrink-0" style={{ color: "#2E7D33" }}>{p.avatar}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-[14px]">{p.name}</div>
+                  <div className="font-bold text-[17px] leading-[22px]" style={{ color: "#1A1F29" }}>{p.name}</div>
                   <div className="text-[11px] text-ink-faint mt-0.5">{p.type} · {p.doc} {p.verified && <Icon name="check" size={11} className="inline text-tap-green" />}</div>
                   <div className="text-[12px] font-semibold mt-1">Seat: {p.seat}</div>
                 </div>
@@ -1065,7 +1065,7 @@ export function CheckInIndirect({ shared, go, params }) {
           ))}
 
           {/* Travel documents (APIS) (#5) */}
-          <div className="p-4" style={{ borderRadius: "12px", border: "1px solid #C7F21F", background: "#F2FCD9" }}>
+          <div className="p-[18px]" style={{ borderRadius: "12px", border: "1px solid #C7F21F", background: "#F2FCD9" }}>
             <div className="font-bold text-[14px] mb-2">Travel documents (APIS)</div>
             <div className="text-[12px] flex items-start gap-1.5"><Icon name="check" size={13} className="text-tap-green mt-0.5 shrink-0" /> Passport PT2438211 · expires 2029-08-12 · all pax verified</div>
             <div className="text-[12px] text-[#b45309] font-semibold flex items-start gap-1.5 mt-1.5"><Icon name="info" size={13} className="mt-0.5 shrink-0" /> US ESTA pending — required for stopover OPO → re-check before boarding</div>
@@ -1076,7 +1076,7 @@ export function CheckInIndirect({ shared, go, params }) {
         {/* Sticky check-in summary panel (#6) */}
         <aside className="lg:sticky lg:top-6">
           <Card style={{ padding: "24px", borderRadius: "18px", borderColor: "#E8E8E5" }}>
-            <div className="font-bold text-[16px] mb-3">Check-in summary</div>
+            <div className="text-[20px] mb-3" style={{ fontWeight: 600, letterSpacing: "-0.01em", color: "#0A0A0A" }}>Check-in summary</div>
             <div className="space-y-2.5 text-[13px]">
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Flight</span><span className="font-bold text-right">{booking.flight_no || "TP 73"} · {fmtDate(booking.flight_date)}</span></div>
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Passengers</span><span className="font-bold">{selCount} of {total} selected</span></div>
@@ -1659,12 +1659,12 @@ export function Refund({ shared, go, params }) {
           {/* Refund destination selector (#5) */}
           <Card className="p-6" style={{ borderRadius: "18px" }}>
             <div className="font-bold text-[18px] mb-3">Refund destination</div>
-            <div className="flex flex-wrap gap-2.5">
+            <div className="flex gap-2.5">
               {REFUND_DESTS.map(d => {
                 const on = dest === d.id;
                 return (
-                  <button key={d.id} onClick={() => setDest(d.id)} className="text-left rounded-xl p-3 flex items-center gap-2.5 transition-colors flex-1 min-w-[180px]" style={{ border: on ? "2px solid #A6D926" : "1px solid #E0E3E8", background: on ? "#F5FCD9" : "#fff" }}>
-                    <span className="rounded-full inline-flex items-center justify-center shrink-0" style={{ width: "20px", height: "20px", border: `2px solid ${on ? "#1A1F29" : "#C9CDD3"}` }}>{on && <span className="rounded-full" style={{ width: "10px", height: "10px", background: "#1A1F29" }} />}</span>
+                  <button key={d.id} onClick={() => setDest(d.id)} className="text-left rounded-xl px-[18px] py-3 flex items-center gap-2.5 transition-colors shrink-0 w-fit" style={{ border: on ? "2px solid #A6D926" : "1px solid #E0E3E8", background: on ? "#F5FCD9" : "#fff" }}>
+                    <span className="inline-flex items-center justify-center shrink-0" style={{ width: "20px", height: "20px", borderRadius: "10px", border: "2px solid #1A1F29" }}>{on && <span style={{ width: "10px", height: "10px", borderRadius: "5px", background: "#1A1F29" }} />}</span>
                     <div><div className="text-[13px] font-bold">{d.name}</div><div className="text-[10px] text-ink-faint">{d.sub}</div></div>
                   </button>
                 );

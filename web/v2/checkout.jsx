@@ -820,11 +820,18 @@ export function Basket({ shared, go }) {
 
   const Leg = ({ label, f, date }) => (
     <div className="py-3">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">{label} · {fmtDate(date)} <span className="text-ink-muted font-semibold">{f.flight_no}</span> · {f.aircraft || "A330neo"}</div>
-      <div className="flex items-center justify-between mt-1.5 gap-3">
-        <div><div className="text-[24px] font-bold leading-none v2-num">{f.dep || "—"}</div><div className="text-[11px] text-ink-faint mt-1">{f.origin}</div></div>
-        <div className="flex-1 px-2 text-center text-ink-faint"><div className="text-[11px]">{f.duration || ""}</div><div className="h-px bg-line-strong my-1.5 relative"><span className="absolute right-0 -top-[3px] w-1.5 h-1.5 rounded-full border border-line-strong bg-surface" /></div><div className="text-[11px]">Nonstop · Direct</div></div>
-        <div className="text-right"><div className="text-[24px] font-bold leading-none v2-num">{f.arr || "—"}</div><div className="text-[11px] text-ink-faint mt-1">{f.dest}</div></div>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-ink-faint mb-2.5">{label} · {fmtDate(date)} <span className="text-ink-muted font-semibold">{f.flight_no}</span> · {f.aircraft || "A330neo"}</div>
+      <div className="flex gap-3">
+        <div className="flex flex-col items-center pt-1.5 shrink-0">
+          <span className="w-2.5 h-2.5 rounded-full border-2 border-ink-faint bg-surface" />
+          <span className="w-px flex-1 bg-line-strong my-1" style={{ minHeight: "22px" }} />
+          <span className="w-2.5 h-2.5 rounded-full bg-tap-greenDeep" />
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col gap-2.5">
+          <div className="flex items-baseline gap-2.5"><span className="text-[20px] font-bold leading-none v2-num">{f.origin}</span><span className="text-[13px] font-semibold text-ink-muted v2-num">{f.dep || "—"}</span></div>
+          <div className="text-[10px] text-ink-faint uppercase tracking-wide">{f.duration || ""} · Nonstop · Direct</div>
+          <div className="flex items-baseline gap-2.5"><span className="text-[20px] font-bold leading-none v2-num">{f.dest}</span><span className="text-[13px] font-semibold text-ink-muted v2-num">{f.arr || "—"}</span></div>
+        </div>
       </div>
     </div>
   );
@@ -874,7 +881,7 @@ export function Basket({ shared, go }) {
         )}
 
         {/* two-column: scrollable content + right-side sticky basket panel (Tab 6 #6) */}
-        <div className="grid lg:grid-cols-[1fr_376px] gap-8 mt-6 items-start">
+        <div className="grid lg:grid-cols-[minmax(0,880px)_376px] lg:justify-center gap-8 mt-6 items-start">
           <div className="space-y-6 min-w-0">
             {/* flights anchor — tinted header (#1) + zebra benefits row (#2) */}
             <div>
@@ -892,7 +899,7 @@ export function Basket({ shared, go }) {
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     {["1× carry-on (8kg)", "1× checked bag (23kg)", "Seat selection", "Changes for fee"].map(x => <span key={x} className="inline-flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> {x}</span>)}
                   </div>
-                  <span className="text-right"><span className="block text-[10px] uppercase tracking-wide text-ink-faint">Flights subtotal</span><span className="block text-[22px] font-bold v2-num text-ink leading-none mt-0.5">{eur2((ob?.price || 0) + (ib?.price || 0))}</span></span>
+                  <span className="text-right"><span className="block text-[10px] uppercase tracking-wide text-ink-faint">Flights subtotal</span><span className="block text-[22px] font-bold v2-num leading-none mt-0.5" style={{ color: "#0A0A0A" }}>{eur2((ob?.price || 0) + (ib?.price || 0))}</span></span>
                 </div>
               </Card>
             </div>
@@ -1275,7 +1282,7 @@ export function Passenger({ shared, go }) {
         <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Enter passenger information exactly as it appears on travel documents. We'll use this to issue tickets and send trip updates.</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{paxCount} adult{paxCount > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{paxCount > 1 ? " + " + (paxCount - 1) : ""}</Chip></div>
 
-        <div className="grid lg:grid-cols-[1fr_360px] gap-8 mt-5 items-start">
+        <div className="grid lg:grid-cols-[minmax(0,880px)_328px] lg:justify-center gap-6 mt-5 items-start">
           <div className="space-y-6">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="inline-flex items-center gap-1 rounded-full border" style={{ borderColor: "#E8E8E5", padding: "6px" }}>
