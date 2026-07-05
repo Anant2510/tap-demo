@@ -495,6 +495,7 @@ function destExp(city) {
 
 function CartView({ go, mode = "cart", shared }) {
   const isBasket = mode === "basket";
+  useEffect(() => { if (trip.outbound) api.post("/journey", { origin: trip.origin, dest: trip.dest, date: trip.date, stage: isBasket ? "basket" : "cart", device: "Web app" }).catch(() => {}); }, []); // eslint-disable-line
   const [, force] = useState(0); const r = () => force(x => x + 1);
   const [carbonOn, setCarbonOn] = useState(() => hasExtra("carbon"));
   // H2 — a fare change can surface as early as the cart step (and on resume, via the force flag).
@@ -1236,6 +1237,7 @@ const Toggle = ({ on, set }) => <button onClick={() => set(!on)} className="w-12
 
 export function Passenger({ shared, go }) {
   if (!trip.outbound) return noTrip(go);
+  useEffect(() => { api.post("/journey", { origin: trip.origin, dest: trip.dest, date: trip.date, stage: "passenger", device: "Web app" }).catch(() => {}); }, []); // eslint-disable-line
   seedExtras();
   const u = shared.profile?.user || {};
   const last = (u.full_name || "").replace(u.first_name || "", "").trim() || "Silva";
@@ -1408,6 +1410,7 @@ function PriceChangeModal({ info, onAccept, onExit }) {
 
 export function Payment({ shared, go }) {
   if (!trip.outbound) return noTrip(go);
+  useEffect(() => { api.post("/journey", { origin: trip.origin, dest: trip.dest, date: trip.date, stage: "payment", device: "Web app" }).catch(() => {}); }, []); // eslint-disable-line
   seedExtras();
   const u = shared.profile?.user || {};
   const voucher = (shared.profile?.vouchers || []).find(v => v.status === "active")?.amount || 0;

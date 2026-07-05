@@ -390,7 +390,7 @@ app.get("/api/profile", (req, res) => {
    progresses, so "Resume" on any channel drops them back at the exact step.
    Stages: search → results → seat → extras → review.  Cleared on payment or
    explicit start-over.                                                        */
-const STAGE_ORDER = ["search", "results", "seat", "extras", "review"];
+const STAGE_ORDER = ["search", "results", "seat", "cart", "extras", "basket", "passenger", "review", "payment"];
 function saveJourney({ origin, dest, date, device, stage, flight_no, seat, items, cabin }, uid = SERVER_DEFAULT_UID) {
   const prev = db.prepare("SELECT * FROM synced_searches WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
   // If this update is for the same route, keep the furthest stage reached (don't regress
