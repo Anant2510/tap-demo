@@ -437,7 +437,7 @@ export function CabinUpgrade({ shared, go }) {
         </div>
         <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold shrink-0" style={{ borderRadius: "14px", padding: "8px 16px", background: "#F2FCD9", color: "#2E7D33" }}><Icon name="check" size={12} /> Checked in</span>
       </div>
-      <div className="grid lg:grid-cols-[1fr_420px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
         <div>
           <div className="rounded-xl text-[13px] flex items-center gap-2 flex-wrap" style={{ background: "#FAFAF7", border: "1px solid #DCDCD8", padding: "18px" }}>
             <span className="text-ink-muted">Current:</span><span className="font-semibold">{curCabin} · Seat {booking.seat || "—"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
@@ -1637,7 +1637,7 @@ export function Refund({ shared, go, params }) {
       <h1 className="text-[36px] font-bold" style={{ color: "#0A0A0A" }}>Refund request</h1>
       <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Flight cancelled by airline. Choose how to receive each item refund. Travel-bank gets +10% bonus.</p>
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[1fr_420px] gap-6 mt-6 items-start">
         <div className="space-y-5">
           {/* Refundable items (#4) */}
           <Card className="p-6" style={{ borderRadius: "18px" }}>
