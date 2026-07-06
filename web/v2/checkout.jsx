@@ -1925,12 +1925,12 @@ export function Confirmation({ shared, go }) {
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
             <section>
-              <h2 className="text-[24px] font-bold">Recommended for this trip</h2>
+              <h2 className="text-[24px] font-bold flex items-center gap-2"><Icon name="star" size={20} className="text-tap-green" />Recommended for this trip</h2>
               <p className="text-[13px] mb-3" style={{ color: "#667080" }}>Tailored to your route, trip length and party · added straight to PNR {trip.pnr} · max 3.</p>
               <div className="grid sm:grid-cols-3 gap-4">
                 {ancRecs.map(r => {
                   const on = addedRecs.has(r.code);
-                  const rImg = (() => { const t = ((r.code || "") + " " + (r.name || "") + " " + (r.tag || "")).toLowerCase(); return /tour|day|sintra|highlight|sight|excursion/.test(t) ? "sintra.jpg" : /food|wine|tast|flavou|dining/.test(t) ? "wine-tour.jpg" : /transfer|car|ride|pickup|shuttle/.test(t) ? "return-transfer.jpg" : /checkout|late|hotel|room|stay|lounge/.test(t) ? "late-checkout.jpg" : null; })();
+                  const rImg = (() => { const t = ((r.code || "") + " " + (r.name || "") + " " + (r.tag || "")).toLowerCase(); return /tour|day|sintra|highlight|sight|excursion/.test(t) ? "sintra.jpg" : /food|wine|tast|flavou|dining/.test(t) ? "wine-tour.jpg" : /transfer|car|ride|pickup|shuttle/.test(t) ? "return-transfer.jpg" : /checkout|late|hotel|room|stay|lounge/.test(t) ? "late-checkout.jpg" : "bairro-alto.jpg"; })();
                   return (
                     <Card key={r.code} className={cx("flex flex-col overflow-hidden", on && "ring-1 ring-tap-green bg-lime-tint/30")} style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}>
                       {rImg && <div className="h-[148px] w-full overflow-hidden bg-surface-mute"><Img seed={"crec-" + r.code} src={PIMG + rImg} alt={r.name} className="w-full h-full object-cover" /></div>}
@@ -1948,7 +1948,7 @@ export function Confirmation({ shared, go }) {
                 })}
               </div>
               {recs.length > 0 && <>
-                <h2 className="text-[24px] font-bold mt-6">Useful for your trip</h2>
+                <h2 className="text-[24px] font-bold mt-6 flex items-center gap-2"><Icon name="star" size={20} className="text-tap-green" />Useful for your trip</h2>
                 <p className="text-[13px] mb-3" style={{ color: "#667080" }}>Ideas for your next trip based on where you go.</p>
                 <div className="grid sm:grid-cols-2 gap-6">
                   {recs.slice(0, 2).map(d => (
@@ -1991,14 +1991,16 @@ export function Confirmation({ shared, go }) {
 const Row = ({ label, v, green }) => <div className="flex items-center justify-between"><span className="text-ink-muted">{label}</span><span className={cx("font-semibold v2-num", green && "text-tap-greenDeep")}>{v}</span></div>;
 
 /* ═══════════ EXPRESS CHECKOUT (CH1·B4) — book your usual in two taps ═══════════ */
-export function ExpressCheckout({ shared, go }) {
+export function ExpressCheckout({ shared, go, params }) {
   const u = shared?.profile?.user || {};
   const pat = shared?.profile?.pattern || {};
   const airports = shared?.airports || [];
   const cityOf = (c) => airports.find(a => a.code === c)?.city || c;
-  const origin = pat.origin || u.home_airport || "OPO", dest = pat.dest || "LIS";
-  const date = pat.recommendedDate || trip.date || "";
-  const retDate = (() => { if (!date) return ""; const d = new Date(date); d.setDate(d.getDate() + 2); return d.toISOString().slice(0, 10); })();
+  // Use the route the user actually searched (passed from the results page) when present;
+  // otherwise fall back to the member's usual trip pattern.
+  const origin = params?.origin || pat.origin || u.home_airport || "OPO", dest = params?.dest || pat.dest || "LIS";
+  const date = params?.date || pat.recommendedDate || trip.date || "";
+  const retDate = params?.ret || (() => { if (!date) return ""; const d = new Date(date); d.setDate(d.getDate() + 2); return d.toISOString().slice(0, 10); })();
   const [, force] = useState(0);
   const [seat, setSeat] = useState(null);
   const [bag, setBag] = useState(true), [carbon, setCarbon] = useState(true), [seatUp, setSeatUp] = useState(true), [agree, setAgree] = useState(true), [busy, setBusy] = useState(false);

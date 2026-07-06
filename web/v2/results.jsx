@@ -3,7 +3,7 @@
 // Executive), badges, the date strip, sort and filters are derived from the real
 // flight the engine returns, so it works for any route in the 100-route network.
 import React, { useState, useEffect, useMemo } from "react";
-import { api, EUR, eur2, miles, fmtDate, MILES_RATE } from "./lib.js";
+import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Icon, cx } from "./ui.jsx";
 import { trip, setLeg, pingBasket, resetTrip } from "./trip.js";
 
@@ -461,7 +461,7 @@ export function Results({ shared, params, go }) {
               </>}
             </div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
-              {!isMulti && <button onClick={() => go("express")} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", background: "#FFFFFF", color: "#0A0A0A", fontSize: "13px" }}>Express Checkout</button>}
+              {!isMulti && <button onClick={() => go("express", { origin: params.origin, dest: params.dest, date: params.date, ret: params.ret, type, pax: params.pax, cabin: params.cabin })} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", background: "#FFFFFF", color: "#0A0A0A", fontSize: "13px" }}>Express Checkout</button>}
               <Btn variant="lime" className="text-[14px] font-bold" style={{ height: "41px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Customize your cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Customize your cart")} <Icon name="arrow" size={14} /></Btn>
             </div>
           </div>
