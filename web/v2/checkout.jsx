@@ -148,8 +148,10 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         </div>
 
         <Divider className="my-3.5" />
-        <div className={cx("flex items-end justify-between", bigTotal && "mt-5")}><div><div className="text-[13px] text-ink font-bold">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right"><div className={cx("v2-num text-ink", bigTotal ? "text-[48px] font-bold leading-none" : "text-[34px] font-bold")}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
+        <div className={bigTotal ? "mt-5" : ""} style={bigTotal ? { borderRadius: "16px", border: "1px solid #E8E8E5", padding: "18px" } : undefined}>
+        <div className="flex items-end justify-between gap-3"><div className="min-w-0"><div className="text-[13px] text-ink font-bold whitespace-nowrap">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted mt-0.5">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right shrink-0"><div className={cx("v2-num text-ink", bigTotal ? "text-[40px] font-bold leading-none" : "text-[34px] font-bold")}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
         <div className="mt-3 bg-lime-tint text-tap-greenDark flex items-center justify-between" style={{ borderRadius: "10px", padding: "10px 12px" }}><span className="flex items-center gap-1.5 text-[12px] font-medium"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num text-[14px] font-bold">{miles(EARN(t.total))} tap.miles</span></div>
+        </div>
         {breakdown && <div className="mt-3 flex items-center justify-between gap-2" style={{ background: "#F2FCD9", borderRadius: "12px", padding: "10px 12px", border: "1px solid #E8E8E5" }}><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 text-[11px] font-bold text-tap-greenDeep hover:brightness-95" style={{ borderRadius: "14px", border: "1px solid #2E7D33", padding: "7px 32px" }}>Save mix</button></div>}
 
         <Btn size="lg" className="w-full mt-4 text-[15px] font-bold" style={{ height: "60px", borderRadius: "9999px" }} disabled={disabled} onClick={onCta}>{cta}</Btn>
@@ -821,16 +823,23 @@ export function Basket({ shared, go }) {
   const Leg = ({ label, f, date }) => (
     <div className="py-3">
       <div className="text-[11px] font-bold uppercase tracking-wide text-ink-faint mb-2.5">{label} · {fmtDate(date)} <span className="text-ink-muted font-semibold">{f.flight_no}</span> · {f.aircraft || "A330neo"}</div>
-      <div className="flex gap-3">
-        <div className="flex flex-col items-center pt-1.5 shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full border-2 border-ink-faint bg-surface" />
-          <span className="w-px flex-1 bg-line-strong my-1" style={{ minHeight: "22px" }} />
-          <span className="w-2.5 h-2.5 rounded-full bg-tap-greenDeep" />
+      <div className="flex items-stretch rounded-xl border overflow-hidden" style={{ borderColor: "#E0E3E8" }}>
+        <div className="flex-1 px-3 py-3 text-center">
+          <div className="text-[20px] font-bold leading-none v2-num">{f.origin}</div>
+          <div className="text-[13px] font-semibold v2-num mt-1.5">{f.dep || "—"}</div>
+          <div className="text-[10px] text-ink-faint mt-0.5">Terminal 1</div>
         </div>
-        <div className="flex-1 min-w-0 flex flex-col gap-2.5">
-          <div className="flex items-baseline gap-2.5"><span className="text-[20px] font-bold leading-none v2-num">{f.origin}</span><span className="text-[13px] font-semibold text-ink-muted v2-num">{f.dep || "—"}</span></div>
-          <div className="text-[10px] text-ink-faint uppercase tracking-wide">{f.duration || ""} · Nonstop · Direct</div>
-          <div className="flex items-baseline gap-2.5"><span className="text-[20px] font-bold leading-none v2-num">{f.dest}</span><span className="text-[13px] font-semibold text-ink-muted v2-num">{f.arr || "—"}</span></div>
+        <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
+        <div className="flex-1 px-3 py-3 flex flex-col items-center justify-center text-center">
+          <Icon name="plane" size={16} className="text-tap-greenDeep" />
+          <div className="text-[10px] text-ink-muted font-semibold mt-1">{f.duration || ""}</div>
+          <div className="text-[9px] text-ink-faint uppercase tracking-wide mt-0.5">Nonstop · Direct</div>
+        </div>
+        <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
+        <div className="flex-1 px-3 py-3 text-center">
+          <div className="text-[20px] font-bold leading-none v2-num">{f.dest}</div>
+          <div className="text-[13px] font-semibold v2-num mt-1.5">{f.arr || "—"}</div>
+          <div className="text-[10px] text-ink-faint mt-0.5">Terminal 1</div>
         </div>
       </div>
     </div>
@@ -1911,7 +1920,7 @@ export function Confirmation({ shared, go }) {
                   <div className="text-right"><div className="text-[14px] font-bold" style={{ color: "#1A1F29" }}>{c.flight.dest}</div><div className="text-[26px] font-bold v2-num leading-none mt-0.5">{c.flight.arr}</div><div className="text-[11px] mt-1" style={{ color: "#667080" }}>Terminal 1</div></div>
                 </div>
               ))}
-              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span>{/exec/i.test(o?.fare || "") && <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="star" size={11} className="text-ink-muted" /> Lounge access</span>}</div>
+              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="star" size={11} className="text-ink-muted" /> {/exec/i.test(o?.fare || "") ? "Lounge access" : "Miles earned"}</span></div>
               <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} className="hover:underline">Add to Wallet</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
@@ -1939,7 +1948,7 @@ export function Confirmation({ shared, go }) {
                 })}
               </div>
               {recs.length > 0 && <>
-                <h2 className="text-[24px] font-bold mt-6">Where to next</h2>
+                <h2 className="text-[24px] font-bold mt-6">Useful for your trip</h2>
                 <p className="text-[13px] mb-3" style={{ color: "#667080" }}>Ideas for your next trip based on where you go.</p>
                 <div className="grid sm:grid-cols-2 gap-6">
                   {recs.slice(0, 2).map(d => (
@@ -1952,7 +1961,7 @@ export function Confirmation({ shared, go }) {
                         <div className="font-semibold text-[16px]">{d.city}</div>
                         <div className="text-[12px] text-ink-muted mt-1 flex-1 max-w-[280px]">{d.reason || d.tag}</div>
                         <div className="flex items-center justify-between mt-3">
-                          <div><div className="text-[20px] font-bold v2-num">{EUR(d.price)}</div><div className="text-[11px]" style={{ color: "#9A9A9A" }}>per person</div></div>
+                          <div><div className="text-[20px] font-bold v2-num">{eur2(d.price)}</div><div className="text-[11px]" style={{ color: "#9A9A9A" }}>per person</div></div>
                           <Btn size="sm" variant="outline" onClick={() => go("results", { origin: d.origin, dest: d.code })} style={{ borderRadius: "20px", padding: "10px 14px", borderColor: "#46A41A" }}>+ Add</Btn>
                         </div>
                       </div>

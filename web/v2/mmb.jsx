@@ -475,11 +475,11 @@ export function CabinUpgrade({ shared, go }) {
             <div className="flex items-end justify-between"><span className="font-bold">New total</span><span className="text-[28px] font-bold v2-num">{eur2(newTotal)}</span></div>
             <div className="text-[11px] text-ink-faint mt-1">or {miles(milesPrice)} miles</div>
             <Btn size="lg" className="w-full mt-3" style={{ height: "42px", borderRadius: "9999px" }} disabled={busy} onClick={confirm}>{busy ? "Confirming…" : `Upgrade for ${eur2(newTotal)} →`}</Btn>
-            <Btn variant="outline" className="w-full mt-2" style={{ borderColor: "#E8E8E5" }} onClick={() => go("manage")}>No thanks, keep {curCabin}</Btn>
+            <Btn variant="outline" className="w-full mt-2" style={{ borderColor: "#E8E8E5", color: "#0A0A0A", fontWeight: 600, fontSize: "13px" }} onClick={() => go("manage")}>No thanks, keep {curCabin}</Btn>
           </Card>
           <div className="rounded-xl px-4 py-3" style={{ background: "#FFF0D6", border: "1px solid #FAA824" }}>
-            <div className="text-[13px] font-bold text-[#b45309]">{chosen.seats} {chosen.name} seats remaining</div>
-            <div className="text-[11px] text-ink-muted">Window closes 4 h before departure</div>
+            <div className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#1A1F29" }}><Icon name="info" size={14} className="text-[#FAA824]" />{chosen.seats} {chosen.name} seats remaining</div>
+            <div className="text-[11px] mt-0.5" style={{ color: "#667080" }}>Window closes 4 h before departure</div>
           </div>
         </aside>
       </div>
@@ -491,7 +491,8 @@ export function CabinUpgrade({ shared, go }) {
 export function SeatChange({ shared, go }) {
   const { booking, loading, err } = useActiveBooking();
   const [rec, setRec] = useState(null);
-  const [sel, setSel] = useState(null);
+  const [seatByPax, setSeatByPax] = useState({});
+  const [activePax, setActivePax] = useState(0);
   const [cabin, setCabin] = useState(null);
   const [eligOk, setEligOk] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -500,8 +501,14 @@ export function SeatChange({ shared, go }) {
   if (loading) return <Loading label="Loading the seat map…" />;
   if (err || !booking) return <Empty go={go} />;
 
+  const paxList = (booking.meta?.passengers && booking.meta.passengers.length) ? booking.meta.passengers : [{ first: booking.meta?.first_name || "Passenger 1" }];
+  const adjSeatFor = (base, i) => { const m = String(base || "").match(/^(\d+)([A-F])$/); if (!m || !i) return base; const r = +m[1], c = "ABCDEF".indexOf(m[2]); return `${r}${"ABCDEF"[((c + i) % 6 + 6) % 6]}`; };
+  const sel = seatByPax[activePax] || null;
+  const setSel = (s) => setSeatByPax(p => ({ ...p, [activePax]: (typeof s === "function" ? s(p[activePax]) : s) }));
+
   const aircraft = booking.flight?.aircraft || "A330-900neo";
-  const curSeat = booking.seat || rec?.seat || "8A";
+  const baseSeat = booking.seat || rec?.seat || "8A";
+  const curSeat = adjSeatFor(baseSeat, activePax);
   const curRow = parseInt(curSeat, 10) || 8;
   const cabinOfRow = (r) => (r <= 5 ? "Business" : r <= 11 ? "Premium" : "Economy");
 
@@ -529,13 +536,13 @@ export function SeatChange({ shared, go }) {
   const isExit = (id) => C.exitRows.includes(parseInt(id, 10));
   const selFee = sel ? feeOf(sel) : 0;
   const selExit = sel ? isExit(sel) : false;
-  const canConfirm = sel && sel !== safeSeat && (!selExit || eligOk);
+  const canConfirm = Object.values(seatByPax).some(s => s && s !== safeSeat) && (!selExit || eligOk);
 
   const confirm = async () => {
     if (!canConfirm) return;   // #31 — CTA stays visually active, but a valid new seat is required
     setBusy(true);
-    await api.post("/bookings/ancillary", { code: "seat-" + sel, pnr: booking.pnr }).catch(() => ({ ok: false }));
-    notifyBookingChanged();   // #36 — seat change must reflect in My Trip immediately
+    for (const s of Object.values(seatByPax)) { if (s) await api.post("/bookings/ancillary", { code: "seat-" + s, pnr: booking.pnr }).catch(() => ({ ok: false })); }
+    notifyBookingChanged();   // #36 — seat change must reflect in My Trip immediately · FT-1 applies every passenger's seat
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
 
@@ -561,6 +568,17 @@ export function SeatChange({ shared, go }) {
       </div>
       <h1 className="text-[36px] font-bold mt-3">Change your seat</h1>
       <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Pick a new seat; we recalculate the fare difference and reissue your boarding pass.</p>
+
+      {paxList.length > 1 && (
+        <div className="mt-4 inline-flex items-center gap-1 rounded-full border flex-wrap" style={{ borderColor: "#E8E8E5", padding: "6px" }}>
+          {paxList.map((p, i) => (
+            <button key={i} onClick={() => setActivePax(i)} className="px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors inline-flex items-center gap-1.5" style={activePax === i ? { background: "#0A0A0A", color: "#FFFFFF" } : { background: "#FFFFFF", color: "#0A0A0A" }}>
+              {seatByPax[i] ? <Icon name="check" size={12} className={activePax === i ? "text-tap-green" : "text-tap-greenDeep"} /> : <span className={cx("w-1.5 h-1.5 rounded-full inline-block shrink-0", activePax === i ? "bg-white/50" : "bg-ink-faint")} />}
+              {(p.first || `Passenger ${i + 1}`)} · {seatByPax[i] || adjSeatFor(baseSeat, i)}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-[1fr_380px] gap-6 mt-6 items-start">
         <Card className="p-6 v2-in" style={{ borderRadius: "18px", boxShadow: "0 8px 24px rgba(0,0,0,0.08)" }}>
@@ -1012,22 +1030,25 @@ export function CheckInIndirect({ shared, go, params }) {
   };
   if (res && res.ok) {
     const already = res.state === "already_checked_in";
+    const passes = bookedPax.filter(isOn).length ? bookedPax.filter(isOn) : bookedPax;
     const bpText = `TAP AIR PORTUGAL — BOARDING PASS\nPNR: ${res.pnr}\nPassenger: ${u.first_name || ""}\nRoute: ${res.route}\nSeat: ${res.seat} · Group ${res.group}\nDate: ${fmtDate(res.date)}\n\nGate closes 20 minutes before departure.`;
     return (
       <div className="mx-auto max-w-content px-6 py-8">
         <SuccessHead title={already ? "Already checked in" : "Checked in"} sub={`PNR ${res.pnr} · boarding pass ready`} />
-        <Card className="p-0 mt-6 overflow-hidden v2-in">
+        {passes.map((p, bi) => (
+        <Card key={p.id} className="p-0 mt-4 overflow-hidden v2-in">
           <div className="bg-surface-dark text-white p-5 flex items-center justify-between">
-            <div><div className="text-[10px] uppercase tracking-widest text-white/50">Boarding pass</div><div className="text-[20px] font-black mt-1">{res.route}</div></div>
+            <div><div className="text-[10px] uppercase tracking-widest text-white/50">Boarding pass{passes.length > 1 ? ` · ${bi + 1} of ${passes.length}` : ""}</div><div className="text-[20px] font-black mt-1">{res.route}</div></div>
             <div className="text-right"><div className="text-[10px] uppercase tracking-widest text-white/50">Group</div><div className="text-[28px] font-black text-lime">{res.group}</div></div>
           </div>
           <div className="p-5 grid grid-cols-3 gap-4 text-center">
-            <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Passenger</div><div className="font-bold text-[14px] mt-0.5">{u.first_name || "Daniel"}</div></div>
-            <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Seat</div><div className="font-bold text-[14px] mt-0.5 v2-num">{res.seat}</div></div>
+            <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Passenger</div><div className="font-bold text-[14px] mt-0.5">{p.name}</div></div>
+            <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Seat</div><div className="font-bold text-[14px] mt-0.5 v2-num">{p.seat || res.seat}</div></div>
             <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Date</div><div className="font-bold text-[14px] mt-0.5">{fmtDate(res.date)}</div></div>
           </div>
           <div className="px-5 pb-5"><div className="rounded-lg bg-lime-tint text-tap-greenDark px-3 py-2.5 text-[12px] flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> Gate closes 20 minutes before departure. Have your ID ready.</div></div>
         </Card>
+        ))}
         <div className="flex flex-wrap gap-5 mt-5 text-[13px] font-semibold text-tap-greenDeep"><button onClick={() => downloadFile(`boarding-pass-${res.pnr}.txt`, bpText)}>Add to Wallet</button><button onClick={() => downloadFile(`boarding-pass-${res.pnr}.txt`, bpText)}>Download boarding pass</button></div>
         <div className="mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn></div>
       </div>
