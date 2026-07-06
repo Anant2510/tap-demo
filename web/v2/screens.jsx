@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
-import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
+import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, WhyChip, Avatar, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 import { Results } from "./results.jsx";
 import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout, StopoverBuilder, MilesShop } from "./checkout.jsx";
@@ -201,27 +201,298 @@ function DestGrid({ destinations = [], go }) {
   );
 }
 
+/* ─────────────── Marketing sections for the logged-out Homepage (Figma match) ─────────────── */
+// 1 · Quick-action shortcut row (sits under the search widget)
+function QuickActions({ go }) {
+  const items = [
+    { icon: "doc", title: "Check-in", sub: "From 24h before", route: "checkin" },
+    { icon: "refresh", title: "Manage booking", sub: "Change, add, refund", route: "manage" },
+    { icon: "plane", title: "Flight status", sub: "Live tracking", route: "manage" },
+    { icon: "spark", title: "Book with miles", sub: "14,900 nearby", route: "miles", badge: true },
+    { icon: "seat", title: "Economy Plus", sub: "More space, more service", route: "results" },
+    { icon: "bag", title: "TAP for Business", sub: "Corporate tools", route: "home" },
+    { icon: "shield", title: "Travel extras", sub: "Insurance, eSIM, more", route: "extras" },
+  ];
+  return (
+    <section className="mt-8 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      {items.map((it) => (
+        <button key={it.title} onClick={() => go(it.route)} className="group text-left rounded-2xl border border-line bg-surface px-3.5 py-4 hover:border-tap-green hover:shadow-card transition-all">
+          <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-lime-tint text-tap-greenDeep relative">
+            <Icon name={it.icon} size={17} />
+            {it.badge && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-tap-green text-white text-[10px] font-black flex items-center justify-center leading-none">+</span>}
+          </span>
+          <div className="mt-2.5 text-[13px] font-bold leading-tight">{it.title}</div>
+          <div className="text-[11px] text-ink-muted mt-0.5">{it.sub}</div>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+// 2 · Portugal Stopover
+function StopoverSection({ go }) {
+  const bullets = [
+    "Free stopover in Lisbon or Porto for up to 10 days",
+    "25% off domestic flights when you go beyond your stopover city",
+    "Special offers at 150+ hotels, restaurants, tours and museums",
+  ];
+  const steps = [
+    ["Choose your route", "Any TAP flight via Lisbon or Porto"],
+    ["Add a free stopover", "One click during booking — no fare difference"],
+    ["Pick hotels & experiences", "Save with 150+ partner offers"],
+  ];
+  return (
+    <section className="mt-16 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+      <div>
+        <Eyebrow>Portugal Stopover · Included</Eyebrow>
+        <h2 className="text-[30px] sm:text-[34px] font-black tracking-tight leading-[1.06] mt-2">Turn your layover into a mini vacation.</h2>
+        <p className="text-[14px] text-ink-muted mt-3 max-w-md">Stop in Lisbon or Porto for up to 10 days at no extra airfare. Explore the country, then continue to your final destination.</p>
+        <ul className="mt-5 space-y-2.5">
+          {bullets.map((b) => (
+            <li key={b} className="flex items-start gap-2.5 text-[13px]"><span className="mt-0.5 shrink-0 text-tap-green"><Icon name="check" size={16} /></span><span>{b}</span></li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center gap-4 mt-6">
+          <Btn variant="primary" onClick={() => go("stopover")}>See Stopover deals</Btn>
+          <button onClick={() => go("stopover")} className="text-[13px] font-semibold text-tap-greenDeep hover:underline inline-flex items-center gap-1">How it works <Icon name="arrow" size={14} /></button>
+        </div>
+      </div>
+      <div className="relative">
+        <div className="relative rounded-3xl overflow-hidden h-[280px] sm:h-[320px]">
+          <Img seed="lisbon-stopover" src={ASSET + "book-lisbon-porto.jpg"} alt="Lisbon" className="absolute inset-0 w-full h-full" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
+          <span className="absolute top-4 right-4 flex flex-col items-center justify-center w-16 h-16 rounded-full bg-lime text-ink shadow-pop">
+            <span className="text-[20px] font-black leading-none v2-num">10</span><span className="text-[9px] font-bold uppercase tracking-wide">days</span>
+          </span>
+        </div>
+        <Card className="p-4 sm:p-5 -mt-14 relative mx-4 sm:mx-8 shadow-pop">
+          {steps.map(([t, s], i) => (
+            <div key={t} className={cx("flex items-start gap-3 py-2.5", i < steps.length - 1 && "border-b border-line")}>
+              <span className="shrink-0 w-6 h-6 rounded-full bg-tap-green text-white text-[12px] font-bold flex items-center justify-center leading-none">{i + 1}</span>
+              <div><div className="text-[13px] font-bold leading-tight">{t}</div><div className="text-[11px] text-ink-muted mt-0.5">{s}</div></div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+// 3 · Trip Extras
+function TripExtrasSection({ go }) {
+  const cards = [
+    { icon: "home", title: "Hotels with miles built-in", body: "Book partner hotels worldwide. Earn voa.miles every night and redeem them on future stays.", cta: "Find hotels" },
+    { icon: "swap", title: "Cars, transfers & parking", body: "Airport pickups, daily rentals and parking, with loyalty perks on every Hertz, Sixt and Europcar booking.", cta: "Book a ride" },
+    { icon: "star", title: "Experiences & insurance", body: "Skip-the-line tours, food trails and wine country, plus travel insurance from €4/day.", cta: "Browse experiences" },
+  ];
+  return (
+    <section className="mt-16">
+      <div className="flex items-end justify-between gap-4 mb-5">
+        <div><Eyebrow>Trip Extras</Eyebrow><h2 className="text-[30px] sm:text-[34px] font-black tracking-tight mt-2">Complete your trip in one place.</h2></div>
+        <button onClick={() => go("extras")} className="hidden sm:inline-flex items-center gap-1 text-[13px] font-semibold text-tap-greenDeep hover:underline shrink-0">All trip extras <Icon name="arrow" size={14} /></button>
+      </div>
+      <div className="grid sm:grid-cols-3 gap-4">
+        {cards.map((c) => (
+          <Card key={c.title} className="p-5 flex flex-col">
+            <span className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-lime-tint text-tap-greenDeep"><Icon name={c.icon} size={20} /></span>
+            <div className="mt-4 font-bold text-[15px]">{c.title}</div>
+            <p className="text-[12.5px] text-ink-muted mt-1.5 flex-1">{c.body}</p>
+            <button onClick={() => go("extras")} className="mt-4 self-start inline-flex items-center gap-1.5 rounded-full border border-line px-3.5 py-1.5 text-[12px] font-semibold hover:border-tap-green hover:text-tap-greenDeep transition-colors">{c.cta} <Icon name="arrow" size={13} /></button>
+          </Card>
+        ))}
+      </div>
+      <div className="mt-4 rounded-2xl bg-surface-dark text-white px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-tap-green/20 text-lime shrink-0"><Icon name="bolt" size={20} /></span>
+          <div><div className="font-bold text-[15px]">Bundle and save up to 22%</div><div className="text-[12.5px] text-white/60 mt-0.5">Add a hotel and a car when you book your flight — checkout in under 90 seconds.</div></div>
+        </div>
+        <Btn variant="lime" onClick={() => go("results")} className="shrink-0">Try Flight + Hotel <Icon name="arrow" size={14} /></Btn>
+      </div>
+    </section>
+  );
+}
+
+// 4 · TAP Miles & Go loyalty
+function LoyaltySection({ go }) {
+  const bullets = [
+    "Earn and redeem across voa and 26 Star Alliance partners worldwide",
+    "Silver, Gold and Navigator tiers with lounge access, priority everything and bonus miles",
+    "Club TAP Miles & Go — monthly miles and benefits, even if you don't fly often",
+  ];
+  return (
+    <section className="mt-16 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+      <div>
+        <Eyebrow>TAP Miles & Go · Loyalty Program</Eyebrow>
+        <h2 className="text-[30px] sm:text-[34px] font-black tracking-tight leading-[1.06] mt-2">Fly more. Earn more. <span className="text-ink-faint">Experience more.</span></h2>
+        <ul className="mt-5 space-y-2.5">
+          {bullets.map((b) => (
+            <li key={b} className="flex items-start gap-2.5 text-[13px]"><span className="mt-0.5 shrink-0 text-tap-green"><Icon name="check" size={16} /></span><span>{b}</span></li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center gap-4 mt-6">
+          <Btn variant="primary" onClick={() => go("miles")}>Join TAP Miles & Go <Icon name="arrow" size={14} /></Btn>
+          <button onClick={() => go("miles")} className="text-[13px] font-semibold text-tap-greenDeep hover:underline inline-flex items-center gap-1">See all benefits <Icon name="arrow" size={14} /></button>
+        </div>
+      </div>
+      <div className="relative rounded-[26px] p-7 text-white overflow-hidden shadow-pop" style={{ background: "linear-gradient(135deg,#2e7d33 0%,#46a41a 55%,#336614 100%)" }}>
+        <div className="absolute -right-12 -top-12 w-44 h-44 rounded-full bg-white/10" aria-hidden="true" />
+        <div className="relative flex items-center justify-between">
+          <div className="flex items-center gap-2.5"><Avatar initials="MS" className="bg-white/20" /><div><div className="text-[11px] text-white/70">Welcome back,</div><div className="text-[14px] font-bold">Mariana Silva</div></div></div>
+          <Pill tone="gold">Gold tier</Pill>
+        </div>
+        <div className="relative mt-6">
+          <div className="text-[10px] uppercase tracking-wide text-white/60">Miles balance</div>
+          <div className="text-[34px] font-black leading-none mt-1 v2-num">52,840 <span className="text-[13px] font-medium text-white/60">voa.miles</span></div>
+          <div className="text-[11px] text-white/70 mt-1">+2,140 since last trip · expires Dec 2027</div>
+          <div className="h-2 rounded-full bg-white/20 mt-3 overflow-hidden"><div className="h-full rounded-full bg-lime" style={{ width: "68%" }} /></div>
+          <div className="flex justify-between text-[10px] text-white/60 mt-1.5"><span>Gold</span><span>12,160 mi to Navigator</span></div>
+        </div>
+        <div className="relative mt-5 rounded-2xl bg-black/15 p-3.5">
+          <div className="text-[10px] uppercase tracking-wide text-white/50">Next trip</div>
+          <div className="flex items-center justify-between mt-1"><div className="text-[13px] font-bold">Lisbon → Porto · Jun 14</div><span className="text-[11px] text-lime font-bold v2-num">+6,640 mi</span></div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// 5 · Localization (interactive currency toggle)
+function LocalizationSection() {
+  const markets = [
+    { key: "BR", label: "Brasil", cur: "BRL", sym: "R$", rate: 5.6 },
+    { key: "PT", label: "Portugal", cur: "EUR", sym: "€", rate: 1 },
+    { key: "US", label: "United States", cur: "USD", sym: "$", rate: 1.08 },
+  ];
+  const [m, setM] = useState(markets[0]);
+  const base = [3890, 4100, 4310, 4520];
+  const fmt = (eur) => m.sym + " " + Math.round(eur * m.rate).toLocaleString();
+  return (
+    <section className="mt-16 rounded-3xl border border-line bg-surface-soft p-7 sm:p-9 grid lg:grid-cols-2 gap-8 lg:gap-12">
+      <div>
+        <Eyebrow>Local · Personal · Easy to change</Eyebrow>
+        <h2 className="text-[28px] sm:text-[32px] font-black tracking-tight leading-[1.08] mt-2">Your trip, in your language. <span className="text-ink-faint">Your currency. Your routes.</span></h2>
+        <p className="text-[13px] text-ink-muted mt-3 max-w-md">Smart localization adjusts language, prices and offers to where you are — but a single click switches everything if you'd rather see another market.</p>
+        <div className="mt-5">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-2">Viewing offers for</div>
+          <div className="inline-flex flex-wrap rounded-full border border-line bg-surface p-1 gap-1">
+            {markets.map((mk) => (
+              <button key={mk.key} onClick={() => setM(mk)} className={cx("px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors", m.key === mk.key ? "bg-ink text-white" : "text-ink-muted hover:text-ink")}>{mk.label} <span className="opacity-60">{mk.cur}</span></button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-2">Popular from Porto</div>
+        <div className="rounded-2xl border border-line bg-surface divide-y divide-line overflow-hidden">
+          {base.map((eur, i) => (
+            <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-surface-mute">
+              <div className="flex items-center gap-3"><span className="text-[11px] font-bold text-ink-faint v2-num">0{i + 1}</span><span className="text-[13px] font-semibold">Lisbon → Porto</span></div>
+              <span className="text-[13px] font-bold v2-num">from {fmt(eur)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// 6 · Testimonials
+function TestimonialsSection() {
+  const reviews = [
+    { name: "Carla M.", loc: "Porto, PT", tag: "Stopover", initials: "CM", text: "Did a 6-day stopover in Porto on the way to Italy — wine tours, the Douro Valley, and zero extra airfare. Booking the bundle took 90 seconds." },
+    { name: "Tomás A.", loc: "Lisbon, PT", tag: "Gold tier", initials: "TA", text: "The crew on the Lisbon overnight is genuinely friendly. Boarded with priority as Gold, slept the whole way, woke up to a Lisbon sunrise." },
+    { name: "Erin J.", loc: "Porto, PT", tag: "Trip Extras", initials: "EJ", text: "Brought my whole trip into one app — flight, Hertz pickup at LIS, a hotel in Alfama, a wine class. Earned miles on every leg." },
+  ];
+  return (
+    <section className="mt-16">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
+        <div><Eyebrow>Loved for the Portugal experience</Eyebrow><h2 className="text-[30px] sm:text-[34px] font-black tracking-tight mt-2">Trusted by travelers,<br className="hidden sm:block" /> across three continents.</h2></div>
+        <div className="flex items-center gap-5 shrink-0">
+          <div><div className="flex items-center gap-1.5 text-[18px] font-black v2-num">4.5 <span className="text-tap-green text-[15px]">★</span></div><div className="text-[11px] text-ink-muted">12,400 reviews</div></div>
+          <div className="border-l border-line pl-5"><div className="text-[12px] font-bold">Star Alliance</div><div className="text-[11px] text-ink-muted">Member airline</div></div>
+        </div>
+      </div>
+      <div className="grid sm:grid-cols-3 gap-4">
+        {reviews.map((r) => (
+          <Card key={r.name} className="p-5 flex flex-col">
+            <div className="text-tap-green text-[13px] tracking-tight">★★★★★</div>
+            <p className="text-[13px] text-ink-strong mt-3 flex-1">“{r.text}”</p>
+            <div className="flex items-center justify-between mt-4">
+              <div className="flex items-center gap-2.5"><Avatar initials={r.initials} /><div><div className="text-[12px] font-bold">{r.name}</div><div className="text-[11px] text-ink-faint">{r.loc}</div></div></div>
+              <Pill tone="slate">{r.tag}</Pill>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// 7 · App download
+function AppSection() {
+  const stats = [["4.8", "App Store rating"], ["2.1M+", "Active travelers"], ["90s", "Avg booking time"]];
+  const timeline = [["plane", "Flight VO 084", "On time"], ["swap", "Hertz pickup at LIS", "Confirmed"], ["home", "Hotel Avenida, Alfama", "Check-in 14:00"]];
+  return (
+    <section className="mt-16 mb-4 rounded-3xl bg-surface-navy text-white overflow-hidden">
+      <div className="grid lg:grid-cols-2 gap-8 items-center p-8 sm:p-10">
+        <div>
+          <Eyebrow className="text-white/50">TAP App</Eyebrow>
+          <h2 className="text-[30px] sm:text-[36px] font-black tracking-tight leading-[1.05] mt-2">Your trip in your pocket.</h2>
+          <p className="text-[14px] text-white/65 mt-3 max-w-md">Real-time gate updates, mobile boarding passes, trip extras you can book mid-flight and a clean trip timeline.</p>
+          <div className="flex flex-wrap gap-3 mt-6">
+            <span className="inline-flex items-center gap-2 rounded-xl bg-white text-ink px-4 py-2.5 text-[13px] font-bold cursor-pointer hover:bg-white/90"><Icon name="plane" size={16} /> App Store</span>
+            <span className="inline-flex items-center gap-2 rounded-xl bg-white/10 border border-white/20 px-4 py-2.5 text-[13px] font-bold cursor-pointer hover:bg-white/15">Google Play</span>
+          </div>
+          <div className="flex gap-8 mt-7">
+            {stats.map(([n, l]) => (<div key={l}><div className="text-[22px] font-black v2-num">{n}</div><div className="text-[11px] text-white/50">{l}</div></div>))}
+          </div>
+        </div>
+        <div className="flex justify-center lg:justify-end">
+          <div className="w-[220px] rounded-[34px] bg-black p-2.5 shadow-pop">
+            <div className="rounded-[26px] bg-surface overflow-hidden">
+              <div className="bg-surface-navy text-white px-4 pt-4 pb-5">
+                <div className="text-[10px] text-white/50">Boarding pass</div>
+                <div className="flex items-center justify-between mt-1"><div className="text-[18px] font-black">GRU</div><span className="text-white/50"><Icon name="plane" size={16} /></span><div className="text-[18px] font-black">LIS</div></div>
+                <div className="flex items-center justify-between text-[10px] text-white/60 mt-1"><span>São Paulo</span><span>Lisbon</span></div>
+                <div className="flex items-center justify-between mt-3 text-[10px]"><span className="text-white/50">Gate <b className="text-white">B14</b></span><span className="text-white/50">Seat <b className="text-white">4A</b></span><span className="text-white/50">Boards <b className="text-white">22:30</b></span></div>
+              </div>
+              <div className="p-3 space-y-2">
+                {timeline.map(([ic, t, s]) => (
+                  <div key={t} className="flex items-center gap-2.5 rounded-xl bg-surface-mute px-3 py-2"><span className="text-tap-greenDeep shrink-0"><Icon name={ic} size={14} /></span><div className="min-w-0 flex-1"><div className="text-[11px] font-bold truncate">{t}</div><div className="text-[9px] text-ink-faint">{s}</div></div></div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ─────────────────────────── HOMEPAGE (logged-out) ─────────────────────────── */
 export function Homepage({ shared, go }) {
   const { airports = [], destinations = [] } = shared;
   return (
     <Page wide>
-      <section className="relative rounded-3xl overflow-hidden bg-surface-navy text-white px-6 sm:px-10 py-12 mb-6 v2-in">
-        <div className="absolute inset-0 opacity-30 bg-gradient-to-tr from-tap-green/30 via-transparent to-lime/20" />
+      <section className="relative rounded-3xl overflow-hidden bg-surface-navy text-white px-6 sm:px-10 py-14 sm:py-16 mb-6 v2-in">
+        <img src={ASSET + "hero-anon.jpg"} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover object-center" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+        <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(10,14,20,0.82) 0%, rgba(10,14,20,0.55) 46%, rgba(10,14,20,0.14) 100%)" }} />
         <div className="relative max-w-2xl">
           <Pill tone="lime" className="mb-3">NEW · Summer in Portugal</Pill>
           <h1 className="text-[40px] sm:text-[52px] leading-[1.02] font-black tracking-tight">Fly more. Stay longer.<br />See Portugal on the way.</h1>
-          <p className="mt-3 text-white/70 text-[15px]">Free Portugal Stopover up to 10 days · earn Miles on every booking · best-price guarantee.</p>
+          <p className="mt-3 text-white/80 text-[15px]">Free Portugal Stopover up to 10 days · earn Miles on every booking · best-price guarantee.</p>
         </div>
       </section>
       <div className="-mt-16 relative z-10 max-w-content mx-auto"><SearchWidget airports={airports} onSearch={(q) => go("results", q)} /></div>
       <div className="max-w-content mx-auto">
+        <QuickActions go={go} />
         <DestGrid destinations={destinations} go={go} />
-        <div className="mt-10 grid sm:grid-cols-3 gap-4">
-          {[["plane", "Free Portugal Stopover", "Break your long-haul in Lisbon or Porto for up to 10 days — no extra fare."], ["spark", "Earn & spend Miles", "Collect on flights, hotels and cars; redeem against fares and upgrades."], ["check", "Best-price guarantee", "Transparent fees, free cancellation on select fares, 24/7 disruption support."]].map(([ic, t, s]) => (
-            <Card key={t} className="p-5"><span className="text-tap-green"><Icon name={ic} size={20} /></span><div className="mt-3 font-bold text-[15px]">{t}</div><div className="text-[12px] text-ink-muted mt-1">{s}</div></Card>
-          ))}
-        </div>
+        <StopoverSection go={go} />
+        <TripExtrasSection go={go} />
+        <LoyaltySection go={go} />
+        <LocalizationSection />
+        <TestimonialsSection />
+        <AppSection />
       </div>
     </Page>
   );
