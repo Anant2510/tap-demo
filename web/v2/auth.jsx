@@ -119,7 +119,7 @@ export function LoginModal({ profile, onClose, onLogin, onRegister, onAdminLogin
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-[380px] bg-surface rounded-2xl shadow-pop border border-line p-6 v2-in">
+      <div className="relative w-full max-w-[380px] max-h-[90vh] overflow-y-auto bg-surface rounded-2xl shadow-pop border border-line p-6 v2-in">
         <button onClick={onClose} className="absolute top-3 right-3 p-1.5 rounded-lg text-ink-faint hover:bg-surface-mute" aria-label="Close">✕</button>
         <TapLogo />
 
