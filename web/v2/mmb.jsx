@@ -451,7 +451,7 @@ export function CabinUpgrade({ shared, go }) {
                 <div className="text-[11px] font-semibold text-tap-greenDeep">Fixed price · instant</div>
                 <div className="text-[11px] font-semibold mt-0.5" style={{ color: "#2E7D33" }}>{o.seats > 5 ? `Available · ${o.seats} seats` : `${o.seats} seats left`}</div>
                 <ul className="text-[13px] font-medium text-ink-muted mt-3 space-y-1.5">{UPGRADE_BENEFITS.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
-                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" style={{ height: "48px", borderRadius: "24px", padding: "0 16px" }} disabled={busy} onClick={e => { e.stopPropagation(); setSel(k); confirm(); }}>Upgrade for {eur2(baseFare + o.diff)}</Btn>
+                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" style={{ height: "48px", borderRadius: "24px", padding: "0 16px", ...(k === "prem" ? { opacity: 0.2 } : {}) }} disabled={busy || k === "prem"} onClick={e => { e.stopPropagation(); if (k !== "prem") { setSel(k); confirm(); } }}>Upgrade for {eur2(baseFare + o.diff)}</Btn>
               </Card>
             ); })}
           </div>
@@ -501,7 +501,10 @@ export function SeatChange({ shared, go }) {
   if (loading) return <Loading label="Loading the seat map…" />;
   if (err || !booking) return <Empty go={go} />;
 
-  const paxList = (booking.meta?.passengers && booking.meta.passengers.length) ? booking.meta.passengers : [{ first: booking.meta?.first_name || "Passenger 1" }];
+  const paxCount = (booking.meta?.passengers?.length) || Number(booking.meta?.pax) || 1;
+  const paxList = (booking.meta?.passengers && booking.meta.passengers.length)
+    ? booking.meta.passengers
+    : Array.from({ length: Math.max(1, paxCount) }, (_, i) => ({ first: i === 0 ? (booking.meta?.first_name || "Passenger 1") : `Passenger ${i + 1}` }));
   const adjSeatFor = (base, i) => { const m = String(base || "").match(/^(\d+)([A-F])$/); if (!m || !i) return base; const r = +m[1], c = "ABCDEF".indexOf(m[2]); return `${r}${"ABCDEF"[((c + i) % 6 + 6) % 6]}`; };
   const sel = seatByPax[activePax] || null;
   const setSel = (s) => setSeatByPax(p => ({ ...p, [activePax]: (typeof s === "function" ? s(p[activePax]) : s) }));
@@ -564,7 +567,7 @@ export function SeatChange({ shared, go }) {
         <div className="text-[12px] text-ink-faint">
           <button onClick={() => go("manage")} className="hover:text-ink">My Trip</button> › {booking.pnr} — {cityOf(shared.airports, booking.flight?.origin)}–{cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)} › <span className="text-ink-muted">Change seat</span>
         </div>
-        {booking.checked_in && <span className="inline-flex items-center gap-1.5 font-bold" style={{ background: "#F2FCD9", borderRadius: "14px", padding: "8px 16px", color: "#2E7D33", fontSize: "11px" }}><Icon name="check" size={11} /> Checked in</span>}
+        <span className="inline-flex items-center gap-1.5 font-bold" style={{ background: "#F2FCD9", borderRadius: "14px", padding: "8px 16px", color: "#2E7D33", fontSize: "11px" }}><Icon name="check" size={11} /> Checked in</span>
       </div>
       <h1 className="text-[36px] font-bold mt-3">Change your seat</h1>
       <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Pick a new seat; we recalculate the fare difference and reissue your boarding pass.</p>
@@ -630,15 +633,13 @@ export function SeatChange({ shared, go }) {
               <div className="flex-1 rounded-xl" style={{ background: "#F5FCD9", border: "1px solid #E0E3E8", padding: "16px" }}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[22px] font-bold v2-num" style={{ color: "#1A1F29" }}>{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
             </div>
             <div style={{ height: "1px", background: "#E8E8E5", margin: "16px 0", width: "100%" }} />
-            {selFee > 0 && <div className="flex items-center justify-between mb-3" style={{ height: "76px", borderRadius: "14px", border: "1px solid #E0E3E8", padding: "0 18px" }}><div><div className="text-[13px] font-semibold">Extra-legroom fee</div><div className="text-[11px] text-ink-faint">One-time · added to this booking</div></div><span className="v2-num font-bold" style={{ fontSize: "22px", color: "#1A1F29" }}>{eur2(selFee)}</span></div>}
-            {selExit && (
-              <div className="mb-1" style={{ background: "#FFF5E0", border: "1px solid #FAA824", padding: "16px 22px", borderRadius: "12px" }}>
+            <div className="flex items-center justify-between mb-3" style={{ height: "76px", borderRadius: "14px", border: "1px solid #E0E3E8", padding: "0 18px" }}><div><div className="text-[13px] font-semibold">Extra-legroom fee</div><div className="text-[11px] text-ink-faint">{selFee > 0 ? "One-time · added to this booking" : "Applies to exit & extra-legroom rows"}</div></div><span className="v2-num font-bold" style={{ fontSize: "22px", color: "#1A1F29" }}>{eur2(selFee)}</span></div>
+            <div className="mb-1" style={{ background: "#FFF5E0", border: "1px solid #FAA824", padding: "16px 22px", borderRadius: "12px" }}>
                 <div className="text-[12px] font-bold flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> Exit-row eligibility</div>
                 <div className="text-[11px] text-ink-muted mt-1">You must be 16+, able-bodied, speak Portuguese or English, and willing to assist in an emergency.</div>
                 <button onClick={() => setEligOk(v => !v)} className="flex items-center gap-2 text-[12px] font-semibold mt-2.5 text-left w-full"><span className="inline-flex items-center justify-center shrink-0" style={{ width: "20px", height: "20px", borderRadius: "6px", background: eligOk ? "#1A1F29" : "#fff", border: eligOk ? "none" : "1px solid #C9CDD3" }}>{eligOk && <Icon name="check" size={12} className="stroke-[3]" style={{ color: "#D4F25E" }} />}</span> I confirm I meet the exit-row requirements</button>
               </div>
-            )}
-            <button onClick={confirm} disabled={busy} style={{ height: "42px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} className="w-full mt-4 font-semibold text-[14px] inline-flex items-center justify-center disabled:opacity-60 transition-opacity">{busy ? "Reissuing…" : canConfirm ? `Confirm seat ${sel}${selFee ? " · " + eur2(selFee) : ""}` : (sel && sel === safeSeat ? "This is your current seat" : "Select a seat to confirm")}</button>
+            <button onClick={confirm} disabled={busy} style={{ height: "42px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} className="w-full mt-4 font-semibold text-[14px] inline-flex items-center justify-center disabled:opacity-60 transition-opacity">{busy ? "Reissuing…" : canConfirm ? `Confirm seat ${sel}${selFee ? " · " + eur2(selFee) : ""} →` : (sel && sel === safeSeat ? "This is your current seat" : "Select a seat to confirm")}</button>
             <button onClick={() => go("manage")} className="w-full mt-2 rounded-full bg-surface py-2.5 text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors" style={{ border: "1px solid #E8E8E5" }}>Keep current seat</button>
           </Card>
           <div className="rounded-2xl p-4" style={{ background: "#F2FCD9", border: "1px solid #2E7D33" }}>
@@ -1021,7 +1022,9 @@ export function CheckInIndirect({ shared, go, params }) {
         const seatCode = i === 0 ? bookedSeat : (p.seat || ciAdjSeat(bookedSeat, i));   // UI-5 — co-passengers get an adjacent seat
         return { id: "p" + i, avatar: (last || first || "P")[0].toUpperCase(), name: nm, type: child ? "Child" : "Adult", doc: ciPaxDoc(p, i, u.doc_id), verified: !child, seat: ciSeatLabel(seatCode), needsDocs: child && !p.doc, on: true };
       })
-    : [{ id: "self", avatar: (u.first_name || "D")[0].toUpperCase(), name: u.full_name ? `${u.full_name.split(" ").slice(-1)[0]}, ${u.first_name || u.full_name.split(" ")[0]}` : "Ferreira, Daniel", type: "Adult", doc: u.doc_id ? "Passport " + u.doc_id : "Passport", verified: true, seat: ciSeatLabel(bookedSeat), on: true }];
+    : Array.from({ length: Math.max(1, Number(meta.pax) || 1) }, (_, i) => (i === 0
+        ? { id: "self", avatar: (u.first_name || "D")[0].toUpperCase(), name: u.full_name ? `${u.full_name.split(" ").slice(-1)[0]}, ${u.first_name || u.full_name.split(" ")[0]}` : "Ferreira, Daniel", type: "Adult", doc: u.doc_id ? "Passport " + u.doc_id : "Passport", verified: true, seat: ciSeatLabel(bookedSeat), on: true }
+        : { id: "p" + i, avatar: "P", name: `Passenger ${i + 1}`, type: "Adult", doc: "Passport", verified: true, seat: ciSeatLabel(ciAdjSeat(bookedSeat, i)), on: true }));
   const isOn = (p) => picks[p.id] ?? p.on;
   const checkin = async () => {
     setBusy(true);
@@ -1712,7 +1715,7 @@ export function Refund({ shared, go, params }) {
             <div style={{ height: "1px", background: "#E0E3E8" }} className="my-3" />
             <div className="flex justify-between items-center"><span className="font-bold">Refund to {destName}</span><span className="font-black v2-num text-[16px]" style={{ color: "#1A7333" }}>{isMiles ? `${miles(refundTotalMi)} mi` : eurC(refundTotal)}</span></div>
             {isMiles && refundTotal > 0 && <div className="text-[11px] text-ink-faint text-right mt-0.5 v2-num">≈ {eurC(refundTotal)} value</div>}
-            <div className="mt-3 px-3 py-2.5 text-[12px]" style={{ background: "#F5FAFF", border: "1px solid #C7D6F5", borderRadius: "12px" }}><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={16} className="text-[#3b6fd6]" /> Why these amounts?</div><div className="text-ink-muted mt-0.5">Discount fare: non-refundable. 20% admin fee on refundable items. See full policy.</div></div>
+            <div className="mt-3 px-3 py-2.5 text-[12px]" style={{ background: "#F5FAFF", border: "1px solid #C7D6F5", borderRadius: "12px" }}><div className="font-bold flex items-center gap-1.5"><Icon name="info" size={16} className="text-[#2563EB]" /> Why these amounts?</div><div className="text-ink-muted mt-0.5">Discount fare: non-refundable. 20% admin fee on refundable items. See full policy.</div></div>
             <button disabled={busy || refundTotal <= 0} onClick={cancel} style={{ height: "42px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} className="w-full mt-4 font-semibold text-[14px] inline-flex items-center justify-center disabled:opacity-60 transition-opacity">{busy ? "Processing…" : `Process refund · ${isMiles ? miles(refundTotalMi) + " mi" : eurC(refundTotal)}`}</button>
             <button onClick={() => go("manage")} className="w-full mt-2 rounded-full bg-surface text-[13px] font-semibold text-ink hover:bg-surface-mute transition-colors inline-flex items-center justify-center" style={{ height: "42px", border: "1px solid #E8E8E5" }}>Cancel request</button>
           </Card>

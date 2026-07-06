@@ -96,13 +96,14 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
   trip.extras.forEach(e => { catTotals[e.cat] = (catTotals[e.cat] || 0) + (e.price || 0); });
   const gnights = (() => { try { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); return d > 0 ? d : 8; } catch { return 8; } })();
   const GTag = { Hotels: `${gnights} nights`, Flights: `${trip.pax} pax` };
-  const GRow = ({ icon, label, tag, amt, green, muted }) => (
-    <div className="flex items-center justify-between">
-      <span className={cx("inline-flex items-center gap-2 text-[13px]", muted ? "text-ink-muted" : green ? "text-tap-greenDeep font-semibold" : "text-ink")}>
-        <Icon name={icon} size={15} className={muted ? "text-ink-faint" : "text-tap-greenDeep"} />
-        {label}{tag ? <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface-mute text-ink-muted">{tag}</span> : null}
-      </span>
-      <span className={cx("font-bold v2-num text-[13px]", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{amt < 0 ? "−" : ""}{eur2(Math.abs(amt))}</span>
+  const GRow = ({ icon, label, sub, tag, amt, green, muted, last }) => (
+    <div className="flex items-center gap-3" style={{ minHeight: "72px", padding: "12px 0", borderBottom: last ? "none" : "1px solid #E8E8E5" }}>
+      <span className="inline-flex items-center justify-center shrink-0 rounded-[10px] bg-surface-mute" style={{ width: "36px", height: "36px" }}><Icon name={icon} size={18} className={muted ? "text-ink-faint" : green ? "text-tap-greenDeep" : "text-ink-muted"} /></span>
+      <div className="flex-1 min-w-0">
+        <div className={cx("font-semibold text-[15px] flex items-center gap-1.5 truncate", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{label}{tag ? <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface-mute text-ink-muted shrink-0">{tag}</span> : null}</div>
+        {sub ? <div className="text-[12px] text-ink-faint mt-0.5 truncate">{sub}</div> : null}
+      </div>
+      <span className={cx("font-semibold v2-num text-[14px] shrink-0", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{amt < 0 ? "−" : ""}{eur2(Math.abs(amt))}</span>
     </div>
   );
   return (
@@ -113,11 +114,17 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
 
         <div className="mt-4">
           {grouped ? (
-            <div className="space-y-2.5">
-              <GRow icon="plane" label="Flights" tag={GTag.Flights} amt={t.flights} />
-              {CAT_ORDER.filter(c => catTotals[c]).map(c => <GRow key={c} icon={CAT_ICON[c] || "cart"} label={c} tag={GTag[c]} amt={catTotals[c]} />)}
-              <GRow icon="doc" label="Taxes & fees" amt={t.taxes} muted />
-              {t.bundle > 0 && <GRow icon="spark" label="Bundle savings" amt={-t.bundle} green />}
+            <div>
+              {(() => {
+                const gsub = CAT_SUB(trip.pax, gnights);
+                const rows = [
+                  { icon: "plane", label: "Flights", tag: GTag.Flights, sub: `${trip.origin}–${trip.dest} · ${trip.outbound?.fare || "Classic"}`, amt: t.flights },
+                  ...CAT_ORDER.filter(c => catTotals[c]).map(c => ({ icon: CAT_ICON[c] || "cart", label: c, tag: GTag[c], sub: gsub[c] || "", amt: catTotals[c] })),
+                  { icon: "doc", label: "Taxes & fees", sub: "Airport & carrier charges", amt: t.taxes, muted: true },
+                  ...(t.bundle > 0 ? [{ icon: "spark", label: "Bundle savings", sub: "Multi-item discount applied", amt: -t.bundle, green: true }] : []),
+                ];
+                return rows.map((r, i) => <GRow key={r.label} {...r} last={i === rows.length - 1} />);
+              })()}
             </div>
           ) : (
             <>
@@ -1294,12 +1301,12 @@ export function Passenger({ shared, go }) {
         <div className="grid lg:grid-cols-[minmax(0,880px)_328px] lg:justify-center gap-6 mt-5 items-start">
           <div className="space-y-6">
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex items-center gap-1 rounded-full border" style={{ borderColor: "#E8E8E5", padding: "6px" }}>
+              <div className="inline-flex items-center gap-1 rounded-full border flex-wrap" style={{ borderColor: "#E8E8E5", padding: "6px" }}>
                 {[["all", "All"], ...Array.from({ length: paxCount }).map((_, i) => ["p" + (i + 1), `Passenger ${i + 1}` + (i === 0 ? ` · ${u.first_name}` : "")])].map(([k, l]) => (
-                  <button key={k} onClick={() => setTab(k)} className="px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors inline-flex items-center gap-1.5" style={tab === k ? { background: "#0A0A0A", color: "#FFFFFF" } : { background: "#FFFFFF", color: "#0A0A0A" }}>{k !== "all" && (() => { const pi = parseInt(k.slice(1), 10) - 1; return paxComplete(pi) ? <Icon name="check" size={12} className={tab === k ? "text-tap-green" : "text-tap-greenDeep"} /> : <span className={cx("w-1.5 h-1.5 rounded-full inline-block shrink-0", tab === k ? "bg-white/50" : "bg-ink-faint")} />; })()}{l}</button>
+                  <button key={k} onClick={() => setTab(k)} className="rounded-full text-[13px] font-semibold transition-colors inline-flex items-center gap-1.5" style={tab === k ? { background: "#0A0A0A", color: "#FFFFFF", padding: "8px 14px" } : { background: "#FFFFFF", color: "#0A0A0A", padding: "8px 14px" }}>{k !== "all" && (() => { const pi = parseInt(k.slice(1), 10) - 1; return paxComplete(pi) ? <Icon name="check" size={12} className={tab === k ? "text-tap-green" : "text-tap-greenDeep"} /> : <span className={cx("w-1.5 h-1.5 rounded-full inline-block shrink-0", tab === k ? "bg-white/50" : "bg-ink-faint")} />; })()}{l}</button>
                 ))}
+                <span className="text-[11px] text-ink-faint pl-2 pr-1.5 whitespace-nowrap">{completeN} of {paxCount} complete · <span className="text-tap-greenDeep font-semibold">Autosaved</span></span>
               </div>
-              <span className="ml-auto text-[11px] text-ink-faint">{completeN} of {paxCount} complete · <span className="text-tap-greenDeep font-semibold">Autosaved</span></span>
             </div>
 
             {showErr && <div className="rounded-xl border border-tap-red/40 bg-tap-red/5 px-4 py-3 flex items-start gap-3"><span className="w-5 h-5 rounded-full bg-tap-red text-white inline-flex items-center justify-center text-[12px] font-bold shrink-0">!</span><div><div className="text-[13px] font-bold text-tap-red">Please complete required passenger and contact details</div><div className="text-[12px] text-ink-muted">{missingCount} field{missingCount !== 1 ? "s" : ""} need attention — required fields are highlighted below.</div></div></div>}

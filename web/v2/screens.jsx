@@ -139,10 +139,10 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
     // INNER solid white box holds the tabs + form. Tabs restyled to pills with a clear
     // active state. Replaces the previous single flat Card.
     <div className="rounded-[26px] bg-white/55 backdrop-blur-2xl border border-white/60 shadow-pop p-2.5 sm:p-3">
-      {/* tab bar — pill style, on the glass frame */}
-      <div className="flex gap-1.5 overflow-x-auto v2-track px-1.5 pt-1 pb-2.5">
+      {/* tab bar — navigation-bar structure with an underline active state (Figma) */}
+      <div className="flex gap-1 overflow-x-auto v2-track px-1.5 pt-1 border-b border-white/40">
         {TRIP_TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 px-4 py-2 rounded-full text-[12px] font-bold transition-colors", tab === t ? "bg-tap-green text-white shadow-sm" : "bg-white/60 text-ink-muted hover:bg-white")}>{t}</button>
+          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 px-3 py-2.5 -mb-px border-b-2 text-[13px] whitespace-nowrap transition-colors", tab === t ? "border-tap-green text-tap-green font-bold" : "border-transparent text-ink-muted hover:text-ink font-semibold")}>{t}</button>
         ))}
       </div>
       {/* inner solid white box — the form content */}
@@ -159,6 +159,14 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
         {type === "round" && <Field label="Return" className="lg:col-span-2"><Input type="date" value={ret} onChange={e => setRet(e.target.value)} /></Field>}
         <Field label="Travellers" className="lg:col-span-2">
           <PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} />
+        </Field>
+        <Field label="Cabin" className="lg:col-span-2">
+          <div className="relative">
+            <select value={cabin} onChange={e => setCabin(e.target.value)} className="w-full bg-surface border border-line rounded-[10px] px-3 py-3 text-[14px] outline-none appearance-none cursor-pointer focus:border-tap-green">
+              {["Economy", "Premium Economy", "Business"].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[10px]">▾</span>
+          </div>
         </Field>
       </div>
       <datalist id="ap">{airports.map(a => <option key={a.code} value={a.code}>{a.city} ({a.code})</option>)}</datalist>
