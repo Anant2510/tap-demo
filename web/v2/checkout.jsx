@@ -850,8 +850,8 @@ export function Basket({ shared, go }) {
       {editItem && <ItemEditModal item={editItem.item} link={editItem.link} onClose={() => setEditItem(null)} onApply={applyEdit} />}
       <Stepper active={2} />
       <div className="mx-auto max-w-content px-6 py-6">
-        <div className="flex items-center gap-3"><h1 className="text-[36px] font-bold">My trip cart</h1><span className="inline-flex items-center font-semibold" style={{ borderRadius: "9999px", padding: "6px 12px", fontSize: "13px", background: "#F2F2EE", color: "#1A1F29" }}>{itemCount} items</span></div>
-        <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Review and customize everything in your basket before continuing.</p>
+        <div className="flex items-center gap-3"><h1 className="text-[36px] font-bold">My Trip Basket</h1><span className="inline-flex items-center font-semibold" style={{ borderRadius: "9999px", padding: "6px 12px", fontSize: "13px", background: "#F2F2EE", color: "#1A1F29" }}>{itemCount} items</span></div>
+        <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>{savedTrips.length > 0 ? `${savedTrips.length + 1} trips bundled${savedTrips.length >= 2 ? " · you save " + eur2(15 * savedTrips.length) + " with the multi-trip discount" : ""} · review and customize before checkout.` : "Review and customize everything in your basket before continuing."}</p>
         <div className="flex flex-wrap gap-2 mt-3 items-center">
           <Chip dot>{trip.dest ? `${cityOf(trip.dest)} trip` : "Your trip"}</Chip>
           <Chip>{cityOf(trip.origin)}–{cityOf(trip.dest)}</Chip>
@@ -863,8 +863,8 @@ export function Basket({ shared, go }) {
         {savedTrips.length > 0 && (
           <div className="mt-5 rounded-2xl border border-line p-4" style={{ background: "rgba(250,250,247,1)" }}>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-              <div className="flex items-center gap-2"><Icon name="cart" size={15} className="text-tap-greenDeep" /><h2 className="text-[15px] font-bold">Your saved trips</h2><span className="text-[11px] font-semibold text-ink-faint">{savedTrips.length} parked · resume anytime</span></div>
-              <div className="text-right"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Basket total · all trips</div><div className="text-[16px] font-bold v2-num">{eur2(basketAllTotal)}</div></div>
+              <div className="flex items-center gap-2"><Icon name="cart" size={15} className="text-tap-greenDeep" /><h2 className="text-[15px] font-bold">Trips in your basket</h2><span className="text-[11px] font-semibold text-ink-faint">{savedTrips.length + 1} trips · resume any to edit</span></div>
+              <div className="text-right"><div className="text-[10px] uppercase tracking-wide text-ink-faint">Basket total · all trips{savedTrips.length >= 2 ? " · saves " + eur2(15 * savedTrips.length) : ""}</div><div className="text-[16px] font-bold v2-num">{eur2(basketAllTotal - (savedTrips.length >= 2 ? 15 * savedTrips.length : 0))}</div></div>
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               {savedTrips.map(x => {
@@ -873,7 +873,7 @@ export function Basket({ shared, go }) {
                   <div key={x.id} className="rounded-xl border border-line bg-white p-3 flex items-center gap-3">
                     <span className="w-9 h-9 rounded-lg bg-lime-tint inline-flex items-center justify-center text-tap-greenDeep shrink-0"><Icon name="plane" size={16} /></span>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-bold truncate">{cityOf(s.origin)} → {cityOf(s.dest)}</div>
+                      <div className="text-[13px] font-bold truncate">{cityOf(s.origin)} → {cityOf(s.dest)} <span className="text-[10px] font-semibold text-tap-greenDeep uppercase">{s.outbound?.fare || "Classic"}</span></div>
                       <div className="text-[11px] text-ink-faint truncate">{of.flight_no || "Flight"} · {s.date ? fmtDate(s.date).replace(/ \d{4}/, "") : ""} · {s.pax || 1} pax · {nX} extra{nX !== 1 ? "s" : ""}</div>
                     </div>
                     <div className="text-[13px] font-bold v2-num shrink-0">{eur2(basketTripTotal(s))}</div>
