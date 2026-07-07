@@ -116,16 +116,16 @@ export const Avatar = ({ initials = "D", className = "" }) =>
 export function Field({ label, children, className = "" }) {
   return (
     <label className={cx("block", className)}>
-      {label && <span className="block text-[10px] font-bold tracking-wide uppercase text-ink-slate mb-1">{label}</span>}
+      {label && <span className="block text-[10px] font-bold tracking-wide uppercase text-ink-slate mb-1.5">{label}</span>}
       {children}
     </label>
   );
 }
 export const Input = ({ className = "", ...p }) =>
-  <input className={cx("w-full bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] text-ink placeholder:text-ink-faint focus:border-tap-green outline-none", className)} {...p} />;
+  <input className={cx("w-full bg-surface border border-line rounded-[10px] px-[14px] py-2.5 min-h-[48px] text-[15px] font-medium text-ink placeholder:text-ink-faint placeholder:font-normal focus:border-tap-green outline-none", className)} {...p} />;
 
 /* ---- Icons (inline, currentColor) ---- */
-export const Icon = ({ name, size = 16, className = "" }) => {
+export const Icon = ({ name, size = 16, className = "", style }) => {
   const paths = {
     plane: "M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5Z",
     arrow: "M5 12h14M13 6l6 6-6 6",
@@ -160,7 +160,7 @@ export const Icon = ({ name, size = 16, className = "" }) => {
     home: "M3 11 12 4l9 7M5 9.5V20h14V9.5M10 20v-5h4v5",
   };
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} style={style} aria-hidden="true">
       <path d={paths[name] || paths.check} />
     </svg>
   );

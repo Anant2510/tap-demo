@@ -356,8 +356,8 @@ function LoyaltySection({ go }) {
           <div className="flex justify-between text-[10px] text-white/60 mt-1.5"><span>Gold</span><span>12,160 mi to Navigator</span></div>
         </div>
         <div className="relative mt-5 rounded-2xl bg-black/15 p-3.5">
-          <div className="text-[10px] uppercase tracking-wide text-white/50">Next trip</div>
-          <div className="flex items-center justify-between mt-1"><div className="text-[13px] font-bold">Lisbon → Porto · Jun 14</div><span className="text-[11px] text-lime font-bold v2-num">+6,640 mi</span></div>
+          <div className="text-[10px] uppercase tracking-wide text-white/50">Ways to use your miles</div>
+          <div className="flex items-center justify-between mt-1"><div className="text-[13px] font-bold">Redeem 8,000 mi → €80 off any stay</div><span className="text-[11px] text-lime font-bold">Apply</span></div>
         </div>
       </div>
     </section>
@@ -699,7 +699,7 @@ export function Home({ shared, go }) {
           </div>
           <div ref={tplRef} className="flex gap-3 overflow-x-auto v2-track snap-x pb-2 -mx-1 px-1">
             {buildTemplates(profile, cityOf).map((t, i) => (
-              <Card key={i} className="overflow-hidden shrink-0 w-[377px] snap-start border" style={{ borderRadius: "22px", boxShadow: "0px 4px 16px 0px rgba(0,0,0,0.06)" }}>
+              <Card key={i} className="overflow-hidden shrink-0 w-[85vw] max-w-[377px] snap-start border" style={{ borderRadius: "22px", boxShadow: "0px 4px 16px 0px rgba(0,0,0,0.06)" }}>
                 <div className="h-[100px] relative overflow-hidden"><Img seed={"route-" + t.route} src={imageFor(t.route)} className="absolute inset-0 w-full h-full" /></div>
                 <div className="p-5">
                   <div className="flex items-center justify-between">

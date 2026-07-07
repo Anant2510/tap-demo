@@ -87,6 +87,7 @@ function SearchOverlay({ go, upcoming = [], onClose }) {
 export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   const user = profile?.user;
   const [menu, setMenu] = useState(false);
+  const [mobileNav, setMobileNav] = useState(false);   // J2 — mobile primary-nav dropdown (hidden on lg+)
   const [searchOpen, setSearchOpen] = useState(false);   // #5 — inline smart-search overlay
   // #6 — the "My trips" dropdown summary must reflect the user's real bookings, not a fixed string.
   const [trips, setTrips] = useState(null);
@@ -120,6 +121,16 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
       {searchOpen && <SearchOverlay go={go} upcoming={upcomingTrips} onClose={() => setSearchOpen(false)} />}
       <div className="mx-auto max-w-page px-6 h-16 flex items-center gap-6">
         <button onClick={() => go("home")} className="shrink-0"><TapLogo /></button>
+        <div className="relative lg:hidden">
+          <button onClick={() => setMobileNav(o => !o)} className="p-2 -ml-1 rounded-lg text-ink hover:bg-surface-mute" aria-label="Menu"><Icon name={mobileNav ? "x" : "menu"} size={20} /></button>
+          {mobileNav && (
+            <div className="absolute left-0 mt-2 w-56 bg-surface rounded-xl border border-line shadow-pop py-1 z-50">
+              {NAV.map(n => { const on = n.key === "home" ? bookActive : route === n.key; return (
+                <button key={n.key} onClick={() => { go(n.key); setMobileNav(false); }} className={cx("w-full text-left px-4 py-2.5 text-[14px]", on ? "text-ink font-semibold bg-surface-mute" : "text-ink font-medium hover:bg-surface-mute")}>{n.tk ? t(n.tk) : n.label}</button>
+              ); })}
+            </div>
+          )}
+        </div>
         <nav className="hidden lg:flex items-center gap-1 ml-2">
           {NAV.map(n => { const on = n.key === "home" ? bookActive : route === n.key; return (
             <button key={n.key} onClick={() => go(n.key)}

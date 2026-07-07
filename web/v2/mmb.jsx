@@ -321,16 +321,18 @@ export function Retrieve({ shared, go }) {
               <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{mode === "eticket" ? "eTicket number" : "Booking reference / PNR"}</div>
               <input value={pnr} onChange={e => setPnr(e.target.value.toUpperCase())} className="w-full bg-transparent outline-none text-[18px] font-black text-ink mt-0.5 tracking-[0.35em] uppercase v2-num" />
             </label>
+            <div className="grid sm:grid-cols-2 gap-3 mt-3">
             {/* styled last-name field (#4) */}
-            <label className="block rounded-2xl border border-line bg-surface-soft px-4 py-3 mt-3 cursor-text focus-within:border-tap-green transition-colors">
+            <label className="block rounded-2xl border border-line bg-surface-soft px-4 py-3 cursor-text focus-within:border-tap-green transition-colors">
               <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Last name</div>
               <input value={last} onChange={e => setLast(e.target.value)} placeholder="Surname" className="w-full bg-transparent outline-none text-[16px] font-semibold text-ink mt-0.5" />
             </label>
             {/* email (optional) field (#5) */}
-            <label className="block rounded-2xl border border-line bg-surface-soft px-4 py-3 mt-3 cursor-text focus-within:border-tap-green transition-colors">
+            <label className="block rounded-2xl border border-line bg-surface-soft px-4 py-3 cursor-text focus-within:border-tap-green transition-colors">
               <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Email <span className="text-ink-faint font-medium normal-case">(optional)</span></div>
               <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" className="w-full bg-transparent outline-none text-[16px] font-semibold text-ink mt-0.5" />
             </label>
+            </div>
             {/* solid green CTA with arrow (#6) */}
             <Btn size="lg" className="w-full mt-4" onClick={() => find()}>Retrieve booking <Icon name="arrow" size={15} /></Btn>
           </Card>
@@ -764,7 +766,7 @@ export function DisruptionCenter({ shared, go }) {
                     <div className="text-[14px] font-bold">{p.first} {p.last || ""}</div>
                     <div className="text-[11px] text-ink-faint">Fare paid {eur2(farePer)}</div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {OPTS.map(o => {
                       const on = (res[i] || "rebook") === o.k;
                       return (
@@ -1359,26 +1361,31 @@ export function AddExtras({ shared, go, params }) {
           {/* #25 — bundle-based add-ons: 3 packages with grouped benefits, savings & a single CTA each (replaces the individual category cards). */}
           <section>
             <div className="flex items-center gap-2 mb-3"><h2 className="text-[18px] font-black">Choose a bundle</h2><span className="text-[11px] font-bold uppercase tracking-wide text-tap-greenDeep bg-lime-tint rounded-full px-2 py-0.5">Save vs à la carte</span></div>
-            <div className="grid sm:grid-cols-3 gap-4 items-stretch">
+            {/* #1 — booking information banner above the bundle cards */}
+            <div className="flex items-start gap-2.5 mb-3" style={{ background: "#FFF3E0", border: "1px solid #FAA824", borderRadius: "12px", padding: "16px 18px" }}>
+              <Icon name="info" size={16} className="shrink-0 mt-0.5" style={{ color: "#B26A00" }} />
+              <div className="text-[12px]" style={{ color: "#7A4E00" }}><span className="font-bold">Prices are per booking</span> and added straight to your PNR — no agency needed. Bundles save versus buying each extra separately.</div>
+            </div>
+            <div className="grid sm:grid-cols-3 items-stretch" style={{ gap: "12px" }}>
               {bundleDefs.map(b => {
                 const best = b.id === "comfort";
                 const saving = bundleSaving(b);
                 const on = bundleStaged(b);
                 return (
-                  <div key={b.id} className={cx("rounded-2xl border p-4 flex flex-col transition-all", best ? "border-tap-green bg-lime-tint/40 ring-1 ring-tap-green shadow-md" : "border-line bg-surface shadow-sm hover:shadow-md")}>
-                    {b.tag && <span className={cx("self-start text-[9px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5 mb-2", best ? "bg-tap-greenDeep text-white" : "bg-surface-mute text-ink-muted")}>{best ? "Best value" : b.tag}</span>}
-                    <div className="text-[16px] font-black">{b.name}</div>
+                  <div key={b.id} className="flex flex-col transition-all" style={{ borderRadius: "14px", padding: "18px 20px", minHeight: "300px", border: best ? "2px solid #A6D926" : "1px solid #E8E8E5", background: best ? "#F2FCD9" : "#FFFFFF", boxShadow: best ? "0 4px 12px rgba(0,0,0,0.08)" : "0 1px 3px rgba(0,0,0,0.06)" }}>
+                    {b.tag && <span className="self-start text-[9px] font-bold uppercase tracking-wide mb-2" style={{ borderRadius: "10px", padding: "2px 8px", background: best ? "#1A1F29" : "#EFEFEC", color: best ? "#FFFFFF" : "#6B6B6B" }}>{best ? "Best value" : b.tag}</span>}
+                    <div className="font-bold" style={{ fontSize: "20px" }}>{b.name}</div>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-[24px] font-black v2-num">{EUR(bundleNet(b))}</span>
+                      <span className="v2-num font-bold" style={{ fontSize: "26px" }}>{EUR(bundleNet(b))}</span>
                       {saving > 0 && <span className="text-[12px] font-bold text-tap-greenDeep">save {EUR(saving)}</span>}
                     </div>
-                    <div className="h-px bg-line my-3" />
-                    <ul className="space-y-1.5 flex-1">
-                      {b.items.map(a => <li key={a.code} className="flex items-start gap-1.5 text-[12px] text-ink"><Icon name="check" size={13} className="text-tap-green mt-0.5 shrink-0" /> <span>{a.name}{a.price > 0 ? "" : " · included"}</span></li>)}
+                    <div className="my-3" style={{ height: "1px", width: "218px", maxWidth: "100%", background: "#E8E8E5" }} />
+                    <ul className="flex-1 space-y-1">
+                      {b.items.map(a => <li key={a.code} className="flex items-center gap-1.5 text-[12px] text-ink overflow-hidden" style={{ height: "18px" }}><Icon name="check" size={13} className="text-tap-green shrink-0" /> <span className="whitespace-nowrap truncate">{a.name}{a.price > 0 ? "" : " · included"}</span></li>)}
                     </ul>
                     {best
-                      ? <Btn size="sm" className="w-full mt-4" disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "Add bundle"}</Btn>
-                      : <Btn variant="outline" size="sm" className="w-full mt-4" disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "+ Add"}</Btn>}
+                      ? <Btn size="sm" className="w-full mt-4" style={{ borderRadius: "20px", padding: "10px 14px" }} disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "Add bundle"}</Btn>
+                      : <Btn variant="outline" size="sm" className="w-full mt-4" style={{ borderRadius: "20px", padding: "10px 14px", borderColor: "#46A41A" }} disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "+ Add"}</Btn>}
                   </div>
                 );
               })}

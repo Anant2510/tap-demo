@@ -36,9 +36,13 @@ function seedExtras() {
   // [code, name, per-unit price, category, source]. Per-traveller categories (Insurance,
   // Lounge, Experiences) are multiplied by pax so the stored total matches the cart's
   // "× pax" hint — at 1 pax these are unchanged; at 3 pax lounge €90 → €270 (#2).
-  // F8/F9 — seed only the destination-neutral mandatory insurance. Hotels, transfers, lounge and
-  // experiences are added by the traveller from the destination-aware modules (never hardcoded Lisbon).
-  [["ins-plus", "Travel Insurance · Plus", 38, "Insurance", "auto"]].forEach(([code, name, price, cat, source]) =>
+  // Seed a representative recommended basket (stay + lounge + experience) alongside the mandatory
+  // insurance so the cart/payment summaries match the reference design — a stay + lounge together
+  // also earns the cross-sell bundle discount. Names are destination-neutral (never hardcoded).
+  [["ins-plus", "Travel Insurance · Plus", 38, "Insurance", "auto"],
+   ["hotel-stay", "Boutique hotel · 3 nights", 180, "Hotels", "recommended"],
+   ["lounge-premium", "Premium lounge access", 30, "Lounge & services", "recommended"],
+   ["exp-cityhighlights", "City highlights experience", 45, "Experiences", "recommended"]].forEach(([code, name, price, cat, source]) =>
      trip.extras.push({ code, name, price: PER_PAX_CATS.has(cat) ? price * px : price, qty: 1, cat, source }));
   trip.seeded = true;
   pingBasket();
@@ -156,14 +160,14 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
 
         <Divider className="my-3.5" />
         <div className={bigTotal ? "mt-5" : ""} style={bigTotal ? { borderRadius: "16px", border: "1px solid #E8E8E5", padding: "18px" } : undefined}>
-        <div className="flex items-end justify-between gap-3"><div className="min-w-0"><div className="text-[13px] text-ink font-bold whitespace-nowrap">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted mt-0.5">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right shrink-0"><div className={cx("v2-num text-ink", bigTotal ? "text-[40px] font-bold leading-none" : "text-[34px] font-bold")}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div></div>
+        <div className="flex items-end justify-between gap-3"><div className="min-w-0"><div className="text-[13px] text-ink font-bold whitespace-nowrap">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted mt-0.5">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right shrink-0"><div className={cx("v2-num text-ink", bigTotal ? "text-[40px] font-bold leading-none" : "text-[34px] font-bold")}>{eurC(t.total)}</div><div className="text-[11px] v2-num" style={{ color: "#9A9A9A" }}>{BRL(t.total)}</div></div></div>
         <div className="mt-3 bg-lime-tint text-tap-greenDark flex items-center justify-between" style={{ borderRadius: "10px", padding: "10px 12px" }}><span className="flex items-center gap-1.5 text-[12px] font-medium"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num text-[14px] font-bold">{miles(EARN(t.total))} tap.miles</span></div>
         </div>
         {breakdown && <div className="mt-3 flex items-center justify-between gap-2" style={{ background: "#F2FCD9", borderRadius: "12px", padding: "10px 12px", border: "1px solid #E8E8E5" }}><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 text-[11px] font-bold text-tap-greenDeep hover:brightness-95" style={{ borderRadius: "14px", border: "1px solid #2E7D33", padding: "7px 32px" }}>Save mix</button></div>}
 
         <Btn size="lg" className="w-full mt-4 text-[15px] font-bold" style={{ height: "60px", borderRadius: "9999px" }} disabled={disabled} onClick={onCta}>{cta}</Btn>
         {step === 2 && <div className="text-[11px] text-ink-muted text-center mt-2 flex items-center justify-center gap-1"><Icon name="globe" size={11} className="text-ink-faint" /> You'll be able to adjust all items on the next step.</div>}
-        {note && <div className="text-[11px] text-ink-faint text-center mt-2">{note}</div>}
+        {note && <div className="text-[11px] text-center mt-2" style={{ color: "#9A9A9A" }}>{note}</div>}
         {secondary && <button onClick={onSecondary} className="w-full mt-2 rounded-full border border-line bg-surface py-2.5 text-[13px] font-semibold text-ink hover:border-tap-green inline-flex items-center justify-center gap-1.5">{secondary}{!/^[←]/.test(String(secondary)) && <Icon name="arrow" size={13} />}</button>}
         {footer}
       </Card>
@@ -176,14 +180,14 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
         </div>
       )}
 
-      <div className="rounded-[14px] border" style={{ background: "#F2FFDB", borderColor: "#E8E8E5", padding: "16px" }}>
-        <div className="grid grid-cols-2 gap-3">
-          {[["lock", "Encrypted"], ["check", "Ticket usage"], ["refresh", "Editable"], ["star", "24/7 Care"]].map(([ic, a]) => (
-            <div key={a} className="flex items-center gap-2"><span className="w-8 h-8 rounded-lg bg-white inline-flex items-center justify-center text-tap-greenDeep shrink-0"><Icon name={ic} size={15} /></span><div className="text-[12px] font-semibold" style={{ color: "#1A1F29" }}>{a}</div></div>
+      <div className="rounded-[14px] border" style={{ background: "#FFFFFF", borderColor: "#E8E8E5", padding: "16px" }}>
+        <div className="grid grid-cols-2 gap-2.5">
+          {[["lock", "PCI-DSS Level 1"], ["clock", "Free cancellation"], ["star", "Customer Care"], ["check", "Instant confirmation"]].map(([ic, a]) => (
+            <div key={a} className="flex items-center gap-2"><span className="inline-flex items-center justify-center shrink-0" style={{ width: "28px", height: "28px", borderRadius: "8px", background: "#F5FFEB" }}><Icon name={ic} size={14} className="text-tap-greenDeep" /></span><div className="text-[12px] font-semibold" style={{ color: "#1A1F29" }}>{a}</div></div>
           ))}
         </div>
       </div>
-      <div className="rounded-xl border p-4 flex items-center justify-between" style={{ background: "#FFFFFF", borderColor: "#e0e3e8" }}><div className="flex items-center gap-2.5"><span className="w-9 h-9 rounded-[10px] bg-[#635bff] inline-flex items-center justify-center text-white text-[12px] font-bold shrink-0">S</span><div><div className="text-[12px] font-semibold" style={{ color: "#1A1F29" }}>Verified by Stripe</div><div className="text-[10px]" style={{ color: "#667080" }}>Trusted by millions of businesses.</div></div></div><span className="text-[11px] text-tap-greenDeep font-semibold">Learn more →</span></div>
+      <div className="flex items-center justify-between" style={{ background: "#0A0A0A", borderRadius: "14px", padding: "14px" }}><div className="flex items-center gap-2.5"><span className="inline-flex items-center justify-center text-white text-[12px] font-bold shrink-0" style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#635bff" }}>S</span><div><div className="text-[12px] font-semibold text-white">Verified by Stripe</div><div className="text-[10px] text-white/60">Trusted by millions of businesses.</div></div></div><span className="font-medium" style={{ fontSize: "11px", color: "#9EFD38" }}>Learn more →</span></div>
     </aside>
   );
 }
@@ -513,8 +517,7 @@ function CartView({ go, mode = "cart", shared }) {
   // Don't re-seed a recommended basket if the member explicitly cleared it last time; an open
   // saved basket has already been restored on login, so seedExtras() is a no-op in that case.
   useEffect(() => { if (trip.outbound && shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
-  // #23 — Carbon offset is auto-added (default ON): mirror it as a real cart line so it shows in the basket and counts toward the total.
-  useEffect(() => { if (!hasExtra("carbon")) { toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); setCarbonOn(true); r(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Carbon offset is offered as an opt-in in the cart (not auto-added), so it isn't a default basket line.
   // Insurance is mandatory and pre-selected to the recommended Plus plan. Reflect that pre-selection
   // in the basket/total from first render (not only after the user re-picks a plan) so any extra
   // that is pre-selected for the user is counted in the summary from the start.
@@ -679,12 +682,12 @@ function CartView({ go, mode = "cart", shared }) {
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="shrink-0 w-9 h-9 rounded-lg bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center"><Icon name="leaf" size={18} /></span>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap"><span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">02 · Carbon offset</span><span className="text-[14px] font-bold v2-num">{eur2(10)}</span><span className="text-[12px] text-ink-muted">Auto-checked · uncheck if you wish</span></div>
+                    <div className="flex items-center gap-2 flex-wrap"><span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">02 · Carbon offset</span><span className="text-[14px] font-bold v2-num">{eur2(10)}</span><span className="text-[12px] text-ink-muted">{carbonOn ? "Auto-checked · uncheck if you wish" : "Optional · offset this trip's CO₂"}</span></div>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <button onClick={() => { setCarbonOn(false); if (hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }} className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00] hover:brightness-95">Opt-out</button>
-                  <div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div>
+                  {carbonOn && <><button onClick={() => { setCarbonOn(false); if (hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }} className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00] hover:brightness-95">Opt-out</button>
+                  <div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></>}
                 </div>
               </div>
               <div className="h-px bg-line -mx-4 my-3" />
@@ -1090,7 +1093,7 @@ const PHONE_CODES = [["+351", "🇵🇹"], ["+55", "🇧🇷"], ["+34", "🇪�
 function FlagSelect({ value, onChange, options, err }) {
   return <div className={cx("relative w-full bg-surface border rounded-[10px]", err ? "border-tap-red" : "border-line")}>
     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[15px] pointer-events-none">{options[value] || "🌐"}</span>
-    <select value={value || ""} onChange={e => onChange(e.target.value)} className="w-full bg-transparent pl-9 pr-7 py-3 text-[14px] text-ink outline-none appearance-none cursor-pointer">
+    <select value={value || ""} onChange={e => onChange(e.target.value)} className="w-full bg-transparent pl-9 pr-7 py-3 min-h-[48px] text-[15px] font-medium text-ink outline-none appearance-none cursor-pointer">
       <option value="" disabled>Select…</option>{Object.keys(options).map(o => <option key={o} value={o}>{o}</option>)}
     </select>
     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none text-[11px]">▾</span>
@@ -1148,6 +1151,7 @@ const MixComp = ({ on, title, sub, right, onToggle, onEdit, children }) => (
 // #19 — Split-payment cart variant: participant-wise allocation, Paid/Pending status, a
 // progress bar, outstanding balance and a contextual "Pay my share" CTA (vs the standard summary).
 function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPayShare, onMarkPaid, disabled, busy, onCta, onBack }) {
+  const t = tripTotals();
   const paidCount = paid.size;
   const pct = payers.length ? Math.round((paidCount / payers.length) * 100) : 0;
   const settled = payers.reduce((s, _, i) => s + (paid.has(i) ? (amtFor(i) || 0) : 0), 0);
@@ -1156,7 +1160,10 @@ function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPaySh
   const leadPaid = paid.has(0);
   const allPaid = paidCount >= payers.length;
   const pending = payers.length - paidCount;
-  const statusOf = (i, p) => paid.has(i) ? "Paid" : p.lead ? "Your share" : "Pending";
+  // #63/#64 — product breakdown by category (Flights + booked extras + fees)
+  const catTotals = {};
+  trip.extras.forEach(e => { catTotals[e.cat] = (catTotals[e.cat] || 0) + (e.price || 0) * (e.qty || 1); });
+  const breakdown = [["Flights", t.flights], ...CAT_ORDER.filter(c => catTotals[c]).map(c => [c, catTotals[c]]), ...(t.bundle > 0 ? [["Bundle savings", -t.bundle]] : []), ["Taxes & fees", t.taxes]];
   return (
     <aside>
       <Card className="p-5 lg:sticky lg:top-20">
@@ -1164,38 +1171,62 @@ function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPaySh
           <div><div className="font-bold text-[16px]">Split payment</div><div className="text-[11px] text-ink-muted">{payers.length} traveller{payers.length !== 1 ? "s" : ""} · in EUR (€)</div></div>
           <span className="text-[10px] font-bold uppercase tracking-wide bg-[#3b6fd6] text-white rounded px-2 py-1">Step 4/5</span>
         </div>
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-[11px] text-ink-muted"><span>{paidCount} of {payers.length} paid</span><span className="v2-num font-semibold">{eurC(outstanding)} outstanding</span></div>
-          <div className="h-2 rounded-full bg-surface-mute mt-1 overflow-hidden"><div className="h-full bg-tap-green rounded-full transition-all" style={{ width: pct + "%" }} /></div>
+        {/* #63/#64/#65 — product breakdown */}
+        <div className="mt-4 space-y-2">
+          {breakdown.map(([label, amt]) => (
+            <div key={label} className="flex items-center justify-between text-[13px]"><span className={amt < 0 ? "text-tap-greenDeep font-medium" : "text-ink-muted"}>{label}</span><span className={cx("v2-num font-semibold", amt < 0 ? "text-tap-greenDeep" : "text-ink")}>{amt < 0 ? "−" : ""}{eurC(Math.abs(amt))}</span></div>
+          ))}
         </div>
-        <div className="mt-3 space-y-2">
-          {payers.map((p, i) => {
-            const isPaid = paid.has(i);
-            return (
-              <div key={i} className={cx("flex items-center justify-between gap-2 rounded-lg border px-3 py-2", isPaid ? "border-tap-green/50 bg-lime-tint/30" : "border-line")}>
-                <div className="min-w-0"><div className="text-[13px] font-semibold truncate">{p.name}</div><div className="text-[10px] text-ink-faint truncate">{p.lead ? `Card •••• ${p.card}` : p.email}</div></div>
-                <div className="text-right shrink-0">
-                  <div className="text-[14px] font-bold v2-num">{eurC(amtFor(i))}</div>
-                  {isPaid
-                    ? <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep inline-flex items-center gap-1"><Icon name="check" size={10} /> Paid</span>
-                    : p.lead
-                      ? <span className="text-[10px] font-bold uppercase tracking-wide text-[#9a6b00]">Your share</span>
-                      : <button onClick={() => onMarkPaid(i)} className="text-[10px] font-bold uppercase tracking-wide text-[#9a6b00] hover:text-tap-greenDeep hover:underline">Pending · mark paid</button>}
+        <div style={{ height: "1px", background: "#E8E8E5", margin: "14px 0" }} />
+        {/* #66/#67 — total charged */}
+        <div className="flex items-end justify-between gap-2"><div><div className="text-[13px] font-bold">Total charged</div><div className="text-[11px]" style={{ color: "#9A9A9A" }}>One-time charge · taxes included</div></div><span className="v2-num font-bold shrink-0" style={{ fontSize: "34px", letterSpacing: "-0.03em", lineHeight: 1 }}>{eurC(total)}</span></div>
+        {/* #68 — reward miles banner */}
+        <div className="mt-3 flex items-center justify-between" style={{ background: "#F2FFDB", borderRadius: "10px", padding: "10px 12px" }}><span className="flex items-center gap-1.5 text-[12px] font-medium text-tap-greenDark"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num text-[14px] font-bold text-tap-greenDark">{miles(EARN(total))} tap.miles</span></div>
+        {/* #69/#70/#71 — payment progress card */}
+        <div className="mt-3" style={{ background: "#F2FCD9", border: "1px solid #2E7D33", borderRadius: "12px", padding: "14px" }}>
+          <div className="flex items-center justify-between text-[12px] font-semibold" style={{ color: "#1A1F29" }}><span>{paidCount} of {payers.length} paid</span><span className="v2-num">{eurC(outstanding)} outstanding</span></div>
+          <div className="rounded-full mt-2 overflow-hidden" style={{ height: "12px", background: "#FFFFFF" }}><div className="h-full rounded-full transition-all" style={{ width: pct + "%", background: "#2E7D33" }} /></div>
+          <div className="mt-3 space-y-2">
+            {payers.map((p, i) => {
+              const isPaid = paid.has(i);
+              return (
+                <div key={i} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ border: "1px solid #E0E3E8", background: "#FFFFFF" }}>
+                  <div className="min-w-0"><div className="text-[13px] font-semibold truncate" style={{ color: "#1A1F29" }}>{p.name}</div><div className="text-[11px] truncate" style={{ color: "#667080" }}>{p.lead ? `Card •••• ${p.card}` : p.email}</div></div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[14px] font-bold v2-num">{eurC(amtFor(i))}</div>
+                    {isPaid
+                      ? <span className="text-[10px] font-bold uppercase tracking-wide text-tap-greenDeep inline-flex items-center gap-1"><Icon name="check" size={10} /> Paid</span>
+                      : p.lead
+                        ? <span className="text-[10px] font-bold uppercase tracking-wide text-[#9a6b00]">Your share</span>
+                        : <button onClick={() => onMarkPaid(i)} className="text-[10px] font-bold uppercase tracking-wide text-[#9a6b00] hover:text-tap-greenDeep hover:underline">Mark paid</button>}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-        <Divider className="my-3" />
-        <div className="flex items-center justify-between"><span className="text-[13px] font-bold">Total charged</span><span className="text-[20px] font-black v2-num">{eurC(total)}</span></div>
         {mismatch && <div className="mt-2 rounded-lg bg-[#fff4d6] text-[#9a6b00] text-[11px] font-semibold px-3 py-2">Allocated {eurC(allocated)} of {eurC(total)} — adjust the shares to match before paying.</div>}
+        {/* #72/#73 — primary CTA */}
         {!leadPaid
-          ? <Btn size="lg" className="w-full mt-4" disabled={disabled || mismatch} onClick={onPayShare}>{`Pay my share · ${eurC(leadAmt)} →`}</Btn>
-          : <Btn size="lg" className="w-full mt-4" disabled={disabled} onClick={onCta}>{busy ? "Processing…" : "Complete booking →"}</Btn>}
-        {leadPaid && !allPaid && <div className="mt-2 text-center text-[11px] text-ink-muted">Your share is paid. {pending} traveller{pending !== 1 ? "s" : ""} still paying via their link — you can complete now; they settle to their link.</div>}
-        {allPaid && <div className="mt-2 text-center text-[11px] font-semibold text-tap-greenDeep">All travellers have paid · ready to confirm</div>}
+          ? <button disabled={disabled || mismatch} onClick={onPayShare} className="w-full mt-4 inline-flex items-center justify-center text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed" style={{ height: "60px", borderRadius: "9999px", background: "#46A41A", fontSize: "15px" }}>{`Pay my share · ${eurC(leadAmt)} →`}</button>
+          : <button disabled={disabled} onClick={onCta} className="w-full mt-4 inline-flex items-center justify-center text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed" style={{ height: "60px", borderRadius: "9999px", background: "#46A41A", fontSize: "15px" }}>{busy ? "Processing…" : "Complete booking →"}</button>}
+        {/* #74 — supporting CTA note */}
+        <div className="mt-2 text-center text-[11px] text-ink-muted">{allPaid ? "All travellers have paid · ready to confirm" : leadPaid ? `Your share is paid. ${pending} traveller${pending !== 1 ? "s" : ""} settle via their link.` : "You're only charged your share now; others pay via their own link."}</div>
         <button onClick={onBack} className="w-full text-center text-[12px] font-semibold text-ink-muted mt-3 hover:text-ink">← Back to passenger details</button>
-        <div className="mt-3 rounded-xl bg-[#eef4ff] border border-[#d6e3ff] px-3 py-2.5 text-[11px] text-ink-muted">Each traveller pays their own share via their link. You're only charged {eurC(leadAmt)} now; others stay <span className="font-semibold">Pending</span> until they pay.</div>
+        {/* #75/#76 — trust & security benefits */}
+        <div className="mt-3" style={{ background: "#FFFFFF", border: "1px solid #E8E8E5", borderRadius: "14px", padding: "14px" }}>
+          <div className="grid grid-cols-2 gap-2.5">
+            {[["lock", "PCI-DSS Level 1"], ["clock", "Free 24h cancellation"], ["star", "24/7 customer care"], ["check", "Instant confirmation"]].map(([ic, tx]) => (
+              <div key={tx} className="flex items-center gap-2 text-[12px] font-medium" style={{ color: "#1A1F29" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "28px", height: "28px", borderRadius: "8px", background: "#F5FFEB" }}><Icon name={ic} size={14} className="text-tap-greenDeep" /></span>{tx}</div>
+            ))}
+          </div>
+        </div>
+        {/* #77 — verified by Stripe banner */}
+        <div className="mt-3 flex items-center gap-2.5" style={{ background: "#0A0A0A", borderRadius: "14px", padding: "14px 16px" }}>
+          <span className="inline-flex items-center justify-center shrink-0 text-white text-[12px] font-bold" style={{ width: "32px", height: "32px", borderRadius: "8px", background: "#635bff" }}>S</span>
+          <div className="flex-1"><div className="text-[12px] font-semibold text-white">Verified by Stripe</div><div className="text-[10px] text-white/60">Every card is encrypted and tokenised.</div></div>
+          <Icon name="lock" size={14} className="text-white/70 shrink-0" />
+        </div>
       </Card>
     </aside>
   );
@@ -1353,7 +1384,7 @@ export function Passenger({ shared, go }) {
 }
 
 /* ═══════════ PAYMENT ═══════════ */
-const METHODS = ["Card", "Digital Wallet", "Miles & Go", "Bank transfer", "Split Payment", "Mix Method"];
+const METHODS = ["Card", "Instalments", "Pay by Segment", "Digital Wallet", "Miles & Go", "Bank transfer", "Split Payment", "Mix Method"];
 
 /* H2 · Real-time availability / price change during booking. Revalidation runs when the
    passenger reaches payment (before confirmation). It fires once per selected outbound so
@@ -1437,6 +1468,9 @@ export function Payment({ shared, go }) {
   seedExtras();
   const u = shared.profile?.user || {};
   const voucher = (shared.profile?.vouchers || []).find(v => v.status === "active")?.amount || 0;
+  // Mix #8 — Figma shows the voucher pre-selected in the composer; apply an eligible voucher on mount
+  // (only read by the Mix Method branch, so other methods are unaffected). User can still toggle it off.
+  useEffect(() => { if (voucher > 0) setMix(m => (m.voucher > 0 ? m : { ...m, voucher })); }, [voucher]);
   const t = tripTotals();
   const [method, setMethod] = useState(trip.payMiles ? "Miles & Go" : "Card");   // honour the Pay-with-Miles toggle from search
   const [agree, setAgree] = useState(true);
@@ -1445,6 +1479,9 @@ export function Payment({ shared, go }) {
   const [useV, setUseV] = useState(false);
   const [milesUsed, setMilesUsed] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [instN, setInstN] = useState(3);                 // F1 — chosen instalment plan (months)
+  const [segPaid, setSegPaid] = useState(() => new Set()); // F2 — segments settled ("ob" / "ib")
+  const [optIn, setOptIn] = useState(false);               // Split #59 — custom optional-consent checkbox
   const [seat, setSeat] = useState(null);                 // recommended seat from history (DB)
   const [splitTab, setSplitTab] = useState("Split Equally");
   const [splitAmts, setSplitAmts] = useState({});   // #16 — per-payer custom amounts (index → €)
@@ -1483,11 +1520,32 @@ export function Payment({ shared, go }) {
   const splitAllocated = +splitPayers.reduce((s, _, i) => s + (splitAmtFor(i) || 0), 0).toFixed(2);
   const splitLeadAmt = splitPayers.length ? (splitAmtFor(0) || 0) : 0;
 
+  // F1 — instalment plans: 3× and 4× interest-free, 6× carries a small service fee.
+  const INST_PLANS = [{ n: 3, feeRate: 0 }, { n: 4, feeRate: 0 }, { n: 6, feeRate: 0.04 }];
+  const instPlan = INST_PLANS.find(p => p.n === instN) || INST_PLANS[0];
+  const instTotal = +(t.total * (1 + instPlan.feeRate)).toFixed(2);
+  const instPer = +(instTotal / instPlan.n).toFixed(2);
+  const instFirst = +(instTotal - instPer * (instPlan.n - 1)).toFixed(2);   // first payment absorbs rounding
+  const INST_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const instDateLabel = (m) => { const d = new Date(); d.setMonth(d.getMonth() + m); return `${d.getDate()} ${INST_MON[d.getMonth()]} ${d.getFullYear()}`; };
+  const instSchedule = Array.from({ length: instPlan.n }, (_, i) => ({ i, amt: i === 0 ? instFirst : instPer }));
+
+  // F2 — per-segment pricing: each flight's fare share of the total (outbound also carries extras/taxes/bundle).
+  const obFlights = (trip.outbound?.price || 0) * (trip.pax || 1);
+  const ibFlights = (trip.inbound?.price || 0) * (trip.pax || 1);
+  const segTaxOb = ibFlights ? Math.round(t.taxes * obFlights / (obFlights + ibFlights)) : t.taxes;
+  const segTaxIb = t.taxes - segTaxOb;
+  const obShare = +(obFlights + segTaxOb + t.extras - t.bundle + (t.reprice || 0)).toFixed(2);
+  const ibShare = +(ibFlights + segTaxIb).toFixed(2);
+  const hasInbound = !!trip.inbound;
+  const segList = [{ key: "ob", label: "Outbound", f: trip.outbound?.flight, date: trip.date, amt: obShare, sub: "Fare + taxes + extras" }, ...(hasInbound ? [{ key: "ib", label: "Return", f: trip.inbound?.flight, date: trip.ret, amt: ibShare, sub: "Fare + taxes" }] : [])];
+  const bothSegPaid = segList.every(s => segPaid.has(s.key));
+
   async function pay() {
     setBusy(true);
     try {
       const r = await api.post("/pay", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code || e.name), total: t.total, voucher_amt, miles_used, miles_amt, card_amt, seat: seatNo, date: trip.date, fare: trip.outbound?.fare, cabin: fareCabin(trip.outbound?.fare), pax: trip.pax, passengers: (trip.passengers || []).filter(p => p && p.first).map(p => ({ title: p.title, first: p.first, last: p.last })), inbound: trip.inbound?.flight?.flight_no ? { flight_no: trip.inbound.flight.flight_no, date: trip.ret } : null, contact: trip.contact || null });
-      if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to }; go("confirmation"); }
+      if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to, payNote: method === "Instalments" ? `${instPlan.n}× instalments — ${EUR(instFirst)} today, then ${instPlan.n - 1} × ${EUR(instPer)}` : method === "Pay by Segment" ? `Paid by segment — outbound ${EUR(obShare)}${hasInbound ? ` + return ${EUR(ibShare)}` : ""}` : null }; go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
@@ -1495,8 +1553,13 @@ export function Payment({ shared, go }) {
   const VOK = ({ defaultValue, ...p }) => <div className="relative"><Input defaultValue={defaultValue} className="pr-9" {...p} /><Icon name="check" size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-tap-green pointer-events-none" /></div>;
   const billing = (
     <Card className="p-6" style={{ borderRadius: "12px", boxShadow: "none" }}>
-      <div className="flex items-start justify-between mb-4"><div className="flex items-center gap-2"><img src={AIC + "billing.png"} alt="" className="w-[18px] h-[18px] object-contain opacity-70 shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} /><div><div className="font-semibold text-[18px]">Billing details</div><div className="text-[12px] leading-4 text-ink-muted">We use these only for payment authorisation and invoicing.</div></div></div></div>
-      <label onClick={() => setUseContactBilling(v => !v)} className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-2.5 mb-4 cursor-pointer w-fit" style={{ background: "#F2FFDB", border: "1px solid #DCEFC6" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "18px", height: "18px", borderRadius: "5px", background: useContactBilling ? "#336614" : "#FFFFFF", border: useContactBilling ? "none" : "1px solid #DCEFC6" }}>{useContactBilling && <Icon name="check" size={11} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span><span className="text-[13px] font-semibold" style={{ color: "#336614" }}>Use contact details from this booking</span></label>
+      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center" style={{ gap: "12px" }}>
+          <span className="inline-flex items-center justify-center shrink-0" style={{ width: "36px", height: "36px", borderRadius: "8px", background: "#F2F2EE" }}><img src={AIC + "billing.png"} alt="" className="w-[18px] h-[18px] object-contain opacity-70" onError={e => { e.currentTarget.style.display = "none"; }} /></span>
+          <div><div style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A" }}>Billing details</div><div className="leading-4" style={{ fontSize: "12px", color: "#6B6B6B" }}>We use these only for payment authorisation and invoicing.</div></div>
+        </div>
+        <label onClick={() => setUseContactBilling(v => !v)} className="flex items-center gap-2.5 rounded-[10px] cursor-pointer shrink-0" style={{ background: "#F2FFDB", border: "1px solid #9EFD38", padding: "8px 12px" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "18px", height: "18px", borderRadius: "5px", background: useContactBilling ? "#336614" : "#FFFFFF", border: useContactBilling ? "none" : "1px solid #DCEFC6" }}>{useContactBilling && <Icon name="check" size={11} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span><span style={{ fontSize: "12px", fontWeight: 500, color: "#336614" }}>Use contact details from this booking</span></label>
+      </div>
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label={<>Country <Req /></>}><FlagSelect value={billCtry} onChange={setBillCtry} options={FLAG_CTRY} /></Field>
         <Field label={<>Street address <Req /></>}><VOK defaultValue="Av. Paulista, 1842 · Apt 71" /></Field>
@@ -1505,19 +1568,21 @@ export function Payment({ shared, go }) {
         <Field label={<>Postal code <Req /></>}><VOK defaultValue="01310-100" /></Field>
         <Field label="CPF / Tax ID (optional)"><Input placeholder="000.000.000-00" /></Field>
       </div>
-      <div className="h-px bg-line my-2" />
-      <div className="flex items-center gap-2 text-[12px] text-ink-muted pt-3 leading-[18px]"><Icon name="doc" size={13} className="text-ink-faint shrink-0" /> Invoice will be issued to this address. You can edit it before requesting a refund.</div>
+      <div className="flex items-center gap-2 leading-[18px]" style={{ borderTop: "1px solid #E8E8E5", paddingTop: "6px", marginTop: "6px", fontSize: "11px", color: "#6B6B6B" }}><Icon name="doc" size={14} className="text-ink-faint shrink-0" /> Invoice will be issued to this address. You can edit it before requesting a refund.</div>
     </Card>
   );
   const terms = (
     <Card className="p-5 space-y-3">
-      <div className="font-bold text-[15px] flex items-center gap-2"><img src={AIC + "terms.png"} alt="" className="w-[15px] h-[15px] object-contain opacity-70 shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} /> Terms and consent</div>
-      <label className={cx("flex items-start gap-2.5 text-[13px] rounded-xl border px-4 py-3", agree ? "border-tap-green bg-lime-tint/40" : "border-tap-red/40 bg-tap-red/5")}>
-        <span className={cx("mt-0.5 w-5 h-5 rounded-md inline-flex items-center justify-center shrink-0 cursor-pointer", agree ? "bg-tap-green text-white" : "border-2 border-line-strong")} onClick={() => setAgree(!agree)}>{agree && <Icon name="check" size={13} />}</span>
-        <span className="flex-1">I've read and accept the <b>fare conditions</b> · <b>baggage rules</b> · <b>privacy policy</b>.<div className="text-ink-faint font-normal">You'll receive your booking confirmation and e-ticket after successful payment.</div></span>
-        <span className="shrink-0"><span className="text-[10px] font-bold uppercase tracking-wide rounded-full bg-tap-red text-white px-2.5 py-1">Required</span></span>
+      <div className="flex items-center" style={{ gap: "10px", fontSize: "16px", fontWeight: 600, color: "#0A0A0A" }}><Icon name="doc" size={14} className="text-ink-faint shrink-0" /> Terms and consent</div>
+      <label className="flex items-start gap-2.5 text-[13px]" style={{ borderRadius: "10px", border: "1px solid #E8E8E5", background: "#FAFAF7", padding: "14px" }}>
+        <span className="mt-0.5 inline-flex items-center justify-center shrink-0 cursor-pointer" style={{ width: "20px", height: "20px", borderRadius: "5px", background: agree ? "#0A0A0A" : "#FFFFFF", border: "1px solid #0A0A0A" }} onClick={() => setAgree(!agree)}>{agree && <Icon name="check" size={12} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span>
+        <span className="flex-1" style={{ fontWeight: 500 }}>I've read and accept the <span style={{ fontWeight: 600, color: "#0A0A0A" }}>fare conditions</span> · <span style={{ fontWeight: 600, color: "#0A0A0A" }}>baggage rules</span> · <span style={{ fontWeight: 600, color: "#0A0A0A" }}>privacy policy</span>.<div className="font-normal" style={{ fontSize: "11px", color: "#6B6B6B" }}>You'll receive your booking confirmation and e-ticket after successful payment.</div></span>
+        <span className="shrink-0"><span className="uppercase rounded-full bg-tap-red text-white" style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em", padding: "3px 8px" }}>Required</span></span>
       </label>
-      <label className="flex items-start gap-2.5 text-[13px] text-ink-700 px-1"><input type="checkbox" className="accent-[#46a41a] mt-0.5" /><span>Send me deals and offers from TAP and partners <span className="text-ink-faint">(optional)</span><div className="text-[11px] text-ink-faint">You can unsubscribe any time. We'll always send essential trip emails.</div></span></label>
+      <label className="flex items-start cursor-pointer" style={{ padding: "6px", gap: "14px" }} onClick={() => setOptIn(v => !v)}>
+        <span className="mt-0.5 inline-flex items-center justify-center shrink-0" style={{ width: "20px", height: "20px", borderRadius: "5px", background: optIn ? "#0A0A0A" : "#FFFFFF", border: optIn ? "1px solid #0A0A0A" : "1px solid #E8E8E5" }}>{optIn && <Icon name="check" size={12} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span>
+        <span style={{ fontSize: "13px", fontWeight: 500, color: "#0A0A0A" }}>Send me deals and offers from TAP and partners <span style={{ color: "#6B6B6B" }}>(optional)</span><div style={{ fontSize: "11px", color: "#6B6B6B" }}>You can unsubscribe any time. We'll always send essential trip emails.</div></span>
+      </label>
     </Card>
   );
 
@@ -1531,13 +1596,13 @@ export function Payment({ shared, go }) {
         <div className="flex flex-wrap items-center gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {trip.pax > 1 ? "+ " + (trip.pax - 1) : ""}</Chip><span className="ml-auto inline-flex items-center gap-2 rounded-lg bg-surface-mute px-3 py-1.5"><span className="w-2 h-2 rounded-full bg-tap-red inline-block" /><span className="leading-tight"><span className="block text-[9px] font-bold uppercase tracking-wide text-ink-faint">Price locked</span><SessionTimer prefix="" suffix=" remaining" className="block text-[12px] font-bold text-ink v2-num" /></span></span></div>
 
         <div className="grid lg:grid-cols-[1fr_328px] gap-6 mt-5 items-start">
-          <div className="space-y-6">
+          <div className="space-y-[18px]">
             <div className="rounded-2xl p-4 text-white flex items-center justify-between flex-wrap gap-3" style={{ background: "linear-gradient(100deg,#1f5e23,#46a41a)" }}>
               <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-lg bg-white/15 inline-flex items-center justify-center"><Icon name="lock" size={16} /></span><div><div className="text-[14px] font-bold">Secure payment</div><div className="text-[11px] text-white/70">All card data is encrypted and tokenised. We never see your full card number.</div></div></div>
               <div className="flex flex-wrap gap-1.5">{["VISA", "MASTERCARD", "AMEX", "TAP MILES", "APPLE PAY"].map(b => <span key={b} className="text-[9px] font-bold bg-white/15 rounded px-1.5 py-1">{b}</span>)}<span className="text-[9px] font-bold bg-[#635bff] rounded px-1.5 py-1">stripe</span></div>
             </div>
             <Card className="overflow-hidden">
-            <div className="p-1.5 flex gap-1 overflow-x-auto v2-track border-b border-line">{METHODS.map(m => { const on = method === m; return <button key={m} onClick={() => setMethod(m)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-semibold inline-flex items-center gap-1.5", on ? "bg-tap-green text-white" : "text-ink-muted hover:bg-surface-mute")}>{m}{m === "Card" && on && <span className="flex gap-1 ml-0.5">{["VISA", "MC", "AMEX"].map(b => <span key={b} className="text-[8px] font-bold bg-white/25 rounded px-1 py-0.5 leading-none">{b}</span>)}</span>}</button>; })}</div>
+            <div className="p-1.5 flex gap-1 overflow-x-auto v2-track border-b border-line">{METHODS.filter(m => trip.inbound || m !== "Pay by Segment").map(m => { const on = method === m; return <button key={m} onClick={() => setMethod(m)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-semibold inline-flex items-center gap-1.5", on ? "bg-tap-green text-white" : "text-ink-muted hover:bg-surface-mute")}>{m}{m === "Card" && on && <span className="flex gap-1 ml-0.5">{["VISA", "MC", "AMEX"].map(b => <span key={b} className="text-[8px] font-bold bg-white/25 rounded px-1 py-0.5 leading-none">{b}</span>)}</span>}</button>; })}</div>
             <div className="p-5">
               {method === "Card" && <>
                 <div className="mb-3"><div className="flex items-center justify-between"><div className="font-semibold text-[18px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Pay by card</div><span className="text-[11px] text-ink-faint flex items-center gap-1">Powered by <span className="text-[11px] font-bold text-white rounded-[6px] px-2 py-1" style={{ background: "#6B4DD9" }}>stripe</span></span></div>
@@ -1551,7 +1616,7 @@ export function Payment({ shared, go }) {
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 pointer-events-none"><span className="text-[10px] font-bold text-ink-slate">VISA</span><Icon name="check" size={13} className="text-tap-green" /></span>
                     </div>
                   </Field>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <Field label={<>Expiry (MM / YY) <Req /></>}><div className="relative"><Input defaultValue={u.card_exp || "09 / 28"} placeholder="MM / YY" className="pr-8 v2-num" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div></Field>
                     <Field label={<span className="inline-flex items-center gap-1.5">CVC <Req /> <span className="w-3.5 h-3.5 rounded-full inline-flex items-center justify-center" style={{ background: "#F2F2EE" }}><Icon name="info" size={9} className="text-ink-faint" /></span></span>}>
                       <div className="relative"><Input defaultValue="•••" className="pr-8" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div>
@@ -1599,21 +1664,21 @@ export function Payment({ shared, go }) {
                 return <div className="text-[13px]">
                   <div className="flex gap-1 text-[13px] mb-3">{["Single Payer", "Split Equally", "Custom Split"].map(s => <button key={s} onClick={() => setSplitTab(s)} className={cx("border-b", splitTab === s ? "border-tap-green text-tap-greenDeep font-semibold" : "border-transparent text-ink-faint font-medium")} style={{ padding: "10px 16px" }}>{s}</button>)}</div>
                   {payers.map((p, i) => (
-                    <div key={i} className="rounded-xl mb-2.5 flex items-center gap-3 flex-wrap" style={{ padding: "13px 16px", border: p.lead ? "1px solid #E0E3E8" : "1px solid #E5E7EB", background: "#FFFFFF" }}>
+                    <div key={i} className="rounded-xl mb-2.5 flex items-center gap-3 flex-wrap" style={{ padding: "13px 16px", border: "1px solid #E0E3E8", background: "#FFFFFF" }}>
                       <span className="inline-flex items-center justify-center text-[13px] font-bold shrink-0" style={{ width: "36px", height: "36px", borderRadius: "18px", background: "#F7FAFA", color: "#1A1F29" }}>{p.name[0]}</span>
-                      <div className="min-w-0"><div className="font-bold leading-tight text-[14px]">{p.name}</div><div className="text-[12px] truncate" style={{ color: "#667080" }}>{p.email}</div></div>
-                      <button className="inline-flex items-center gap-1 border border-line text-ink-muted hover:text-tap-red hover:border-tap-red shrink-0" style={{ borderRadius: "8px", padding: "6px 10px", fontSize: "12px", fontWeight: 500 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg> Remove</button>
+                      <div className="min-w-0"><div className="font-bold leading-tight text-[14px]" style={{ color: "#1A1F29" }}>{p.name}</div><div className="text-[12px] truncate" style={{ color: "#667080" }}>{p.email}</div></div>
+                      <button className="inline-flex items-center gap-1 border border-line hover:border-tap-red shrink-0" style={{ borderRadius: "8px", padding: "6px 10px", fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg> Remove</button>
                       <div className={cx("inline-flex items-center gap-1.5 rounded-lg border ml-auto", custom ? "border-tap-green bg-surface" : "border-line-strong")} style={{ padding: "8px 16px" }}>
                         <span className="text-[13px] text-ink-faint">€</span>
                         {custom
-                          ? <input type="number" min="0" step="0.01" value={amtFor(i)} onChange={e => setSplitAmts(a => ({ ...a, [i]: Math.max(0, +(+e.target.value).toFixed(2)) }))} className="w-20 bg-transparent font-bold v2-num text-[18px] outline-none" aria-label={`Amount for ${p.name}`} />
-                          : <span className="font-bold v2-num text-[18px]">{amtFor(i).toFixed(2)}</span>}
+                          ? <input type="number" min="0" step="0.01" value={amtFor(i)} onChange={e => setSplitAmts(a => ({ ...a, [i]: Math.max(0, +(+e.target.value).toFixed(2)) }))} className="w-20 bg-transparent font-bold v2-num text-[18px] outline-none" style={{ color: "#1A1F29" }} aria-label={`Amount for ${p.name}`} />
+                          : <span className="font-bold v2-num text-[18px]" style={{ color: "#1A1F29" }}>{amtFor(i).toFixed(2)}</span>}
                         <button type="button" onClick={() => { setSplitTab("Custom Split"); setSplitAmts(a => (a[i] != null ? a : { ...a, [i]: equal })); }} title={custom ? "Edit amount" : "Edit amounts — switch to a custom split"} aria-label="Edit amount" className="inline-flex items-center justify-center rounded hover:bg-surface-mute -mr-1 p-0.5">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={custom ? "var(--tap-green)" : "#171717"} style={{ opacity: custom ? 1 : 0.7 }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                         </button>
                       </div>
-                      <div className="text-[13px] text-ink-muted shrink-0 text-right" style={{ minWidth: "120px" }}>{p.lead ? `Card •••• ${p.card}` : p.status}</div>
-                      <button className="text-[13px] font-bold text-tap-red shrink-0 hover:underline text-right" style={{ minWidth: "72px" }}>{p.lead ? "Pay now" : p.status === "Link pending" ? "Send link" : "Resend"}</button>
+                      <div className="text-[13px] shrink-0 text-right" style={{ minWidth: "120px", fontWeight: 500, color: "#1A1F29" }}>{p.lead ? `Card •••• ${p.card}` : p.status}</div>
+                      <button className="text-[13px] font-bold shrink-0 hover:underline text-right" style={{ minWidth: "72px", color: "#E00A0A" }}>{p.lead ? "Pay now" : p.status === "Link pending" ? "Send link" : "Resend"}</button>
                     </div>
                   ))}
                   <div className={cx("flex items-center justify-between text-[12px] font-semibold", balanced ? "bg-lime-tint/60 text-tap-greenDeep" : "bg-[#fdecec] text-tap-red")} style={{ borderRadius: "12px", padding: "13px 16px" }}>
@@ -1623,7 +1688,52 @@ export function Payment({ shared, go }) {
                   {custom && <button onClick={() => setSplitAmts({})} className="mt-2 text-[11px] font-semibold text-ink-muted hover:text-tap-greenDeep">Reset to equal split</button>}
                 </div>;
               })()}
-              <div className="mt-4 rounded-xl border border-line flex items-center gap-3 text-[12px]" style={{ background: "#FAFAF7", padding: "18px" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#FFFFFF", border: "1px solid #E8E8E5" }}><Icon name="lock" size={16} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold text-[13px]" style={{ color: "#0A0A0A" }}>Bank verification (3-D Secure) appears here when required</div><div className="text-[11px]" style={{ color: "#6B6B6B" }}>Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full shrink-0" style={{ border: "1px solid #E8E8E5", background: "#FFFFFF", padding: "5px 10px" }}><Icon name="lock" size={10} /> 3-D Secure 2.0</span></div>
+              {method === "Instalments" && (
+                <div className="text-[13px]">
+                  <div className="font-semibold text-[18px] flex items-center gap-2 mb-1" style={{ color: "#0A0A0A" }}><Icon name="clock" size={14} className="text-ink-faint" /> Pay in instalments</div>
+                  <p className="text-[12px] text-ink-muted mb-3">Split {EUR(t.total)} into equal monthly payments — first today, the rest auto-charged to your saved card.</p>
+                  <div className="grid sm:grid-cols-3 gap-2.5 mb-4">
+                    {INST_PLANS.map(p => { const on = instN === p.n; const per = +((t.total * (1 + p.feeRate)) / p.n).toFixed(2); return (
+                      <button key={p.n} onClick={() => setInstN(p.n)} className="text-left rounded-xl transition-colors" style={{ border: on ? "2px solid #46A41A" : "1px solid #E0E3E8", background: on ? "#F2FFDB" : "#FFFFFF", padding: "14px 16px" }}>
+                        <div className="flex items-center justify-between"><div className="text-[15px] font-bold">{p.n}×</div>{p.feeRate === 0 ? <span className="text-[9px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5" style={{ background: "#E9F9D6", color: "#2E7D33" }}>0% interest</span> : <span className="text-[9px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5 bg-surface-mute text-ink-muted">+{Math.round(p.feeRate * 100)}% fee</span>}</div>
+                        <div className="text-[18px] font-bold v2-num mt-1.5">{EUR(per)}<span className="text-[11px] font-medium text-ink-faint"> /mo</span></div>
+                        <div className="text-[11px] text-ink-faint mt-0.5">over {p.n} months</div>
+                      </button>
+                    ); })}
+                  </div>
+                  <div className="rounded-xl border border-line overflow-hidden">
+                    <div className="bg-surface-soft px-4 py-2.5 text-[11px] font-bold uppercase tracking-wide text-ink">Repayment schedule</div>
+                    <div className="divide-y divide-line">
+                      {instSchedule.map((s, idx) => (
+                        <div key={idx} className="flex items-center justify-between px-4 py-2.5">
+                          <div className="flex items-center gap-2.5"><span className="inline-flex items-center justify-center text-[11px] font-bold shrink-0" style={{ width: "26px", height: "26px", borderRadius: "13px", background: idx === 0 ? "#46A41A" : "#F2F2EE", color: idx === 0 ? "#fff" : "#667080" }}>{idx + 1}</span><div><div className="text-[13px] font-semibold">{idx === 0 ? "Today" : instDateLabel(idx)}</div>{idx === 0 && <div className="text-[10px] text-tap-greenDeep font-semibold">Charged now</div>}</div></div>
+                          <span className="text-[14px] font-bold v2-num">{EUR(s.amt)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark px-3 py-2.5 text-[12px] flex items-center gap-1.5"><Icon name="info" size={13} className="shrink-0" /> {instPlan.feeRate > 0 ? `Includes a ${Math.round(instPlan.feeRate * 100)}% service fee — ${EUR(instTotal)} total across ${instPlan.n} payments.` : `0% interest — you pay exactly ${EUR(t.total)}, spread over ${instPlan.n} months.`}</div>
+                </div>
+              )}
+              {method === "Pay by Segment" && (
+                <div className="text-[13px]">
+                  <div className="font-semibold text-[18px] flex items-center gap-2 mb-1" style={{ color: "#0A0A0A" }}><Icon name="plane" size={14} className="text-ink-faint" /> Pay by segment</div>
+                  <p className="text-[12px] text-ink-muted mb-3">{hasInbound ? "Pay for each flight independently — your booking confirms once both segments are settled." : "This is a one-way trip, so there's a single segment to pay."}</p>
+                  {segList.map(s => { const paid = segPaid.has(s.key); return (
+                    <div key={s.key} className="rounded-xl mb-2.5 flex items-center gap-3 flex-wrap" style={{ padding: "14px 16px", border: paid ? "1px solid #A6D926" : "1px solid #E0E3E8", background: paid ? "#F5FCD9" : "#FFFFFF" }}>
+                      <span className="inline-flex items-center justify-center shrink-0" style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F7FAFA" }}><Icon name="plane" size={16} className="text-tap-greenDeep" /></span>
+                      <div className="min-w-0"><div className="font-bold text-[14px] leading-tight">{s.label} · {s.f?.origin} → {s.f?.dest}</div><div className="text-[12px] text-ink-faint">{fmtDate(s.date).replace(/ \d{4}/, "")} · {s.f?.flight_no} · {s.sub}</div></div>
+                      <div className="ml-auto text-right"><div className="text-[18px] font-bold v2-num">{EUR(s.amt)}</div></div>
+                      <button disabled={paid} onClick={() => setSegPaid(p => new Set(p).add(s.key))} className={cx("shrink-0 inline-flex items-center gap-1.5 rounded-full text-[13px] font-semibold", paid ? "bg-lime-tint text-tap-greenDeep" : "text-white")} style={paid ? { padding: "9px 16px" } : { padding: "9px 18px", background: "#46A41A" }}>{paid ? <><Icon name="check" size={13} /> Paid</> : `Pay ${EUR(s.amt)}`}</button>
+                    </div>
+                  ); })}
+                  <div className={cx("flex items-center justify-between text-[12px] font-semibold", bothSegPaid ? "bg-lime-tint/60 text-tap-greenDeep" : "bg-surface-soft text-ink-muted")} style={{ borderRadius: "12px", padding: "13px 16px" }}>
+                    <span>{[...segPaid].filter(k => segList.some(s => s.key === k)).length} of {segList.length} segment{segList.length > 1 ? "s" : ""} paid</span>
+                    <span>{bothSegPaid ? "✓ Ready to confirm" : `${EUR(segList.filter(s => !segPaid.has(s.key)).reduce((a, s) => a + s.amt, 0))} remaining`}</span>
+                  </div>
+                </div>
+              )}
+              <div className="mt-4 rounded-xl border border-line flex items-center text-[12px]" style={{ background: "#FAFAF7", padding: "18px", gap: "14px" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#FFFFFF", border: "1px solid #E8E8E5" }}><Icon name="lock" size={16} className="text-ink-faint" /></span><div className="flex-1"><div className="font-semibold text-[13px]" style={{ color: "#0A0A0A" }}>Bank verification (3-D Secure) appears here when required</div><div className="text-[11px]" style={{ color: "#6B6B6B" }}>Your bank may ask you to confirm with a code, push notification, or biometric.</div></div><span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full shrink-0" style={{ border: "1px solid #E8E8E5", background: "#FFFFFF", padding: "5px 10px" }}><Icon name="lock" size={10} /> 3-D Secure 2.0</span></div>
             </div>
             </Card>
             {billing}{terms}
@@ -1633,7 +1743,7 @@ export function Payment({ shared, go }) {
           </div>
           {method === "Split Payment"
             ? <SplitSummary payers={splitPayers} amtFor={splitAmtFor} total={t.total} allocated={splitAllocated} leadAmt={splitLeadAmt} paid={splitPaid} onPayShare={payMyShare} onMarkPaid={markPaid} disabled={!agree || busy} busy={busy} onCta={pay} onBack={() => go("passenger")} />
-            : <BasketSummary step={4} grouped cta={busy ? "Processing…" : method === "Mix Method" ? `Pay ${EUR(card_amt)} by card →` : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy} onCta={pay} note={method === "Mix Method" ? `Card covers the ${EUR(card_amt)} balance after miles, voucher & wallet.` : "By paying you confirm fare conditions & privacy policy."} secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method"} milesSwitch={method === "Mix Method" ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")}
+            : <BasketSummary step={4} grouped cta={busy ? "Processing…" : method === "Mix Method" ? `Pay ${EUR(card_amt)} by card →` : method === "Instalments" ? `Pay ${EUR(instFirst)} today →` : method === "Pay by Segment" ? (bothSegPaid ? "Complete booking →" : "Pay each segment above") : `Pay ${EUR(t.total)} & complete booking`} disabled={!agree || busy || (method === "Pay by Segment" && !bothSegPaid)} onCta={pay} note={method === "Mix Method" ? `Card covers the ${EUR(card_amt)} balance after miles, voucher & wallet. By paying, you confirm fare conditions & privacy policy.` : method === "Instalments" ? `Then ${instPlan.n - 1} monthly payment${instPlan.n - 1 !== 1 ? "s" : ""} of ${EUR(instPer)}${instPlan.feeRate > 0 ? " · incl. fee" : " · 0% interest"}.` : method === "Pay by Segment" ? (bothSegPaid ? "Both segments settled — confirm to issue your tickets." : "Settle both flight segments above to continue.") : "By paying you confirm fare conditions & privacy policy."} secondary="← Back to passenger details" onSecondary={() => go("passenger")} user={u} breakdown={mixBreakdown} hideMiles={method === "Mix Method"} milesSwitch={method === "Mix Method" ? undefined : { tier: u.tier }} onMilesSwitch={() => setMethod("Miles & Go")}
             footer={<>
               <div className="mt-2 rounded-xl bg-surface-soft border border-line px-3 py-2.5 flex items-start gap-2 text-[12px]"><Icon name="lock" size={13} className="text-tap-greenDeep mt-0.5 shrink-0" /><div><div className="font-bold">PCI-DSS Level 1</div><div className="text-ink-faint">Stripe encrypts and tokenises every card.</div></div></div>
               <div className="text-[11px] text-ink-faint text-center mt-2"><SessionTimer prefix="No charge yet · price locked" /></div>
@@ -1915,7 +2025,7 @@ export function Confirmation({ shared, go }) {
   return (
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <div className="mx-auto max-w-page px-6 py-8">
-        <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center shrink-0"><Icon name="check" size={22} /></span><div><h1 className="text-[30px] font-black leading-tight">Booking Confirmed</h1><div className="text-[13px] text-ink-muted">PNR {trip.pnr} · Receipt sent to {pay.email || u.email}</div></div></div>
+        <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center shrink-0"><Icon name="check" size={22} /></span><div><h1 className="text-[36px] font-bold leading-tight">Booking Confirmed</h1><div className="text-[16px] text-ink-muted leading-6">PNR {trip.pnr} · Receipt sent to {pay.email || u.email}</div></div></div>
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-6">
             <Card className="p-6" style={{ borderRadius: "18px", background: "#FFFFFF", borderColor: "#E8E8E5" }}>
@@ -1980,13 +2090,16 @@ export function Confirmation({ shared, go }) {
           </div>
           <aside className="space-y-4">
             <Card className="p-5" style={{ borderRadius: "18px", borderColor: "#E8E8E5", boxShadow: "0px 8px 24px rgba(0,0,0,0.08)" }}>
-              <div className="font-bold text-[16px]">Payment Receipt</div>
+              <div className="font-bold text-[16px]">Payment receipt</div>
               <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
               <div className="space-y-1.5 text-[13px]"><Row label={`Fare x${trip.pax}`} v={eur2(t.flights)} /><Row label="Taxes & fees" v={eur2(t.taxes)} />{t.extras ? <Row label="Extras" v={eur2(t.extras)} /> : null}{t.bundle ? <Row label="Bundle savings" v={"−" + eur2(t.bundle)} green /> : null}{pay.voucher_amt ? <Row label="Voucher" v={"−" + eur2(pay.voucher_amt)} green /> : null}{pay.miles_amt ? <Row label={`Miles (${miles(pay.miles_used)})`} v={"−" + eur2(pay.miles_amt)} green /> : null}</div>
               <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
-              <div className="rounded-lg flex items-center justify-between gap-2" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5", padding: "18px 20px" }}><div className="text-[12px] font-semibold text-ink">Paid · {(() => { const parts = []; if (pay.miles_used > 0) parts.push(`${miles(pay.miles_used)} miles`); if (pay.voucher_amt > 0) parts.push(`voucher ${eur2(pay.voucher_amt)}`); if ((pay.card_amt ?? t.total) > 0) parts.push(`${eur2(pay.card_amt ?? t.total)} card${u.card_last4 ? " ••" + u.card_last4 : ""}`); return parts.length ? parts.join(" + ") : (pay.method || "Card"); })()}</div><div className="text-[34px] font-bold text-tap-green v2-num">{eur2(pay.card_amt ?? t.total)}</div></div>
-              <div className="mt-3 rounded-xl bg-lime-tint" style={{ border: "1px solid #A6D926", padding: "18px 22px" }}><div className="text-[13px] font-bold text-ink flex items-center gap-1.5"><Icon name="spark" size={13} className="text-tap-green" /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] text-ink-muted mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
-              <button onClick={() => go("basket")} className="w-full mt-3 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold hover:brightness-95" style={{ height: "42px", borderRadius: "9999px", background: "#FFFFFF", border: "1px solid #E8E8E5", color: "#0A0A0A" }}>Download invoice (PDF) →</button>
+              <div className="rounded-xl overflow-hidden mt-1" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5" }}>
+                <div className="flex items-center justify-between gap-2" style={{ padding: "18px 20px" }}><div className="text-[12px] font-semibold text-ink">Paid · {(() => { const parts = []; if (pay.miles_used > 0) parts.push(`${miles(pay.miles_used)} miles`); if (pay.voucher_amt > 0) parts.push(`voucher ${eur2(pay.voucher_amt)}`); if ((pay.card_amt ?? t.total) > 0) parts.push(`${eur2(pay.card_amt ?? t.total)} card${u.card_last4 ? " ••" + u.card_last4 : ""}`); return parts.length ? parts.join(" + ") : (pay.method || "Card"); })()}</div><div className="text-[34px] font-bold text-tap-green v2-num">{eur2(pay.card_amt ?? t.total)}</div></div>
+                {pay.payNote && <div className="text-[11px] text-tap-greenDeep font-semibold flex items-center gap-1.5" style={{ padding: "0 20px 14px" }}><Icon name="clock" size={12} className="shrink-0" /> {pay.payNote}</div>}
+                <div style={{ padding: "14px 20px", borderTop: "1px solid #E8E8E5", background: "#F2FFDB" }}><div className="text-[13px] font-bold text-ink flex items-center gap-1.5"><Icon name="spark" size={13} className="text-tap-green" /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] text-ink-muted mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
+              </div>
+              <button onClick={() => go("basket")} className="w-full mt-3 inline-flex items-center justify-center gap-2 text-[13px] font-semibold hover:brightness-95" style={{ height: "42px", borderRadius: "9999px", background: "#FFFFFF", border: "1px solid #E8E8E5", color: "#0A0A0A" }}>Download invoice (PDF)<span style={{ fontWeight: 400 }}>→</span></button>
             </Card>
             <Card className="p-4 text-[12px] space-y-2.5" style={{ borderRadius: "14px" }}><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="shield" size={15} /></span><div><div style={{ fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}>Free 24h cancellation</div><div style={{ color: "#667080" }}>Full refund on flights &amp; most extras.</div></div></div><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="heart" size={15} /></span><div><div style={{ fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}>24/7 TAP Care</div><div style={{ color: "#667080" }}>Need help? Chat with us 24/7.</div></div></div></Card>
           </aside>
@@ -2034,7 +2147,13 @@ export function ExpressCheckout({ shared, go, params }) {
     }
   }, []);
 
-  const o = trip.outbound, i = trip.inbound;
+  // J1 — never render a stale in-progress trip whose route differs from the searched route, or the
+  // header (searched route, e.g. Lisbon ⇄ Porto) and the flight segments (a stale route, e.g. DEL/DXB)
+  // disagree. Treat a route-mismatched leg as "not ready" so the loader holds until the effect above
+  // resets and rebuilds the real route.
+  const legOnRoute = (leg, from, to) => !!(leg && leg.flight && leg.flight.origin === from && leg.flight.dest === to);
+  const o = legOnRoute(trip.outbound, origin, dest) ? trip.outbound : null;
+  const i = legOnRoute(trip.inbound, dest, origin) ? trip.inbound : null;
   const base = o?.price || 0;
   const seatNo = chosenSeat() || (/exec|plus|premium/i.test(o?.fare || "") ? seatForFare(o?.fare) : (seat?.seat || seatForFare(o?.fare)));
   const seatCost = seatUp ? 18 : 0, bagCost = bag ? 25 : 0, carbonCost = carbon ? 2 : 0;

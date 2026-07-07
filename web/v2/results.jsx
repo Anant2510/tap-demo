@@ -129,6 +129,7 @@ export function Results({ shared, params, go }) {
   const [expanded, setExpanded] = useState(null);
   const [sort, setSort] = useState("Best");
   const [clearNonce, setClearNonce] = useState(0);   // #6 — force-remount filter controls on Clear all
+  const [filtersOpen, setFiltersOpen] = useState(false);   // J2 — collapsible filters on mobile (always shown on lg+)
   const [sel, setSel] = useState(isMulti ? (trip.legs || [])[legIndex] : trip[leg]);
   const [showAll, setShowAll] = useState(false);
   const [held, setHeld] = useState(false);
@@ -266,7 +267,7 @@ export function Results({ shared, params, go }) {
                 ? `Returning ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")            // #34 — return leg: single date, not a range
                 : `${fmtDate(date)} — ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")   // outbound: full trip span
           } />
-          <Chip label="Pax" value={`${(() => { const a = +params.adults || pax; const c = +params.children || 0; const inf = +params.infants || 0; return [`${a} adult${a !== 1 ? "s" : ""}`, c ? `${c} child${c !== 1 ? "ren" : ""}` : "", inf ? `${inf} infant${inf !== 1 ? "s" : ""}` : ""].filter(Boolean).join(" · "); })()} · ${(CABIN_LABEL[cabin] || "Economy") === "Economy" ? "Eco" : CABIN_LABEL[cabin]}`} />
+          <Chip label="Pax" value={`${(() => { const a = +params.adults || pax; const c = +params.children || 0; const inf = +params.infants || 0; return [`${a} adult${a !== 1 ? "s" : ""}`, c ? `${c} child${c !== 1 ? "ren" : ""}` : "", inf ? `${inf} infant${inf !== 1 ? "s" : ""}` : ""].filter(Boolean).join(" · "); })()} · ${CABIN_LABEL[cabin] || "Economy"}`} />
           <button onClick={() => go("home")} className="ml-auto inline-flex items-center justify-center text-ink hover:border-tap-green" style={{ width: "99px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #E2E2E5", fontSize: "13px", fontWeight: 600 }}>Edit search</button>
         </div>
       </div>
@@ -302,8 +303,10 @@ export function Results({ shared, params, go }) {
       </div>
 
       <div className="mx-auto max-w-page px-6 py-6 grid lg:grid-cols-[260px_1fr] gap-6">
+        {/* J2 — mobile-only filters toggle (hidden on lg where the sidebar is always visible) */}
+        <button onClick={() => setFiltersOpen(o => !o)} className="lg:hidden w-full flex items-center justify-between rounded-xl border border-line-strong bg-surface px-4 py-3 text-[14px] font-semibold text-ink"><span className="flex items-center gap-2"><Icon name="menu" size={16} className="text-ink-muted" /> Filters &amp; sort</span><Icon name={filtersOpen ? "x" : "arrow"} size={16} className="text-ink-muted" /></button>
         {/* filters */}
-        <aside className="space-y-5">
+        <aside className={cx("space-y-5", filtersOpen ? "block" : "hidden lg:block")}>
           <Card className="p-4">
             <div className="flex items-center justify-between mb-3"><div className="font-bold text-[15px]">Filters</div><button className="text-[12px] text-ink font-semibold hover:text-tap-greenDeep" onClick={() => { setF({ direct: false, oneStop: false, twoStop: false, brands: new Set(CABIN_BRANDS[cabin] || CABIN_BRANDS.Economy), depLo: 0, depHi: 24, airlines: new Set(["TAP Air Portugal", "TAP Express", "Partners"]), priceLo: 0, priceHi: 800, wifi: false, useMiles: false, refundable: false, bag: false }); setSort("Best"); setClearNonce(n => n + 1); }}>Clear all</button></div>
             <FGroup title="Stops">
