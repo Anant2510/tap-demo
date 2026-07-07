@@ -29,7 +29,7 @@ export function resetTrip() {
     type: "round", pax: 1, adults: 1, children: 0, infants: 0, cabin: "Economy", payMiles: false,
     origin: null, dest: null, date: null, ret: null,
     outbound: null, inbound: null, legs: [], extras: [],
-    passengers: [], contact: null, payment: null, pnr: null, repriceDelta: 0, seeded: false,
+    passengers: [], contact: null, payment: null, pnr: null, repriceDelta: 0, seeded: false, fareHold: null,
   });
   try { localStorage.removeItem(TKEY); } catch {}
   _resetting = false;

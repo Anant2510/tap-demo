@@ -132,7 +132,7 @@ export function Results({ shared, params, go }) {
   const [filtersOpen, setFiltersOpen] = useState(false);   // J2 — collapsible filters on mobile (always shown on lg+)
   const [sel, setSel] = useState(isMulti ? (trip.legs || [])[legIndex] : trip[leg]);
   const [showAll, setShowAll] = useState(false);
-  const [held, setHeld] = useState(false);
+  const [held, setHeld] = useState(() => !!(trip.fareHold && trip.fareHold.until > Date.now()));  // #3 — reflect a live fare hold
   const [holdOpen, setHoldOpen] = useState(false);
   // C3 — display-mode config (persisted; adapts to complexity on first load).
   const [disp, setDisp] = useState(() => loadDisplayCfg(params.pax, type));
@@ -258,7 +258,7 @@ export function Results({ shared, params, go }) {
       <div className="bg-surface border-b border-line">
         <div className="mx-auto max-w-page px-6 py-3 flex flex-wrap items-center gap-2">
           <Chip label="From" value={`${cityOf(origin)} · ${origin}`} />
-          <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="px-1.5 hover:text-tap-greenDeep" style={{ color: "#232323" }} title="Swap origin and destination" aria-label="Swap"><Icon name="swap" size={18} /></button>
+          <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="px-1.5 hover:text-tap-greenDeep" style={{ color: "#232323" }} title="Swap origin and destination" aria-label="Swap"><Icon name="swap" size={19} /></button>
           <Chip label="To" value={`${cityOf(dest)} · ${dest}`} />
           <Chip label="Dates" value={
             type !== "round"
@@ -345,7 +345,7 @@ export function Results({ shared, params, go }) {
               <>
                 {/* selected outbound — shown first, labelled (#2,#3) */}
                 <div className="pt-2">
-                  <Card className="border border-tap-green/30 bg-lime-tint/25 overflow-hidden">
+                  <Card className="border border-tap-green/30 overflow-hidden" style={{ background: "#FFFFFF", borderRadius: "14px" }}>
                     <div className="px-4 pt-3 text-[10px] font-bold uppercase tracking-wide text-ink inline-flex items-center gap-1">Outbound <Icon name="check" size={11} className="text-ink" /></div>
                     <div className="px-4 pb-4 pt-1 flex flex-wrap items-center gap-4">
                       <div className="flex items-center gap-4 min-w-[220px]">
@@ -357,11 +357,11 @@ export function Results({ shared, params, go }) {
                         <div className="flex items-center gap-2"><span className="inline-flex items-center justify-center text-[12px] font-black leading-none tracking-tight shrink-0"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
                         <div className="text-[11px] text-ink-faint mt-0.5">{of.aircraft} · Bag included</div>
                       </div>
-                      <div className="text-right rounded-xl bg-surface border border-line px-4 py-2.5 min-w-[148px]">
+                      <div className="text-right rounded-xl bg-surface border border-line min-w-[148px]" style={{ padding: "22px 24px 22px 20px" }}>
                         <div className="text-[10px] font-semibold text-amber-600">OR {miles(Math.round(ob.price * 110 / 500) * 500)} MI + {EUR(Math.round(ob.price * 0.18))}</div>
                         <div className="text-[20px] font-bold v2-num leading-tight">{EUR(ob.price)}</div>
                         <div className="text-[10px] text-ink-faint">1 adult · {ob.fare}</div>
-                        <Btn size="sm" variant="primary" className="w-full mt-1.5">Selected ✓</Btn>
+                        <Btn size="sm" variant="primary" className="mt-1.5" style={{ width: "107px", height: "36px", padding: "10px 18px", borderRadius: "9999px" }}>Selected ✓</Btn>
                       </div>
                     </div>
                   </Card>
@@ -379,7 +379,7 @@ export function Results({ shared, params, go }) {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-[10px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: "#B2B2BF" }}>Why this order?</div>
-                    <button onClick={() => go("ai")} className="inline-flex items-center justify-center text-[12px] font-bold text-white hover:brightness-95" style={{ padding: "8px 14px", borderRadius: "9999px", background: "#47A41B" }}>Explain ranking</button>
+                    <button onClick={() => go("ai")} className="inline-flex items-center justify-center text-[12px] font-bold text-white hover:brightness-95" style={{ width: "119px", height: "31px", padding: "8px 14px", borderRadius: "9999px", background: "#47A41B" }}>Explain ranking</button>
                   </div>
                 </div>
               </>
@@ -392,7 +392,7 @@ export function Results({ shared, params, go }) {
             {week.map(d => {
               const on = d.date === date;
               return <button key={d.date} onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: d.date })}
-                className={cx("flex-1 min-w-[88px] px-3 text-center transition-colors", on ? "" : "rounded-xl py-2 hover:bg-surface-mute")} style={on ? { background: "#F2FFDB", paddingTop: "18px", paddingBottom: "18px", borderBottom: "2px solid #2E7D33" } : undefined}>
+                className={cx("flex-1 min-w-[88px] px-3 text-center transition-colors", on ? "" : "rounded-xl py-2 hover:bg-surface-mute")} style={on ? { background: "#F2FFDB", paddingTop: "24px", paddingBottom: "24px", borderBottom: "1px solid #2E7D33" } : undefined}>
                 <div className={cx("text-[11px]", on ? "font-bold" : "text-ink-muted")} style={on ? { color: "#111111" } : undefined}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}</div>
                 <div className={cx("text-[15px] font-bold v2-num", !on && "text-ink")} style={on ? { color: "#46A41A" } : undefined}>{d.price ? EUR(d.price) : "—"}</div>
               </button>;
@@ -418,7 +418,7 @@ export function Results({ shared, params, go }) {
                 <span className={cx("w-7 h-4 rounded-full relative transition-colors shrink-0", showMiles ? "bg-tap-green" : "bg-line-strong")}><span className={cx("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", showMiles ? "left-3.5" : "left-0.5")} /></span>
                 <span className="whitespace-nowrap">Show in miles ✦</span>
               </button>
-              <button onClick={() => setHoldOpen(true)} className="inline-flex items-center justify-center gap-1 text-[12px] font-semibold transition-colors hover:brightness-95" style={{ height: "28px", padding: "5px 8px", borderRadius: "9999px", border: "1px solid #C7F21F", background: "#F2FFDB", color: "#2E7D33" }}>
+              <button onClick={() => setHoldOpen(true)} className="inline-flex items-center justify-center text-[12px] font-semibold transition-colors hover:brightness-95" style={{ width: "127px", height: "28px", padding: "5px 8px", gap: "4px", borderRadius: "9999px", border: "1px solid #C7F21F", background: "#F2FFDB", color: "#2E7D33" }}>
                 <span className="inline-flex items-center justify-center shrink-0" style={{ width: "16px", height: "16px", borderRadius: "8px", background: "#46A41A" }}><Icon name={held ? "check" : "lock"} size={10} className="text-white" /></span> {held ? "Fare held · 72h" : "Hold your fare"}
               </button>
             </div>
@@ -464,8 +464,8 @@ export function Results({ shared, params, go }) {
               </>}
             </div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
-              {!isMulti && <button onClick={() => go("express", { origin: params.origin, dest: params.dest, date: params.date, ret: params.ret, type, pax: params.pax, cabin: params.cabin })} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", background: "#FFFFFF", color: "#0A0A0A", fontSize: "13px" }}>Express Checkout</button>}
-              <Btn variant="lime" className="text-[14px] font-bold" style={{ height: "41px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Customize your cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Customize your cart")} <Icon name="arrow" size={14} /></Btn>
+              {!isMulti && <button onClick={() => go("express", { origin: params.origin, dest: params.dest, date: params.date, ret: params.ret, type, pax: params.pax, cabin: params.cabin })} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ width: "143px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", background: "#FFFFFF", color: "#0A0A0A", fontSize: "13px", fontWeight: 600 }}>Express Checkout</button>}
+              <Btn variant="lime" className="text-[14px] font-bold" style={{ minWidth: "150px", height: "41px", padding: "0 22px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Customize your cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Customize your cart")} <Icon name="arrow" size={14} /></Btn>
             </div>
           </div>
         </div>
@@ -491,7 +491,14 @@ function HoldFareModal({ flight, date, fare, price, seat, onClose, onHeld, onCon
   ];
   async function hold(o) {
     setBusy(true);
-    try { const r = await api.post("/hold", { flight_no: flight.flight_no, duration: o.dur, fee: o.fee, total: price }); setDone({ ...o, expires: r.expires, to: r.email && r.email.to }); onHeld && onHeld(); }
+    try {
+      const r = await api.post("/hold", { flight_no: flight.flight_no, duration: o.dur, fee: o.fee, total: price });
+      setDone({ ...o, expires: r.expires, to: r.email && r.email.to });
+      // #3 — persist the hold so the fare stays locked through checkout (no price-change prompt in-window)
+      const ms = o.dur === "7d" ? 7 * 864e5 : o.dur === "48h" ? 48 * 36e5 : 24 * 36e5;
+      trip.fareHold = { flightNo: flight.flight_no, until: Date.now() + ms, price, duration: o.dur };
+      onHeld && onHeld();
+    }
     catch { setDone({ ...o, error: true }); }
     setBusy(false);
   }
@@ -717,9 +724,9 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
       <div className="p-5 flex flex-wrap items-center gap-4">
         {/* times + route — airport under time, no arrow */}
         <div className="flex items-center gap-4 min-w-[230px]">
-          <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-center">{f.dep}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.origin}</div></div>
+          <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-left">{f.dep}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.origin}</div></div>
           <div className="text-center text-ink-faint min-w-[60px]"><div className="text-[11px]">{f.duration}</div><div className="w-16 h-px bg-line-strong my-1.5 mx-auto" /><div className="text-[11px]">{m.stops ? `1 stop · ${m.hub}` : "Direct"}</div></div>
-          <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-center">{f.arr}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.dest}</div></div>
+          <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-left">{f.arr}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.dest}</div></div>
         </div>
         {/* status — vertical, centered, light weight */}
         <div className="text-center min-w-[92px]">
@@ -728,7 +735,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
         </div>
         {/* airline block — TP mark + number, aircraft, bag + earn MI */}
         <div className="flex-1 min-w-[180px]">
-          <div className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center rounded-md bg-white border border-line-strong px-2 py-1 text-[12px] font-black leading-none tracking-tight shrink-0"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+          <div className="flex items-center gap-2"><span className="inline-flex items-center justify-center rounded-[3px] px-1 text-[12px] font-black leading-none tracking-tight shrink-0" style={{ height: "13px" }}><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
           <div className="text-[11px] text-ink-faint mt-0.5">{f.aircraft}{m.features.length ? " · " + m.features.join(" · ") : ""}</div>
           <div className="flex items-center gap-2 mt-1.5">
             {headline.feats[1][1] ? <Badge tone="green">Bag included</Badge> : <Badge>No bag</Badge>}
@@ -752,7 +759,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
                   ? <Btn size="sm" variant="primary" className="w-full" onClick={() => onPick(f, sel.fare)}>Selected ✓</Btn>
                   : <div className="text-[10px] text-ink-faint text-center py-1">Choose a fare below ↓</div>)
               : isSelected
-                ? <Btn size="sm" variant="primary" className="w-full text-[13px] font-semibold" style={{ height: "36px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
+                ? <Btn size="sm" variant="primary" className="text-[13px] font-semibold" style={{ width: "107px", height: "36px", padding: "10px 18px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
                 : <Btn size="sm" variant="outline" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : `See ${cabinFares.length} fare${cabinFares.length !== 1 ? "s" : ""} ↓`}</Btn>}
           </div>
         </div>
