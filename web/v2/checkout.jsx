@@ -173,10 +173,13 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
       </Card>
 
       {showMiles && (
-        <div className="rounded-2xl p-4 text-white shadow-card" style={{ background: "linear-gradient(135deg, #14331a, #2e7d33)" }}>
-          <div className="flex items-center gap-2"><Pill tone="gold">{tier}</Pill> <span className="text-[14px] font-bold">Hi {firstName} — pay with miles?</span></div>
-          <div className="text-[12px] text-white/85 mt-1.5">Cover this trip with <span className="font-bold text-white v2-num">{miles(milesNeeded)} TAP miles</span> + <span className="font-bold text-white v2-num">{EUR(milesTax)}</span> in taxes.</div>
-          <button onClick={onMilesSwitch || (() => { })} className="mt-3 w-full rounded-xl bg-white/10 border border-white/20 py-2.5 text-[13px] font-semibold inline-flex items-center justify-between px-4 hover:bg-white/15"><span>Pay with miles</span><Icon name="arrow" size={14} /></button>
+        <div className="rounded-2xl text-white shadow-card flex items-center gap-3" style={{ background: "linear-gradient(135deg, #14331a, #2e7d33)", padding: "14px 16px" }}>
+          <span className="inline-flex items-center justify-center shrink-0 rounded-lg bg-white/15" style={{ width: "38px", height: "38px" }}><Icon name="spark" size={18} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-bold leading-tight">Pay with miles</div>
+            <div className="text-[11px] text-white/80 truncate">Cover this trip with <span className="font-semibold v2-num">{miles(milesNeeded)}</span> tap.miles + <span className="v2-num">{EUR(milesTax)}</span> taxes</div>
+          </div>
+          <button onClick={onMilesSwitch || (() => { })} className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-white/15 border border-white/25 text-[12px] font-semibold hover:bg-white/25" style={{ padding: "8px 14px" }}><span>Use miles</span><Icon name="arrow" size={13} /></button>
         </div>
       )}
 
@@ -209,10 +212,26 @@ function FlightSummary({ go }) {
       <div className="flex flex-wrap items-center gap-4"><div><div className="text-[20px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint text-left">{c.flight.origin} · {cityOf(c.flight.origin)}</div></div><div className="flex-1 min-w-[120px] text-center text-[11px] text-ink-muted">{c.flight.duration} · Nonstop · Direct<div className="h-px bg-line-strong my-1" /></div><div className="text-right"><div className="text-[20px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint text-left">{c.flight.dest} · {cityOf(c.flight.dest)}</div></div></div>
     </div>
   );
+  // Important #4 — when a Lisbon stopover is added, show the outbound as two segments (origin → LIS → dest)
+  const StopoverLegs = ({ c, date }) => {
+    const f = c.flight;
+    const sh = (hm, m) => { const [h, mm] = String(hm || "00:00").split(":").map(Number); const t = ((h * 60 + mm + m) % 1440 + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
+    const lisArr = sh(f.arr, -125), lisDep = sh(f.arr, -70);
+    const Row = ({ dep, from, arr, to, num }) => (
+      <div className="py-2"><div className="flex items-center gap-3 mb-1"><span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{num} · {fmtDate(date).replace(/(\w+) (\d+) \d+/, "$1 $2")}</span></div>
+        <div className="flex flex-wrap items-center gap-4"><div><div className="text-[20px] font-bold v2-num">{dep}</div><div className="text-[11px] text-ink-faint text-left">{from} · {cityOf(from)}</div></div><div className="flex-1 min-w-[120px] text-center text-[11px] text-ink-muted">Segment<div className="h-px bg-line-strong my-1" /></div><div className="text-right"><div className="text-[20px] font-bold v2-num">{arr}</div><div className="text-[11px] text-ink-faint text-left">{to} · {cityOf(to)}</div></div></div>
+      </div>
+    );
+    return (<>
+      <Row dep={f.dep} from={f.origin} arr={lisArr} to="LIS" num="Outbound · Segment 1" />
+      <div className="flex items-center gap-2 py-1.5 my-1 text-[12px] font-semibold text-tap-greenDeep" style={{ borderTop: "1px dashed #DCDCD8", borderBottom: "1px dashed #DCDCD8" }}><Icon name="clock" size={13} /> Stopover · {trip.stopover.nights} night{trip.stopover.nights > 1 ? "s" : ""} in Lisbon</div>
+      <Row dep={lisDep} from="LIS" arr={f.arr} to={f.dest} num="Outbound · Segment 2" />
+    </>);
+  };
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2 flex-wrap"><span className="text-tap-green font-black">TAP</span><Pill tone="slate">{o.fare} · Economy</Pill>{trip.stopover?.viaLisbon && <Pill tone="lime">Via Lisbon · {trip.stopover.nights}n stopover</Pill>}</div><button className="text-[12px] font-semibold text-tap-greenDeep" onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type })}>Change flight</button></div>
-      <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} c={o} date={trip.date} /><Divider /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} c={i} date={trip.ret} />
+      {trip.stopover?.viaLisbon ? <StopoverLegs c={o} date={trip.date} /> : <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} c={o} date={trip.date} />}<Divider /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} c={i} date={trip.ret} />
       <div className="mt-3 pt-3 border-t border-line flex flex-wrap items-center gap-3 text-[11px] text-ink-muted"><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> 1× carry-on (8kg)</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> 1× checked bag (23kg)</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> Seat selection</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> Changes for fee</span><span className="ml-auto text-ink-faint">BOOKING REF · PENDING</span></div>
     </Card>
   );
@@ -526,7 +545,7 @@ function CartView({ go, mode = "cart", shared }) {
   const save = () => api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
   const add = (code, name, price, cat, meta) => { toggleExtra({ code, name, price, cat, ...(meta || {}) }); save(); r(); };
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
-  const seat = trip.extras.find(e => e.cat === "Seats & baggage");
+  const seat = trip.extras.find(e => e.cat === "Seats & baggage" && /^seat-/.test(e.code || ""));   // View&Customize #1 — only a seat upgrade counts as "seat"; bags (bag-*) are independent ancillaries
   const pax = trip.pax || 1;
   const cityOf = (c) => shared?.airports?.find(a => a.code === c)?.city || c;   // F8/F9 — resolve booked-destination city
   const destCity = cityOf(trip.dest) || "your destination";
@@ -667,6 +686,37 @@ function CartView({ go, mode = "cart", shared }) {
         <p className="text-[13px] text-ink-muted mt-1">{isBasket ? "Review and customize everything you've added to your trip before checkout." : "Choose hotels, transfers, protection and experiences to complete your trip. Everything you add flows into your cart."}</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adult{trip.pax > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>All extras optional</Chip></div>
         {isBasket && <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5 text-[12px] flex items-center gap-2 flex-wrap"><Pill tone="lime">Pinned</Pill><span className="font-semibold">Your core flight stays in the basket</span><span className="text-ink-faint">— extras below are optional and can be removed.</span></div>}
+
+        {!isBasket && trip.outbound && (() => {
+          const RC = ({ leg, f, date }) => (
+            <div className="px-4 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-2">{leg} · {fmtDate(date).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {f.flight_no} · {f.aircraft}</div>
+              <div className="flex items-stretch rounded-xl border overflow-hidden" style={{ borderColor: "#E0E3E8" }}>
+                <div className="flex-1 px-3 py-2.5 text-center"><div className="text-[18px] font-bold v2-num leading-none">{f.origin}</div><div className="text-[12px] font-semibold v2-num mt-1">{f.dep}</div><div className="text-[10px] text-ink-faint mt-0.5">{cityOf(f.origin)}</div></div>
+                <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
+                <div className="flex-1 px-3 py-2.5 flex flex-col items-center justify-center text-center"><Icon name="plane" size={15} className="text-tap-greenDeep" /><div className="text-[10px] text-ink-muted font-semibold mt-1">{f.duration}</div><div className="text-[9px] text-ink-faint uppercase tracking-wide">Nonstop</div></div>
+                <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
+                <div className="flex-1 px-3 py-2.5 text-center"><div className="text-[18px] font-bold v2-num leading-none">{f.dest}</div><div className="text-[12px] font-semibold v2-num mt-1">{f.arr}</div><div className="text-[10px] text-ink-faint mt-0.5">{cityOf(f.dest)}</div></div>
+              </div>
+            </div>
+          );
+          const obf = trip.outbound.flight, ibf = trip.inbound?.flight;
+          const sh = (hm, m) => { const [h, mm] = String(hm || "00:00").split(":").map(Number); const t = ((h * 60 + mm + m) % 1440 + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
+          return (
+            <div className="mt-4 rounded-2xl border border-line overflow-hidden bg-surface">
+              <div className="px-4 py-2.5 flex items-center justify-between" style={{ background: "#F2F2EE", borderBottom: "1px solid #E8E8E5" }}>
+                <div className="text-[13px] font-bold flex items-center gap-2"><Icon name="plane" size={14} className="text-tap-greenDeep" /> Your flights · {fareLabel} fare</div>
+                <button onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type })} className="text-[12px] font-semibold text-tap-greenDeep hover:underline">Change flight</button>
+              </div>
+              {trip.stopover?.viaLisbon ? (<>
+                <RC leg="Outbound · Segment 1" f={{ ...obf, dest: "LIS", arr: sh(obf.arr, -125), duration: "7h 15m" }} date={trip.date} />
+                <div className="px-4 py-1.5 text-[11px] font-semibold text-tap-greenDeep flex items-center gap-2" style={{ borderTop: "1px dashed #DCDCD8", borderBottom: "1px dashed #DCDCD8" }}><Icon name="clock" size={12} /> Stopover · {trip.stopover.nights} night{trip.stopover.nights > 1 ? "s" : ""} in Lisbon</div>
+                <RC leg="Outbound · Segment 2" f={{ ...obf, origin: "LIS", dep: sh(obf.arr, -70), duration: "1h 05m" }} date={trip.date} />
+              </>) : <RC leg="Outbound" f={obf} date={trip.date} />}
+              {ibf && <><div style={{ borderTop: "1px solid #E8E8E5" }} /><RC leg="Return" f={ibf} date={trip.ret} /></>}
+            </div>
+          );
+        })()}
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-5">
@@ -911,7 +961,14 @@ export function Basket({ shared, go }) {
                   <button onClick={() => go("cart")} className="text-[12px] font-semibold text-tap-greenDeep inline-flex items-center gap-1 hover:underline"><Icon name="search" size={12} /> Change flight</button>
                 </div>
                 <div className="px-5 pt-1 pb-2">
-                  <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} f={obf} date={trip.date} />
+                  {trip.stopover?.viaLisbon ? (() => {
+                    const sh = (hm, m) => { const [h, mm] = String(hm || "00:00").split(":").map(Number); const t = ((h * 60 + mm + m) % 1440 + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
+                    return (<>
+                      <Leg label="Outbound · Segment 1" f={{ ...obf, dest: "LIS", arr: sh(obf.arr, -125), duration: "7h 15m" }} date={trip.date} />
+                      <div className="flex items-center gap-2 px-1 py-2 my-1 text-[12px] font-semibold text-tap-greenDeep" style={{ borderTop: "1px dashed #DCDCD8", borderBottom: "1px dashed #DCDCD8" }}><Icon name="clock" size={13} /> Stopover · {trip.stopover.nights} night{trip.stopover.nights > 1 ? "s" : ""} in Lisbon</div>
+                      <Leg label="Outbound · Segment 2" f={{ ...obf, origin: "LIS", dep: sh(obf.arr, -70), duration: "1h 05m" }} date={trip.date} />
+                    </>);
+                  })() : <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} f={obf} date={trip.date} />}
                   {ib && <><Divider className="my-1" /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} f={ibf} date={trip.ret} /></>}
                 </div>
                 <div className="bg-surface-2 border-t border-line px-5 py-2.5 flex items-center justify-between flex-wrap gap-2 text-[11px] text-ink-muted">
@@ -1172,7 +1229,7 @@ function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPaySh
           <span className="text-[10px] font-bold uppercase tracking-wide bg-[#3b6fd6] text-white rounded px-2 py-1">Step 4/5</span>
         </div>
         {/* #63/#64/#65 — product breakdown */}
-        <div className="mt-4 space-y-2">
+        <div className="space-y-2" style={{ marginTop: "18px" }}>
           {breakdown.map(([label, amt]) => (
             <div key={label} className="flex items-center justify-between text-[13px]"><span className={amt < 0 ? "text-tap-greenDeep font-medium" : "text-ink-muted"}>{label}</span><span className={cx("v2-num font-semibold", amt < 0 ? "text-tap-greenDeep" : "text-ink")}>{amt < 0 ? "−" : ""}{eurC(Math.abs(amt))}</span></div>
           ))}
@@ -1181,9 +1238,9 @@ function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPaySh
         {/* #66/#67 — total charged */}
         <div className="flex items-end justify-between gap-2"><div><div className="text-[13px] font-bold">Total charged</div><div className="text-[11px]" style={{ color: "#9A9A9A" }}>One-time charge · taxes included</div></div><span className="v2-num font-bold shrink-0" style={{ fontSize: "34px", letterSpacing: "-0.03em", lineHeight: 1 }}>{eurC(total)}</span></div>
         {/* #68 — reward miles banner */}
-        <div className="mt-3 flex items-center justify-between" style={{ background: "#F2FFDB", borderRadius: "10px", padding: "10px 12px" }}><span className="flex items-center gap-1.5 text-[12px] font-medium text-tap-greenDark"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num text-[14px] font-bold text-tap-greenDark">{miles(EARN(total))} tap.miles</span></div>
+        <div className="flex items-center justify-between" style={{ marginTop: "18px", background: "#F2FFDB", borderRadius: "10px", padding: "10px 12px" }}><span className="flex items-center gap-1.5 text-[12px] font-medium text-tap-greenDark"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num text-[14px] font-bold text-tap-greenDark">{miles(EARN(total))} tap.miles</span></div>
         {/* #69/#70/#71 — payment progress card */}
-        <div className="mt-3" style={{ background: "#F2FCD9", border: "1px solid #2E7D33", borderRadius: "12px", padding: "14px" }}>
+        <div style={{ marginTop: "18px", background: "#F2FCD9", border: "1px solid #2E7D33", borderRadius: "12px", padding: "14px" }}>
           <div className="flex items-center justify-between text-[12px] font-semibold" style={{ color: "#1A1F29" }}><span>{paidCount} of {payers.length} paid</span><span className="v2-num">{eurC(outstanding)} outstanding</span></div>
           <div className="rounded-full mt-2 overflow-hidden" style={{ height: "12px", background: "#FFFFFF" }}><div className="h-full rounded-full transition-all" style={{ width: pct + "%", background: "#2E7D33" }} /></div>
           <div className="mt-3 space-y-2">
@@ -1208,8 +1265,8 @@ function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPaySh
         {mismatch && <div className="mt-2 rounded-lg bg-[#fff4d6] text-[#9a6b00] text-[11px] font-semibold px-3 py-2">Allocated {eurC(allocated)} of {eurC(total)} — adjust the shares to match before paying.</div>}
         {/* #72/#73 — primary CTA */}
         {!leadPaid
-          ? <button disabled={disabled || mismatch} onClick={onPayShare} className="w-full mt-4 inline-flex items-center justify-center text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed" style={{ height: "60px", borderRadius: "9999px", background: "#46A41A", fontSize: "15px" }}>{`Pay my share · ${eurC(leadAmt)} →`}</button>
-          : <button disabled={disabled} onClick={onCta} className="w-full mt-4 inline-flex items-center justify-center text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed" style={{ height: "60px", borderRadius: "9999px", background: "#46A41A", fontSize: "15px" }}>{busy ? "Processing…" : "Complete booking →"}</button>}
+          ? <button disabled={disabled || mismatch} onClick={onPayShare} className="w-full inline-flex items-center justify-center text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed" style={{ marginTop: "18px", height: "60px", borderRadius: "9999px", background: "#46A41A", fontSize: "15px" }}>{`Pay my share · ${eurC(leadAmt)} →`}</button>
+          : <button disabled={disabled} onClick={onCta} className="w-full inline-flex items-center justify-center text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed" style={{ marginTop: "18px", height: "60px", borderRadius: "9999px", background: "#46A41A", fontSize: "15px" }}>{busy ? "Processing…" : "Complete booking →"}</button>}
         {/* #74 — supporting CTA note */}
         <div className="mt-2 text-center text-[11px] text-ink-muted">{allPaid ? "All travellers have paid · ready to confirm" : leadPaid ? `Your share is paid. ${pending} traveller${pending !== 1 ? "s" : ""} settle via their link.` : "You're only charged your share now; others pay via their own link."}</div>
         <button onClick={onBack} className="w-full text-center text-[12px] font-semibold text-ink-muted mt-3 hover:text-ink">← Back to passenger details</button>
@@ -1599,9 +1656,9 @@ export function Payment({ shared, go }) {
 
         <div className="grid lg:grid-cols-[1fr_328px] gap-6 mt-5 items-start">
           <div className="space-y-[18px]">
-            <div className="rounded-2xl p-4 text-white flex items-center justify-between flex-wrap gap-3" style={{ background: "linear-gradient(100deg,#1f5e23,#46a41a)" }}>
-              <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-lg bg-white/15 inline-flex items-center justify-center"><Icon name="lock" size={16} /></span><div><div className="text-[14px] font-bold">Secure payment</div><div className="text-[11px] text-white/70">All card data is encrypted and tokenised. We never see your full card number.</div></div></div>
-              <div className="flex flex-wrap gap-1.5">{["VISA", "MASTERCARD", "AMEX", "TAP MILES", "APPLE PAY"].map(b => <span key={b} className="text-[9px] font-bold bg-white/15 rounded px-1.5 py-1">{b}</span>)}<span className="text-[9px] font-bold bg-[#635bff] rounded px-1.5 py-1">stripe</span></div>
+            <div className="rounded-2xl flex items-center justify-between flex-wrap gap-3" style={{ background: "#FFFFFF", border: "1px solid #E8E8E5", padding: "16px" }}>
+              <div className="flex items-center gap-3"><span className="inline-flex items-center justify-center shrink-0" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#F2F2EE" }}><Icon name="lock" size={18} className="text-ink-faint" /></span><div><div style={{ fontSize: "13px", fontWeight: 600, color: "#0A0A0A" }}>Secure payment</div><div className="text-[11px]" style={{ color: "#667080" }}>Encrypted &amp; tokenised · Stripe · 3-D Secure 2.0 · we never see your full card number.</div></div></div>
+              <div className="flex flex-wrap gap-1.5">{["VISA", "MC", "AMEX", "MAESTRO", "APPLE PAY", "G PAY", "PIX"].map(b => <span key={b} className="text-[9px] font-bold rounded px-1.5 py-1" style={{ background: "#F2F2EE", color: "#1A1F29" }}>{b}</span>)}<span className="text-[9px] font-bold text-white rounded px-1.5 py-1" style={{ background: "#635bff" }}>stripe</span></div>
             </div>
             <Card className="overflow-hidden">
             <div className="p-1.5 flex gap-1 overflow-x-auto v2-track border-b border-line">{METHODS.filter(m => trip.inbound || m !== "Pay by Segment").map(m => { const on = method === m; return <button key={m} onClick={() => setMethod(m)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-semibold inline-flex items-center gap-1.5", on ? "bg-tap-green text-white" : "text-ink-muted hover:bg-surface-mute")}>{m}{m === "Card" && on && <span className="flex gap-1 ml-0.5">{["VISA", "MC", "AMEX"].map(b => <span key={b} className="text-[8px] font-bold bg-white/25 rounded px-1 py-0.5 leading-none">{b}</span>)}</span>}</button>; })}</div>
@@ -1663,6 +1720,7 @@ export function Payment({ shared, go }) {
                 const custom = splitTab === "Custom Split";
                 const allocated = +payers.reduce((s, _, i) => s + (amtFor(i) || 0), 0).toFixed(2);
                 const balanced = Math.abs(allocated - t.total) < 0.01;
+                const cur = getCurrency();   // Split #2 — split amounts follow the active display currency (same as Trip Basket)
                 return <div className="text-[13px]">
                   <div className="flex gap-1 text-[13px] mb-3">{["Single Payer", "Split Equally", "Custom Split"].map(s => <button key={s} onClick={() => setSplitTab(s)} className={cx("border-b", splitTab === s ? "border-tap-green text-tap-greenDeep font-semibold" : "border-transparent text-ink-faint font-medium")} style={{ padding: "10px 16px" }}>{s}</button>)}</div>
                   {payers.map((p, i) => (
@@ -1671,10 +1729,10 @@ export function Payment({ shared, go }) {
                       <div className="min-w-0"><div className="font-bold leading-tight text-[14px]" style={{ color: "#1A1F29" }}>{p.name}</div><div className="text-[12px] truncate" style={{ color: "#667080" }}>{p.email}</div></div>
                       <button className="inline-flex items-center gap-1 border border-line hover:border-tap-red shrink-0" style={{ borderRadius: "8px", padding: "6px 10px", fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg> Remove</button>
                       <div className={cx("inline-flex items-center gap-1.5 rounded-lg border ml-auto", custom ? "border-tap-green bg-surface" : "border-line-strong")} style={{ padding: "8px 16px" }}>
-                        <span className="text-[13px] text-ink-faint">€</span>
+                        <span className="text-[13px] text-ink-faint">{cur.symbol}</span>
                         {custom
-                          ? <input type="number" min="0" step="0.01" value={amtFor(i)} onChange={e => setSplitAmts(a => ({ ...a, [i]: Math.max(0, +(+e.target.value).toFixed(2)) }))} className="w-20 bg-transparent font-bold v2-num text-[18px] outline-none" style={{ color: "#1A1F29" }} aria-label={`Amount for ${p.name}`} />
-                          : <span className="font-bold v2-num text-[18px]" style={{ color: "#1A1F29" }}>{amtFor(i).toFixed(2)}</span>}
+                          ? <input type="number" min="0" step="0.01" value={amtFor(i) ? +(amtFor(i) * cur.rate).toFixed(2) : ""} onChange={e => { const raw = e.target.value.replace(/^0+(?=\d)/, ""); setSplitAmts(a => ({ ...a, [i]: Math.max(0, +(+raw / cur.rate).toFixed(2)) })); }} className="w-20 bg-transparent font-bold v2-num text-[18px] outline-none" style={{ color: "#1A1F29" }} aria-label={`Amount for ${p.name}`} />
+                          : <span className="font-bold v2-num text-[18px]" style={{ color: "#1A1F29" }}>{(amtFor(i) * cur.rate).toFixed(2)}</span>}
                         <button type="button" onClick={() => { setSplitTab("Custom Split"); setSplitAmts(a => (a[i] != null ? a : { ...a, [i]: equal })); }} title={custom ? "Edit amount" : "Edit amounts — switch to a custom split"} aria-label="Edit amount" className="inline-flex items-center justify-center rounded hover:bg-surface-mute -mr-1 p-0.5">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={custom ? "var(--tap-green)" : "#171717"} style={{ opacity: custom ? 1 : 0.7 }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                         </button>
@@ -1684,8 +1742,8 @@ export function Payment({ shared, go }) {
                     </div>
                   ))}
                   <div className={cx("flex items-center justify-between text-[12px] font-semibold", balanced ? "bg-lime-tint/60 text-tap-greenDeep" : "bg-[#fdecec] text-tap-red")} style={{ borderRadius: "12px", padding: "13px 16px" }}>
-                    <span>{custom ? "Allocated" : "Total split"}: {EUR(allocated)} of {EUR(t.total)}</span>
-                    <span>{balanced ? "✓ Balanced" : allocated > t.total ? `Over by ${EUR(allocated - t.total)}` : `${EUR(t.total - allocated)} unallocated`}</span>
+                    <span>{custom ? "Allocated" : "Total split"}: {eurC(allocated)} of {eurC(t.total)}</span>
+                    <span>{balanced ? "✓ Balanced" : allocated > t.total ? `Over by ${eurC(allocated - t.total)}` : `${eurC(t.total - allocated)} unallocated`}</span>
                   </div>
                   {custom && <button onClick={() => setSplitAmts({})} className="mt-2 text-[11px] font-semibold text-ink-muted hover:text-tap-greenDeep">Reset to equal split</button>}
                 </div>;
@@ -2054,19 +2112,30 @@ export function Confirmation({ shared, go }) {
           <div className="space-y-6">
             <Card className="p-6" style={{ borderRadius: "18px", background: "#FFFFFF", borderColor: "#E8E8E5" }}>
               <div className="flex items-center gap-2 mb-3"><div className="font-semibold text-[16px]">Your itinerary</div><span className="text-[11px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1">PNR {trip.pnr}</span></div>
-              {[o, i].filter(Boolean).map((c, idx) => (
+              {(() => {
+                const sh = (hm, m) => { const [h, mm] = String(hm || "00:00").split(":").map(Number); const t = ((h * 60 + mm + m) % 1440 + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
+                const rows = (trip.stopover?.viaLisbon && o) ? [
+                  { flight: { ...o.flight, dest: "LIS", arr: sh(o.flight.arr, -125), duration: "7h 15m" }, _lbl: "Outbound · Segment 1", _d: trip.date, _seat: leadSeat },
+                  { _stop: trip.stopover.nights },
+                  { flight: { ...o.flight, origin: "LIS", dep: sh(o.flight.arr, -70), duration: "1h 05m" }, _lbl: "Outbound · Segment 2", _d: trip.date, _seat: leadSeat },
+                  ...(i ? [{ flight: i.flight, _lbl: "Return", _d: trip.ret, _seat: inSeat || "22B" }] : []),
+                ] : [o, i].filter(Boolean).map((c, idx) => ({ flight: c.flight, _lbl: null, _d: idx === 0 ? trip.date : trip.ret, _seat: idx === 0 ? leadSeat : (inSeat || "22B") }));
+                return rows.map((c, idx) => c._stop ? (
+                  <div key={idx} className="flex items-center gap-2 px-5 py-2 mb-2 text-[12px] font-semibold text-tap-greenDeep" style={{ borderTop: "1px dashed #DCDCD8", borderBottom: "1px dashed #DCDCD8" }}><Icon name="clock" size={13} /> Stopover · {c._stop} night{c._stop > 1 ? "s" : ""} in Lisbon</div>
+                ) : (
                 <div key={idx} className="rounded-[12px] px-5 mb-2 flex flex-wrap items-center gap-4" style={{ background: "#f2ffdb", minHeight: "108px" }}>
                   <div><div className="text-[14px] font-bold" style={{ color: "#1A1F29" }}>{c.flight.origin}</div><div className="text-[26px] font-bold v2-num leading-none mt-0.5">{c.flight.dep}</div><div className="text-[11px] mt-1" style={{ color: "#667080" }}>Terminal 1</div></div>
-                  <div className="flex-1 min-w-[170px] text-center"><div className="text-[12px] font-medium text-ink-muted">{c.flight.duration} · nonstop</div><div className="h-0.5 bg-ink/80 my-2 mx-auto max-w-[340px]" /><div className="text-[12px] font-semibold text-ink">{fmtDate(idx === 0 ? trip.date : trip.ret).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="text-[11px] mt-0.5" style={{ color: "#667080" }}>Seat {idx === 0 ? leadSeat : (inSeat || "22B")} · Gate info 90 min before</div></div>
+                  <div className="flex-1 min-w-[170px] text-center"><div className="text-[12px] font-medium text-ink-muted">{c.flight.duration} · nonstop</div><div className="h-0.5 bg-ink/80 my-2 mx-auto max-w-[340px]" /><div className="text-[12px] font-semibold text-ink">{c._lbl ? c._lbl + " · " : ""}{fmtDate(c._d).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="text-[11px] mt-0.5" style={{ color: "#667080" }}>Seat {c._seat} · Gate info 90 min before</div></div>
                   <div className="text-right"><div className="text-[14px] font-bold" style={{ color: "#1A1F29" }}>{c.flight.dest}</div><div className="text-[26px] font-bold v2-num leading-none mt-0.5">{c.flight.arr}</div><div className="text-[11px] mt-1" style={{ color: "#667080" }}>Terminal 1</div></div>
                 </div>
-              ))}
+                ));
+              })()}
               <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="star" size={11} className="text-ink-muted" /> {/exec/i.test(o?.fare || "") ? "Lounge access" : "Miles earned"}</span></div>
               <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} className="hover:underline">Add to Wallet</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
             <section>
-              <h2 className="text-[24px] font-bold flex items-center gap-2"><Icon name="star" size={20} className="text-tap-green" />Recommended for this trip</h2>
+              <h2 className="text-[24px] font-bold flex items-center gap-2"><Icon name="spark" size={20} className="text-tap-green" />Recommended for this trip</h2>
               <p className="text-[13px] mb-3" style={{ color: "#667080" }}>Tailored to your route, trip length and party · added straight to PNR {trip.pnr} · max 3.</p>
               <div className="grid sm:grid-cols-3 gap-4">
                 {ancRecs.map(r => {
@@ -2089,7 +2158,7 @@ export function Confirmation({ shared, go }) {
                 })}
               </div>
               {recs.length > 0 && <>
-                <h2 className="text-[24px] font-bold mt-6 flex items-center gap-2"><Icon name="star" size={20} className="text-tap-green" />Useful for your trip</h2>
+                <h2 className="text-[24px] font-bold mt-6 flex items-center gap-2"><Icon name="spark" size={20} className="text-tap-green" />Useful for your trip</h2>
                 <p className="text-[13px] mb-3" style={{ color: "#667080" }}>Ideas for your next trip based on where you go.</p>
                 <div className="grid sm:grid-cols-2 gap-6">
                   {recs.slice(0, 2).map(d => (
@@ -2147,7 +2216,7 @@ export function ExpressCheckout({ shared, go, params }) {
   const retDate = params?.ret || (() => { if (!date) return ""; const d = new Date(date); d.setDate(d.getDate() + 2); return d.toISOString().slice(0, 10); })();
   const [, force] = useState(0);
   const [seat, setSeat] = useState(null);
-  const [bag, setBag] = useState(true), [carbon, setCarbon] = useState(true), [seatUp, setSeatUp] = useState(true), [agree, setAgree] = useState(true), [busy, setBusy] = useState(false);
+  const [bag, setBag] = useState(true), [carbon, setCarbon] = useState(true), [seatUp, setSeatUp] = useState(true), [agree, setAgree] = useState(false), [busy, setBusy] = useState(false);
   const [showFare, setShowFare] = useState(false); // #22: See fare rules toggle
 
   useEffect(() => {
@@ -2195,7 +2264,7 @@ export function ExpressCheckout({ shared, go, params }) {
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
 
-  const Sec = ({ title, action, onAction, children }) => <Card className="p-5" style={{ borderRadius: "12px", border: "1px solid #E0E2E8", boxShadow: "none" }}><div className="flex items-center justify-between mb-2"><div className="font-bold text-[18px]">{title}</div>{action && <button onClick={onAction} className="text-[13px] font-semibold hover:brightness-90" style={{ color: "#46A41A" }}>{action}</button>}</div>{children}</Card>;
+  const Sec = ({ title, action, onAction, children }) => <Card className="p-5" style={{ borderRadius: "12px", border: "1px solid #E0E2E8", boxShadow: "none" }}><div className="flex items-center justify-between mb-2"><div className="font-bold text-[18px]">{title}</div>{action && <button onClick={onAction} className="text-[13px] font-semibold underline underline-offset-2 hover:brightness-90" style={{ color: "#46A41A" }}>{action}</button>}</div>{children}</Card>;
 
   return (
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
@@ -2208,12 +2277,12 @@ export function ExpressCheckout({ shared, go, params }) {
             <div className="space-y-[14px]">
               <Sec title={`Your trip · ${cityOf(o?.flight?.origin || origin)} ⇄ ${cityOf(o?.flight?.dest || dest)}`} action="Change flight" onAction={() => go("results", { origin, dest, date, ret: retDate, type: "round" })}>
                 {[o, i].filter(Boolean).map((c, idx) => (
-                  <div key={idx} className="py-2.5 border-t border-line first:border-0">
+                  <div key={idx} className="py-2.5 border-t border-[#E0E2E8] first:border-0">
                     <span className="inline-block text-[11px] font-semibold uppercase tracking-wide text-ink rounded-full mb-1.5" style={{ background: "#F7F8FA", padding: "4px 10px" }}>{idx === 0 ? "Outbound" : "Return"} · {fmtDate(idx === 0 ? date : retDate).replace(/(\w+) (\d+) \d+/, "$1 $2")}</span>
-                    <div className="flex items-center gap-3"><div><div className="text-[22px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="my-1 mx-auto" style={{ width: "120px", maxWidth: "100%", height: "2px", background: "#E0E2E8" }} /><div className="font-semibold text-ink-muted">{c.flight.flight_no} · {c.flight.aircraft}</div></div><div className="text-right"><div className="text-[22px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest}</div></div></div>
+                    <div className="flex items-center gap-3"><div><div className="text-[22px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin} · {cityOf(c.flight.origin)}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="my-1 mx-auto" style={{ width: "120px", maxWidth: "100%", height: "2px", background: "#E0E2E8" }} /><div className="font-semibold text-ink-muted">{c.flight.flight_no} · {c.flight.aircraft}</div></div><div className="text-right"><div className="text-[22px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest} · {cityOf(c.flight.dest)}</div></div></div>
                   </div>
                 ))}
-                <div className="mt-2 pt-3 border-t border-line flex items-start justify-between gap-3"><div><div className="text-[13px] font-bold">Fare: Classic</div><div className="text-[11px] text-ink-muted mt-0.5">23kg bag · seat select · 50% refund · changes for fee</div></div><button onClick={() => setShowFare(v => !v)} className="text-[13px] font-semibold hover:brightness-90 shrink-0" style={{ color: "#46A41A" }}>{showFare ? "Hide fare rules" : "See fare rules"}</button></div>
+                <div className="mt-2 pt-3 border-t border-[#E0E2E8] flex items-start justify-between gap-3"><div><div className="text-[13px] font-bold">Fare: Classic</div><div className="text-[11px] text-ink-muted mt-0.5">23kg bag · seat select · 50% refund · changes for fee</div></div><button onClick={() => setShowFare(v => !v)} className="text-[13px] font-semibold hover:brightness-90 shrink-0" style={{ color: "#46A41A" }}>{showFare ? "Hide fare rules" : "See fare rules"}</button></div>
                 {showFare && <div className="mt-2 rounded-xl border border-line bg-surface-soft p-3 text-[12px] text-ink-muted space-y-1.5 v2-in">
                   <div className="flex justify-between"><span>Cabin bag (8kg) + checked bag (23kg)</span><span className="font-semibold text-ink">Included</span></div>
                   <div className="flex justify-between"><span>Seat selection</span><span className="font-semibold text-ink">Included</span></div>
@@ -2223,7 +2292,7 @@ export function ExpressCheckout({ shared, go, params }) {
                 </div>}
               </Sec>
               <Sec title="Passenger" action="Edit" onAction={() => go("passenger")}>
-                <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full inline-flex items-center justify-center text-[14px] font-bold" style={{ background: "#F7FAFA", color: "#1A1F29" }}>{(u.first_name || "D")[0]}</span><div><div className="font-bold text-[14px] flex items-center gap-2">{u.full_name || u.first_name} <span className="text-[11px] font-semibold rounded-full" style={{ background: "#FFF7E5", color: "#C8A24B", padding: "4px 10px" }}>{u.tier} · {u.member_no}</span></div><div className="text-[11px] text-ink-faint">DOB {u.dob || "—"} · Passport ••••{(u.doc_id || "0000").slice(-4)} · Nationality {u.nationality || "PT"}</div><div className="text-[11px] text-tap-greenDeep font-semibold mt-2">Frequent flyer benefits applied: priority boarding, lounge</div></div></div>
+                <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full inline-flex items-center justify-center text-[14px] font-bold" style={{ background: "#F7FAFA", color: "#1A1F29" }}>{(u.first_name || "D")[0]}</span><div><div className="font-bold text-[14px] flex items-center gap-2">{u.full_name || u.first_name} <span className="text-[11px] font-semibold rounded-full" style={{ background: "#FFF7E5", color: "#C8A24B", padding: "4px 10px" }}>{u.tier} · {u.member_no}</span></div><div className="text-[11px] text-ink-faint">DOB {u.dob || "—"} · Passport ••••{(u.doc_id || "0000").slice(-4)} · Nationality {u.nationality || "PT"}</div><div className="text-[12px] text-tap-greenDeep font-semibold mt-3">Frequent flyer benefits applied: priority boarding, lounge</div></div></div>
               </Sec>
               <Sec title="Baggage" action="+ Add bag" onAction={() => go("cart")}>
                 <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Cabin bag · 8kg</div><div className="text-[11px] text-ink-faint">Included in fare</div></div><span className="text-[11px] font-semibold uppercase tracking-wide text-ink rounded-full" style={{ background: "#F7F8FA", padding: "4px 10px" }}>Included</span></div>

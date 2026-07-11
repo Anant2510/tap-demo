@@ -366,6 +366,21 @@ export function Results({ shared, params, go }) {
                     </div>
                   </Card>
                 </div>
+                {/* journey summary (#22) — full paired journey + bundle savings; updates once inbound flights load */}
+                {view[0] && (() => {
+                  const inb = view[0];
+                  const total = (ob.price || 0) + (inb.price || 0) - 15;
+                  return (
+                    <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 rounded-lg px-3 py-2 mt-1" style={{ background: "#F2FFDB", fontSize: "14px", fontWeight: 600, color: "#2E7D33" }}>
+                      <span className="v2-num">{of.flight_no} {of.origin}→{of.dest} {EUR(ob.price || 0)}</span>
+                      <span className="text-ink-faint font-normal">+</span>
+                      <span className="v2-num">{inb.flight_no} {inb.origin}→{inb.dest} {EUR(inb.price || 0)}</span>
+                      <span className="text-ink-faint font-normal">=</span>
+                      <span className="font-bold v2-num">{EUR(total)}</span>
+                      <span style={{ fontSize: "12px", fontWeight: 500 }}>(bundle saved {EUR(15)})</span>
+                    </div>
+                  );
+                })()}
                 {/* divider (#9) */}
                 <div className="flex items-center gap-3 py-1"><div className="flex-1 h-px bg-line-strong" /><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">Select inbound flight</span><div className="flex-1 h-px bg-line-strong" /></div>
                 {/* smart re-rank recommendation band (#10) */}

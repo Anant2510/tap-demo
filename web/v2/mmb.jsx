@@ -295,10 +295,22 @@ export function Retrieve({ shared, go }) {
   const [last, setLast] = useState("Pinto");
   const [email, setEmail] = useState("");
   const [found, setFound] = useState(false);        // booking-found panel (#8)
-  const recent = [                                  // recent on this device (#7)
-    { pnr: "6ZK4PD", name: "Silva", route: "Lisbon–Porto", date: "12 Jun" },
-    { pnr: "A23JQM", name: "Costa", route: "Lisbon–Porto", date: "04 Aug" },
-  ];
+  // Retrieve #1/#3 — reflect the user's actual booking (the current trip) instead of fixed sample data
+  const u = shared?.profile?.user || {};
+  const airports = shared?.airports || [];
+  const cityOf = (c) => airports.find(a => a.code === c)?.city || c;
+  const tPax = Array.isArray(trip.passengers) ? trip.passengers : [];
+  const hasTrip = !!(trip.pnr && trip.outbound?.flight);
+  const foundRoute = hasTrip ? `${cityOf(trip.outbound.flight.origin)}–${cityOf(trip.outbound.flight.dest)}` : "Porto–Lisbon";
+  const foundFirst = tPax[0]?.first || u.first_name || "Traveller";
+  const foundLast = last || tPax[0]?.last || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : "Traveller");
+  const foundCount = Math.max(1, tPax.length || Number(trip.pax) || 1);
+  const foundFlight = hasTrip ? (trip.outbound.flight.flight_no || "TP1927") : "TP1927";
+  const foundDep = hasTrip ? (trip.outbound.flight.dep || "07:05") : "07:05";
+  const foundDate = hasTrip && trip.date ? fmtDate(trip.date) : "Wed 22 Jul";
+  const recent = hasTrip
+    ? [{ pnr: trip.pnr, name: foundLast, route: foundRoute, date: foundDate }]
+    : [{ pnr: "6ZK4PD", name: "Silva", route: "Porto–Lisbon", date: "12 Jun" }, { pnr: "A23JQM", name: "Costa", route: "Porto–Lisbon", date: "04 Aug" }];
   const find = (ref) => { if (ref) setPnr(ref); setFound(true); window.scrollTo({ top: 0 }); };
   return (
     <div className="mx-auto max-w-page px-6 py-8">
@@ -335,6 +347,7 @@ export function Retrieve({ shared, go }) {
             </div>
             {/* solid green CTA with arrow (#6) */}
             <Btn size="lg" className="w-full mt-4" onClick={() => find()}>Retrieve booking <Icon name="arrow" size={15} /></Btn>
+            <div className="text-[12px] text-ink-muted mt-3">Booking made via an agent or partner (e.g. Despegar)? You can still check in and manage most extras here. <button className="font-semibold text-tap-greenDeep hover:underline">Contact support</button> · <button className="font-semibold text-tap-greenDeep hover:underline">Find my PNR</button></div>
           </Card>
 
           {/* recent on this device (#7) */}
@@ -355,12 +368,12 @@ export function Retrieve({ shared, go }) {
         {/* booking-found panel (#8) */}
         <aside className="lg:sticky lg:top-6">
           {found ? (
-            <Card className="p-5 ring-2 ring-tap-green/40 bg-lime-tint/20 v2-in">
+            <Card className="v2-in" style={{ background: "#F2FCD9", border: "2px solid #C7F21F", boxShadow: "none", borderRadius: "16px", padding: "18px 24px" }}>
               <div className="text-[12px] font-bold text-tap-greenDeep flex items-center gap-1.5"><Icon name="check" size={13} /> Booking found</div>
               <div className="text-[22px] font-black mt-1">PNR {pnr.toUpperCase()}</div>
-              <div className="text-[13px] text-ink-muted mt-1">{last || "Pinto"}, Carlos +1 · Lisbon–Porto</div>
-              <div className="text-[12px] text-ink-faint mt-0.5">Wed 22 Jul · TP 73 · 16:45</div>
-              <div className="mt-3 rounded-lg border border-[#f5d9a8] bg-[#fffaf0] text-[#7a5a10] text-[12px] px-3 py-2 flex items-center gap-1.5"><Icon name="info" size={12} /> Booked via Despegar.com</div>
+              <div className="text-[13px] text-ink-muted mt-1">{foundLast}, {foundFirst}{foundCount > 1 ? " +" + (foundCount - 1) : ""} · {foundRoute}</div>
+              <div className="text-[12px] text-ink-faint mt-0.5">{foundDate} · {foundFlight} · {foundDep}</div>
+              <div className="mt-3 rounded-lg text-[12px] px-3 py-2 flex items-center gap-1.5" style={{ background: "#FFFFFF", border: "1px solid #FAA824", color: "#FAA824" }}><Icon name="info" size={12} style={{ color: "#FAA824" }} /> Booked via Despegar.com</div>
               <div className="mt-4">
                 <div className="text-[12px] font-bold mb-1.5">Available online:</div>
                 <ul className="text-[12px] text-ink-muted space-y-1">
@@ -370,7 +383,7 @@ export function Retrieve({ shared, go }) {
                   <li className="flex items-center gap-1.5 text-ink-faint"><Icon name="info" size={12} /> Cabin upgrade (agent only)</li>
                 </ul>
               </div>
-              <Btn size="lg" className="w-full mt-4" onClick={() => go("manage")}>Open My Trip</Btn>
+              <Btn size="lg" className="w-full mt-4" style={{ height: "49px", borderRadius: "22px", padding: "16px", maxWidth: "352px" }} onClick={() => go("manage")}>Open My Trip</Btn>
             </Card>
           ) : (
             <Card className="p-6 text-center">
@@ -453,7 +466,7 @@ export function CabinUpgrade({ shared, go }) {
                 <div className="text-[11px] font-semibold text-tap-greenDeep">Fixed price · instant</div>
                 <div className="text-[11px] font-semibold mt-0.5" style={{ color: "#2E7D33" }}>{o.seats > 5 ? `Available · ${o.seats} seats` : `${o.seats} seats left`}</div>
                 <ul className="text-[13px] font-medium text-ink-muted mt-3 space-y-1.5">{UPGRADE_BENEFITS.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
-                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" style={{ height: "48px", borderRadius: "24px", padding: "0 16px", ...(k === "prem" ? { opacity: 0.2 } : {}) }} disabled={busy || k === "prem"} onClick={e => { e.stopPropagation(); if (k !== "prem") { setSel(k); confirm(); } }}>Upgrade for {eur2(baseFare + o.diff)}</Btn>
+                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" style={{ height: "48px", borderRadius: "24px", padding: "0 16px" }} disabled={busy} onClick={e => { e.stopPropagation(); setSel(k); confirm(); }}>Upgrade for {eur2(baseFare + o.diff)}</Btn>
               </Card>
             ); })}
           </div>
@@ -461,7 +474,7 @@ export function CabinUpgrade({ shared, go }) {
             {[`Save ${eur2(120)} vs. buying at gate`, `Lounge value alone ≈ ${eur2(38)}`, `+${miles(1240)} bonus miles`].map(b => <span key={b} className="text-[11px] font-semibold" style={{ borderRadius: "14px", border: "1px solid #A6D926", background: "#F2FFDB", color: "#1A1F29", padding: "6px 12px" }}>{b}</span>)}
           </div>
           <Card className="p-5 mt-4" style={{ background: "#FAFAF7", borderColor: "#DCDCD8" }}>
-            <div className="font-bold text-[14px] mb-2.5">After upgrade — auto-reissue</div>
+            <div className="font-bold text-[14px] mb-2.5 flex items-center gap-1.5"><Icon name="danger" size={15} className="text-[#C2410C] shrink-0" /> After upgrade — auto-reissue</div>
             <ul className="text-[13px] font-medium text-ink-muted space-y-1.5">{REISSUE.map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
           </Card>
         </div>
@@ -1022,11 +1035,12 @@ export function CheckInIndirect({ shared, go, params }) {
         const nm = (last && first) ? `${last}, ${first}` : (p.name || `${first} ${last}`.trim() || `Passenger ${i + 1}`);
         const child = /child|chd|infant/i.test(p.type || "");
         const seatCode = i === 0 ? bookedSeat : (p.seat || ciAdjSeat(bookedSeat, i));   // UI-5 — co-passengers get an adjacent seat
-        return { id: "p" + i, avatar: (last || first || "P")[0].toUpperCase(), name: nm, type: child ? "Child" : "Adult", doc: ciPaxDoc(p, i, u.doc_id), verified: !child, seat: ciSeatLabel(seatCode), needsDocs: child && !p.doc, on: true };
+        return { id: "p" + i, avatar: (last || first || "P")[0].toUpperCase(), name: nm, type: child ? "Child" : "Adult", doc: ciPaxDoc(p, i, u.doc_id), verified: !child, code: seatCode, seat: ciSeatLabel(seatCode), needsDocs: child && !p.doc, on: true };
       })
     : Array.from({ length: Math.max(1, Number(meta.pax) || 1) }, (_, i) => (i === 0
-        ? { id: "self", avatar: (u.first_name || "D")[0].toUpperCase(), name: u.full_name ? `${u.full_name.split(" ").slice(-1)[0]}, ${u.first_name || u.full_name.split(" ")[0]}` : "Ferreira, Daniel", type: "Adult", doc: u.doc_id ? "Passport " + u.doc_id : "Passport", verified: true, seat: ciSeatLabel(bookedSeat), on: true }
-        : { id: "p" + i, avatar: "P", name: `Passenger ${i + 1}`, type: "Adult", doc: "Passport", verified: true, seat: ciSeatLabel(ciAdjSeat(bookedSeat, i)), on: true }));
+        ? { id: "self", avatar: (u.first_name || "D")[0].toUpperCase(), name: u.full_name ? `${u.full_name.split(" ").slice(-1)[0]}, ${u.first_name || u.full_name.split(" ")[0]}` : "Ferreira, Daniel", type: "Adult", doc: u.doc_id ? "Passport " + u.doc_id : "Passport", verified: true, code: bookedSeat, seat: ciSeatLabel(bookedSeat), on: true }
+        : { id: "p" + i, avatar: "P", name: `Passenger ${i + 1}`, type: "Adult", doc: "Passport", verified: true, code: ciAdjSeat(bookedSeat, i), seat: ciSeatLabel(ciAdjSeat(bookedSeat, i)), on: true }));
+  const seatSummary = (() => { const codes = bookedPax.map(pp => pp.code).filter(Boolean); const rows = new Set(codes.map(c => (String(c).match(/\d+/) || [])[0])); return codes.length ? codes.join(" · ") + (codes.length > 1 && rows.size === 1 ? " (together)" : "") : "—"; })();   // Check-in #2 — summary seats derive from the same passenger source as the cards
   const isOn = (p) => picks[p.id] ?? p.on;
   const checkin = async () => {
     setBusy(true);
@@ -1106,7 +1120,7 @@ export function CheckInIndirect({ shared, go, params }) {
             <div className="space-y-2.5 text-[13px]">
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Flight</span><span className="font-bold text-right">{booking.flight_no || "TP 73"} · {fmtDate(booking.flight_date)}</span></div>
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Passengers</span><span className="font-bold">{selCount} of {total} selected</span></div>
-              <div className="flex justify-between gap-3"><span className="text-ink-muted">Seats</span><span className="font-bold v2-num">22A · 22B (together)</span></div>
+              <div className="flex justify-between gap-3"><span className="text-ink-muted">Seats</span><span className="font-bold v2-num">{seatSummary}</span></div>
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Bag</span><span className="font-bold">1 × 23kg (included)</span></div>
               <div className="flex justify-between gap-3"><span className="text-ink-muted">Boarding</span><span className="font-bold v2-num">16:00 · Gate B12</span></div>
             </div>
@@ -1596,6 +1610,42 @@ export function SplitBooking({ shared, params, go }) {
   );
 }
 
+function RefundTracking({ refund, go }) {
+  const t0 = refund.date || Date.now();
+  const submitted = new Date(t0), expected = new Date(t0 + 7 * 864e5);
+  const complete = Math.floor((Date.now() - t0) / 864e5) >= 7;
+  const fmt = (d) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const amt = refund.isMiles ? `${miles(refund.mi || 0)} mi` : eur2(refund.amount || 0);
+  const steps = [
+    { label: "Refund requested", date: fmt(submitted), state: "done" },
+    { label: "Processing with your bank", date: complete ? "Completed" : "In progress", state: complete ? "done" : "active" },
+    { label: `Refunded to your ${refund.method || "card"}`, date: complete ? fmt(expected) : `Expected by ${fmt(expected)}`, state: complete ? "done" : "pending" },
+  ];
+  return (
+    <div className="mx-auto max-w-content px-6 py-8">
+      <SuccessHead title={complete ? "Refund completed" : "Refund in progress"} sub={`PNR ${refund.pnr} · we'll email you at each step`} />
+      <Card className="p-5 mt-6 v2-in">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+          <div><div className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">Refund amount</div><div className="text-[28px] font-black v2-num mt-0.5">{amt}</div><div className="text-[12px] text-ink-muted mt-0.5">to your {refund.method || "original payment"}</div></div>
+          <span className={cx("text-[11px] font-bold uppercase tracking-wide rounded-full px-3 py-1.5", complete ? "bg-lime-tint text-tap-greenDeep" : "bg-[#fff4d6] text-[#9a6b00]")}>{complete ? "Completed" : "Processing"}</span>
+        </div>
+        <div className="relative">
+          {steps.map((s, i) => (
+            <div key={i} className="flex gap-3 pb-4 last:pb-0">
+              <div className="flex flex-col items-center">
+                <span className={cx("w-7 h-7 rounded-full inline-flex items-center justify-center shrink-0 text-white", s.state === "pending" ? "bg-surface-mute" : s.state === "active" ? "bg-[#e8920a]" : "bg-tap-green")}>{s.state === "done" ? <Icon name="check" size={14} /> : <span className="w-2 h-2 rounded-full" style={{ background: s.state === "pending" ? "#9a9a9a" : "#fff" }} />}</span>
+                {i < steps.length - 1 && <span className="w-px flex-1 bg-line my-1" style={{ minHeight: "20px" }} />}
+              </div>
+              <div className="pt-0.5"><div className="text-[13px] font-semibold">{s.label}</div><div className="text-[12px] text-ink-muted">{s.date}</div></div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 rounded-xl bg-surface-soft border border-line px-3.5 py-3 text-[12px] text-ink-muted flex items-start gap-2"><Icon name="info" size={14} className="text-ink-faint shrink-0 mt-0.5" /> Refunds to cards typically take 5–7 business days to appear on your statement. We'll notify you by email and in the app when it's complete.</div>
+      </Card>
+      <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>My trips</Btn><Btn variant="outline" onClick={() => { try { localStorage.removeItem("tap_refund"); } catch { } go("home"); }}>Book a new flight</Btn></div>
+    </div>
+  );
+}
 export function Refund({ shared, go, params }) {
   const { booking, loading, err } = useActiveBooking(params?.pnr);   // #1 — cancel the trip the user selected, not the soonest
   const [confirming, setConfirming] = useState(false);
@@ -1604,12 +1654,18 @@ export function Refund({ shared, go, params }) {
   const [picks, setPicks] = useState({});   // #39 — keyed by derived refund-item id; default via isOn()
   const [dest, setDest] = useState("Visa");
   if (loading) return <Loading label="Loading cancellation…" />;
-  if (err || !booking) return <Empty go={go} title="No booking to cancel" msg="You don't have an active booking right now." />;
+  if (err || !booking) {
+    // #2 — after a refund is submitted the booking is gone; show a refund-tracking view (not "No booking to cancel")
+    let saved = null;
+    try { const s = localStorage.getItem("tap_refund"); if (s) saved = JSON.parse(s); } catch { }
+    if (saved && saved.pnr) return <RefundTracking refund={saved} go={go} />;
+    return <Empty go={go} title="No booking to cancel" msg="You don't have an active booking right now." />;
+  }
   const cancel = async () => {
     setBusy(true);
     const r = await api.post("/bookings/cancel", { pnr: booking.pnr }).catch(() => ({ ok: false }));   // #10 — cancel THIS booking
     setBusy(false);
-    if (r && r.ok) { notifyBookingChanged(); setDone({ pnr: r.pnr || booking.pnr, email: r.email?.to, already: r.alreadyCancelled }); window.scrollTo({ top: 0 }); }
+    if (r && r.ok) { try { localStorage.setItem("tap_refund", JSON.stringify({ pnr: r.pnr || booking.pnr, amount: refundTotal, method: destName, isMiles, mi: refundTotalMi, date: Date.now() })); } catch { } notifyBookingChanged(); setDone({ pnr: r.pnr || booking.pnr, email: r.email?.to, already: r.alreadyCancelled }); window.scrollTo({ top: 0 }); }
     else setDone({ failed: true });
   };
   if (done && !done.failed) return (
@@ -1658,7 +1714,7 @@ export function Refund({ shared, go, params }) {
   // (with the euro equivalent shown alongside), so the summary matches the selection.
   const isMiles = dest === "miles";
   const milesFor = (e) => Math.round(e / MILES_RATE);            // €→miles via the shared rate
-  const eurC = (n) => eur2(n).replace(".", ",");                 // #20 — European format (€592,00)
+  const eurC = (n) => eur2(n);                 // Cancel&Refund #2 — decimal points (€592.00) across the refund flow
   const fmtRefund = (e) => isMiles ? `${miles(milesFor(e))} mi` : eurC(e);  // miles when miles is selected
   const refundTotalMi = milesFor(refundTotal);
   return (
@@ -1679,8 +1735,8 @@ export function Refund({ shared, go, params }) {
                 return (
                   <label key={it.id} className="flex items-center gap-3 py-3 cursor-pointer">
                     <button type="button" disabled={!can} onClick={() => setPicks(p => ({ ...p, [it.id]: !(p[it.id] ?? it.on) }))} className="inline-flex items-center justify-center shrink-0" style={{ width: "22px", height: "22px", borderRadius: "5px", background: on && can ? "#1A1F29" : "#fff", border: on && can ? "none" : `1px solid ${can ? "#C9CDD3" : "#E0E3E8"}` }}>{on && can && <Icon name="check" size={13} className="stroke-[3]" style={{ color: "#C7F21F" }} />}</button>
-                    <div className="flex-1"><div className="text-[13px] font-semibold" style={{ color: can ? undefined : "#667080" }}>{it.name}</div><div className="text-[11px]" style={{ color: can ? "#9AA0A6" : "#667080" }}>Paid {eurC(it.paid)}</div></div>
-                    <div className="text-[13px] font-bold v2-num shrink-0" style={{ color: can ? "#1A7333" : "#667080" }}>{eurC(it.refund)}{it.status && <span className="font-medium" style={{ color: "#667080" }}> ({it.status})</span>}</div>
+                    <div className="flex-1"><div className="text-[13px] font-semibold" style={{ color: on ? "#1A7333" : "#667080" }}>{it.name}</div><div className="text-[11px]" style={{ color: on ? "#5B8A3C" : "#9AA0A6" }}>Paid {eurC(it.paid)}</div></div>
+                    <div className="text-[13px] font-bold v2-num shrink-0" style={{ color: on ? "#1A7333" : "#667080" }}>{eurC(it.refund)}{it.status && <span className="font-medium" style={{ color: "#667080" }}> ({it.status})</span>}</div>
                   </label>
                 );
               })}
