@@ -100,7 +100,7 @@ function AirportPicker({ value, onChange, airports = [], placeholder = "Select a
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[14px] inline-flex items-center justify-between"}>
-        {sel ? <span className="truncate"><span className="font-bold">{sel.code}</span><span className="text-ink-muted"> · {sel.city}</span></span> : <span className="text-ink-faint">{placeholder}</span>}
+        {sel ? <span className="truncate min-w-0 flex-1"><span className="font-bold">{sel.code}</span><span className="text-ink-muted"> · {sel.city}</span></span> : <span className="text-ink-faint truncate min-w-0 flex-1">{placeholder}</span>}
         <span className="text-ink-faint text-[10px] ml-2 shrink-0">▾</span>
       </button>
       {open && pos && createPortal(<>
@@ -623,7 +623,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
 
           <div className="mt-3 rounded-2xl border border-line overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-line">
             {/* #10 #13 route — single container, location icons + circular swap between */}
-            <div className="lg:col-span-3 p-4">
+            <div className="lg:col-span-3 p-3">
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex-1 min-w-0">
                   <div className={lbl}>From</div>
@@ -637,7 +637,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
               </div>
             </div>
             {/* #14 dates — compact range + calendar icon (dynamic, still selectable) */}
-            <div className="lg:col-span-3 p-4">
+            <div className="lg:col-span-3 p-3">
               <div className={lbl}>{type === "round" ? "Depart · Return" : type === "multi" ? "Flight 1 · date" : "Depart"}</div>
               <div className="flex items-center gap-2 mt-1.5"><Icon name="clock" size={14} className="text-ink-muted shrink-0" /><span className="text-[15px] font-bold">{compactRange()}</span></div>
               <div className="flex items-center gap-1.5 mt-1">
@@ -646,8 +646,8 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
               </div>
             </div>
             {/* #15 passenger — traveler icon before count */}
-            <div className="lg:col-span-2 p-4"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
-            <div className="lg:col-span-2 p-4"><div className={lbl}>Cabin</div><div className="relative mt-1.5"><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "appearance-none pr-6 truncate cursor-pointer")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><Icon name="chevron" size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" /></div></div>
+            <div className="lg:col-span-2 p-3"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
+            <div className="lg:col-span-2 p-3"><div className={lbl}>Cabin</div><div className="relative mt-1.5"><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "appearance-none pr-6 truncate cursor-pointer")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><Icon name="chevron" size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" /></div></div>
             {/* #11 search CTA — 161×92 rounded green button */}
             <div className="lg:col-span-2 p-2 flex items-stretch">
               <button onClick={go2} className="w-full text-white font-bold text-[14px] flex items-center justify-center gap-2.5 rounded-[16px] hover:opacity-95 transition-opacity" style={{ background: "rgba(70,164,26,1)", padding: "16px 22px" }}>Search flight <Icon name="arrow" size={15} /></button>
