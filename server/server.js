@@ -583,7 +583,30 @@ app.get("/api/aem/status", (req, res) => { res.json(aem.status()); });
 
 /* ── Persistent basket ───────────────────────────────────────── */
 const _safeJSON = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
-app.get("/api/basket", (req, res) => {
+
+
+// ── Fare holds expire ─────────────────────────────────────────────────────────
+// `expires_at` is only a display string, so the real deadline is created_at + the hold
+// window. Nothing was ageing holds out, so an expired hold stayed 'active' forever and
+// kept surfacing the "complete your held fare" tile with a lock that no longer applies.
+const holdHours = (meta) => (meta && meta.duration === "7d") ? 168 : (meta && meta.duration === "24h") ? 24 : 48;
+const holdUntilMs = (row) => {
+  const t = Date.parse(row.created_at);
+  if (!Number.isFinite(t)) return null;
+  return t + holdHours(_safeJSON(row.items_json, {})) * 3600e3;
+};
+function expireHolds(uid) {
+  try {
+    const rows = db.prepare("SELECT id, items_json, created_at FROM holds WHERE user_id=? AND status='active'").all(uid);
+    const now = Date.now();
+    const dead = rows.filter(r => { const u = holdUntilMs(r); return u !== null && u <= now; });
+    if (dead.length) {
+      const upd = db.prepare("UPDATE holds SET status='expired' WHERE id=?");
+      dead.forEach(r => upd.run(r.id));
+      log("holds_expired", { count: dead.length });
+    }
+  } catch { }
+}app.get("/api/basket", (req, res) => {
   // Latest basket that's either still in progress ('open') or explicitly emptied ('cleared').
   // The web app uses the status to decide: resume an abandoned basket vs. respect a clear vs. seed.
   const b = db.prepare("SELECT * FROM baskets WHERE user_id=? AND status IN ('open','cleared') ORDER BY id DESC LIMIT 1").get(req.uid);
@@ -2063,6 +2086,7 @@ async function buildOfferTiles(identity, uid = SERVER_DEFAULT_UID) {
     ].filter(Boolean),
   });
   // Active fare hold → a complete-your-hold tile, surfaced first (strong intent signal).
+  expireHolds(uid);   // release anything past its window before we surface a "price locked" tile
   const heldRow = db.prepare("SELECT flight_no, total, expires_at, items_json, created_at FROM holds WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1").get(uid);
   if (heldRow) {
     const hf = db.prepare("SELECT * FROM flights WHERE flight_no=?").get(heldRow.flight_no);
@@ -2070,9 +2094,7 @@ async function buildOfferTiles(identity, uid = SERVER_DEFAULT_UID) {
     // The hold lives here in the DB, but the basket is client-side — so ship the held flight
     // itself (plus the real expiry in ms) or "Resume" lands the member on an empty cart.
     const hMeta = _safeJSON(heldRow.items_json, {}) || {};
-    const hHours = hMeta.duration === "7d" ? 168 : hMeta.duration === "24h" ? 24 : 48;
-    const hCreated = Date.parse(heldRow.created_at);
-    const hUntil = Number.isFinite(hCreated) ? hCreated + hHours * 3600e3 : null;
+    const hUntil = holdUntilMs(heldRow);
     tiles.unshift({
       id: "complete_hold", icon: "lock", badge: "Held · price locked", via: "Fare hold (DB)",
       title: `Complete your held ${hcity} fare`,

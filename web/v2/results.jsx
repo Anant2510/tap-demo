@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Icon, cx } from "./ui.jsx";
-import { trip, setLeg, pingBasket, resetTrip } from "./trip.js";
+import { trip, setLeg, pingBasket, resetTrip, setFareHold } from "./trip.js";
 
 const roundTo = (n, s) => Math.round(n / s) * s;
 
@@ -511,7 +511,7 @@ function HoldFareModal({ flight, date, fare, price, seat, onClose, onHeld, onCon
       setDone({ ...o, expires: r.expires, to: r.email && r.email.to });
       // #3 — persist the hold so the fare stays locked through checkout (no price-change prompt in-window)
       const ms = o.dur === "7d" ? 7 * 864e5 : o.dur === "48h" ? 48 * 36e5 : 24 * 36e5;
-      trip.fareHold = { flightNo: flight.flight_no, until: Date.now() + ms, price, duration: o.dur };
+      setFareHold({ flightNo: flight.flight_no, until: Date.now() + ms, price, duration: o.dur });
       onHeld && onHeld();
     }
     catch { setDone({ ...o, error: true }); }

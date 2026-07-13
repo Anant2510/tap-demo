@@ -21,6 +21,10 @@ function notify() { _listeners.forEach(fn => { try { fn(); } catch { } }); saveT
 export function pingBasket() { notify(); }
 
 export function setLeg(leg, choice) { trip[leg] = choice; notify(); }
+// Locking a fare must PERSIST — setting trip.fareHold directly skips notify(), so the
+// snapshot is written without the lock and a reload loses it (the fare then re-validates
+// and prompts "price has changed" on a fare the member is actually holding).
+export function setFareHold(hold) { trip.fareHold = hold || null; notify(); }
 // Clear the basket back to its initial state (called on login / persona switch / logout,
 // so a new context never inherits a previous session's in-progress cart).
 export function resetTrip() {
@@ -53,6 +57,7 @@ export function tripSnapshot() {
     type: trip.type, pax: trip.pax, cabin: trip.cabin,
     origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret,
     outbound: trip.outbound, inbound: trip.inbound,
+    fareHold: trip.fareHold || null,        // a locked fare must survive a reload / basket restore
     extras: trip.extras.map(e => ({ code: e.code, name: e.name, price: e.price, qty: e.qty || 1, cat: e.cat, source: e.source || "user", ...(e.rate != null ? { rate: e.rate } : {}), ...(e.nights != null ? { nights: e.nights } : {}) })),
   };
 }
@@ -71,6 +76,7 @@ export function saveTrip() {
       type: trip.type, pax: trip.pax, cabin: trip.cabin,
       origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret,
       outbound: trip.outbound, inbound: trip.inbound,
+      fareHold: trip.fareHold || null,        // a locked fare must survive a reload
       extras: trip.extras, passengers: trip.passengers, contact: trip.contact,
     };
     if (!snap.outbound && !snap.extras.length && !snap.passengers.length) localStorage.removeItem(TKEY);
@@ -87,6 +93,9 @@ export function loadTrip() {
       type: s.type || "round", pax: s.pax || 1, cabin: s.cabin || "Economy",
       origin: s.origin ?? null, dest: s.dest ?? null, date: s.date ?? null, ret: s.ret ?? null,
       outbound: s.outbound || null, inbound: s.inbound || null,
+      // Restore the lock, but only while it is still valid — an expired hold is released
+      // so the fare re-validates at the live price like any unheld trip.
+      fareHold: (s.fareHold && s.fareHold.until > Date.now()) ? s.fareHold : null,
       extras: Array.isArray(s.extras) ? s.extras : [],
       passengers: Array.isArray(s.passengers) ? s.passengers : [],
       contact: s.contact || null,
@@ -107,6 +116,7 @@ export function restoreFromSaved(saved) {
     type: snap.type || "round", pax: snap.pax || 1, cabin: snap.cabin || "Economy",
     origin: snap.origin ?? null, dest: snap.dest ?? null, date: snap.date ?? null, ret: snap.ret ?? null,
     outbound: snap.outbound || null, inbound: snap.inbound || null,
+    fareHold: (snap.fareHold && snap.fareHold.until > Date.now()) ? snap.fareHold : null,
     extras: extras.map(e => ({ ...e, qty: e.qty || 1, cat: e.cat || "Extras", source: e.source || "recommended" })),
   });
   notify();

@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, WhyChip, Avatar, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
-import { trip, setLeg } from "./trip.js";
+import { trip, setLeg, setFareHold } from "./trip.js";
 import { Results } from "./results.jsx";
 import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout, StopoverBuilder, MilesShop } from "./checkout.jsx";
 import { AIConcierge } from "./ai.jsx";
@@ -588,7 +588,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
 
           <div className="mt-3 rounded-2xl border border-line overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-line">
             {/* #10 #13 route — single container, location icons + circular swap between */}
-            <div className="lg:col-span-4 p-4">
+            <div className="lg:col-span-3 p-4">
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex-1 min-w-0">
                   <div className={lbl}>From</div>
@@ -612,7 +612,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             </div>
             {/* #15 passenger — traveler icon before count */}
             <div className="lg:col-span-2 p-4"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
-            <div className="lg:col-span-1 p-4"><div className={lbl}>Cabin</div><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "mt-1.5")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select></div>
+            <div className="lg:col-span-2 p-4"><div className={lbl}>Cabin</div><div className="relative mt-1.5"><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "appearance-none pr-6 truncate cursor-pointer")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><Icon name="chevron" size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" /></div></div>
             {/* #11 search CTA — 161×92 rounded green button */}
             <div className="lg:col-span-2 p-2 flex items-stretch">
               <button onClick={go2} className="w-full text-white font-bold text-[14px] flex items-center justify-center gap-2.5 rounded-[16px] hover:opacity-95 transition-opacity" style={{ background: "rgba(70,164,26,1)", padding: "16px 22px" }}>Search flight <Icon name="arrow" size={15} /></button>
@@ -678,7 +678,12 @@ export function Home({ shared, go }) {
       trip.type = "one-way"; trip.pax = trip.pax || 1;
       const price = o.price || f.price || 0;
       setLeg("outbound", { flight: f, fare: "Classic", price, leg: "outbound", origin: f.origin, dest: f.dest, date: f.flight_date });
-      if (o.until && o.until > Date.now()) trip.fareHold = { flightNo: f.flight_no, until: o.until, price, duration: o.duration || "48h" };
+      // Restore the lock itself, or checkout re-validates the fare and prompts "price has
+      // changed" on a fare the member is holding. Fall back to the hold window if the
+      // server couldn't resolve an exact deadline.
+      const hrs = o.duration === "7d" ? 168 : o.duration === "24h" ? 24 : 48;
+      const until = (o.until && o.until > Date.now()) ? o.until : (Date.now() + hrs * 3600e3);
+      setFareHold({ flightNo: f.flight_no, until, price, duration: o.duration || "48h" });
     }
     go((o && o.action) || "miles");
   };
