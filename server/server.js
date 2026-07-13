@@ -2063,15 +2063,22 @@ async function buildOfferTiles(identity, uid = SERVER_DEFAULT_UID) {
     ].filter(Boolean),
   });
   // Active fare hold → a complete-your-hold tile, surfaced first (strong intent signal).
-  const heldRow = db.prepare("SELECT flight_no, total, expires_at FROM holds WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1").get(uid);
+  const heldRow = db.prepare("SELECT flight_no, total, expires_at, items_json, created_at FROM holds WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1").get(uid);
   if (heldRow) {
-    const hf = db.prepare("SELECT dest FROM flights WHERE flight_no=?").get(heldRow.flight_no);
+    const hf = db.prepare("SELECT * FROM flights WHERE flight_no=?").get(heldRow.flight_no);
     const hcity = hf ? cityName(hf.dest) : "your trip";
+    // The hold lives here in the DB, but the basket is client-side — so ship the held flight
+    // itself (plus the real expiry in ms) or "Resume" lands the member on an empty cart.
+    const hMeta = _safeJSON(heldRow.items_json, {}) || {};
+    const hHours = hMeta.duration === "7d" ? 168 : hMeta.duration === "24h" ? 24 : 48;
+    const hCreated = Date.parse(heldRow.created_at);
+    const hUntil = Number.isFinite(hCreated) ? hCreated + hHours * 3600e3 : null;
     tiles.unshift({
       id: "complete_hold", icon: "lock", badge: "Held · price locked", via: "Fare hold (DB)",
       title: `Complete your held ${hcity} fare`,
       detail: `Locked at €${Math.round(heldRow.total || 0)} until ${heldRow.expires_at} — finish before it expires.`,
       value: "Locked", cta: "Resume", action: "cart",
+      flight: hf || null, price: Math.round(heldRow.total || hf?.price || 0), until: hUntil, duration: hMeta.duration || "48h",
       reason: `You placed a fare hold on ${heldRow.flight_no}; price protected until ${heldRow.expires_at}`,
       signals: [`Active fare hold on ${heldRow.flight_no} (holds)`, `Locked total €${Math.round(heldRow.total || 0)} · expires ${heldRow.expires_at}`],
     });

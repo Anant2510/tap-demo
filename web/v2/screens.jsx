@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { api, EUR, miles, fmtDate, tierProgress, MILES_RATE } from "./lib.js";
 import { Btn, Card, Pill, Eyebrow, PersonalizedTag, TierBadge, Field, Input, Icon, Divider, Img, imageFor, WhyChip, Avatar, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
+import { trip, setLeg } from "./trip.js";
 import { Results } from "./results.jsx";
 import { Cart, Basket, Passenger, Payment, Confirmation, ExpressCheckout, StopoverBuilder, MilesShop } from "./checkout.jsx";
 import { AIConcierge } from "./ai.jsx";
@@ -667,6 +668,20 @@ export function Home({ shared, go }) {
   const upcoming = bookings.filter(b => b.status === "confirmed" && b.days_to_go >= 0).sort((a, b) => a.days_to_go - b.days_to_go)[0] || bookings.find(b => b.status === "confirmed");
   const search = () => go("results", { origin: pat.origin || u.home_airport, dest: pat.dest || "LIS", date: pat.recommendedDate, type: "round", pax: 1, cabin: "Economy" });
 
+
+  // Offer tiles: "Resume" on a held fare must rebuild the basket first. The hold lives in the
+  // DB, but the cart is client-side — so without this the CTA opened an EMPTY cart page.
+  const openTile = (o) => {
+    const f = o && o.flight;
+    if (o && o.action === "cart" && f && f.flight_no && !trip.outbound) {
+      trip.origin = f.origin; trip.dest = f.dest; trip.date = f.flight_date || trip.date;
+      trip.type = "one-way"; trip.pax = trip.pax || 1;
+      const price = o.price || f.price || 0;
+      setLeg("outbound", { flight: f, fare: "Classic", price, leg: "outbound", origin: f.origin, dest: f.dest, date: f.flight_date });
+      if (o.until && o.until > Date.now()) trip.fareHold = { flightNo: f.flight_no, until: o.until, price, duration: o.duration || "48h" };
+    }
+    go((o && o.action) || "miles");
+  };
   return (
     <div className="bg-surface-mute">
       {/* HERO: full-bleed video background, white content panel */}
@@ -749,7 +764,7 @@ export function Home({ shared, go }) {
                   <div className="text-[11px] text-white/50 mt-1 flex-1">{o.detail}</div>
                   {(o.reason || o.signals) && <WhyChip reason={o.reason} signals={o.signals} dark className="mt-2" />}
                   <div className="h-px bg-white/10 my-3" />
-                  <div className="flex items-center justify-between"><span className="text-[14px] font-black v2-num text-lime">{o.value}</span><Btn size="sm" variant="lime" onClick={() => go(o.action || "miles")}>{o.cta} →</Btn></div>
+                  <div className="flex items-center justify-between"><span className="text-[14px] font-black v2-num text-lime">{o.value}</span><Btn size="sm" variant="lime" onClick={() => openTile(o)}>{o.cta} →</Btn></div>
                 </div>
               ))}
             </div>
