@@ -625,12 +625,12 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             {/* #10 #13 route — single container, location icons + circular swap between */}
             <div className="lg:col-span-3 p-3">
               <div className="flex items-center gap-2 mt-1.5">
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 overflow-hidden">
                   <div className={lbl}>From</div>
                   <div className="flex items-center gap-1.5 mt-1"><Icon name="plane" size={14} className="text-tap-green shrink-0" /><AirportPicker value={from} onChange={setFrom} airports={airports} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div>
                 </div>
                 <button onClick={swap} title="Swap origin & destination" aria-label="Swap origin and destination" className="shrink-0 w-[34px] h-[34px] rounded-full inline-flex items-center justify-center self-end mb-0.5 hover:brightness-95 transition-[filter]" style={{ border: "1px solid rgba(217,230,203,1)", background: "rgba(241,245,236,1)" }}><Icon name="swap" size={14} className="text-tap-greenDeep" /></button>
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 overflow-hidden">
                   <div className={lbl}>To</div>
                   <div className="flex items-center gap-1.5 mt-1"><Icon name="globe" size={14} className="text-tap-greenDeep shrink-0" /><AirportPicker value={to} onChange={setTo} airports={airports} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div>
                 </div>
@@ -964,12 +964,21 @@ export function Home({ shared, go }) {
                   : /experien|tour|activit/.test(s) ? AICON + "experiences.png"
                   : /hotel|stay|night/.test(s) ? AICON + "hotels.png"
                   : null;
-                const ancIsIcon = !!ancImg && ancImg.startsWith(AICON);   // icons are contained, photos cover
+                const ancIsIcon = !!ancImg && ancImg.startsWith(AICON);
+                // The repo's PNGs are 12-28px UI glyphs — blown up to 54px they blur. Use the vector
+                // equivalent (crisp at any size) until real artwork lands; photos still use <Img>.
+                const ancVec = /veg|kid|meal|food|dine|snack/.test(s) ? "leaf"
+                  : /bag|lugg|kg|carry/.test(s) ? "bag"
+                  : /loung/.test(s) ? "star"
+                  : /insur|cover|protect/.test(s) ? "shield"
+                  : /transfer|shuttle|car|rental|drive/.test(s) ? "swap"
+                  : /experien|tour|activit/.test(s) ? "spark"
+                  : /hotel|stay|night/.test(s) ? "home" : "star";
                 const ancIcon = /seat/.test(s) ? "seat" : /bag|lugg/.test(s) ? "bag" : /meal|food|veg|kid/.test(s) ? "leaf" : /loung/.test(s) ? "star" : /wifi|internet/.test(s) ? "bolt" : /upgrad|cabin|business/.test(s) ? "plane" : /insur|secur|protect/.test(s) ? "shield" : "spark";
                 return (
                   <Card key={a.code || i} className="overflow-hidden flex" style={{ borderRadius: "16px" }}>
                     <div className="w-[92px] shrink-0 self-stretch flex items-center justify-center overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
-                      {ancImg ? <Img seed={"anc-" + (a.code || i)} src={ancImg} fit={ancIsIcon ? "contain" : "cover"} className={ancIsIcon ? "w-[54px] h-[54px]" : "w-full h-full"} /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
+                      {ancImg && !ancIsIcon ? <Img seed={"anc-" + (a.code || i)} src={ancImg} className="w-full h-full" /> : ancIsIcon ? <Icon name={ancVec} size={40} className="text-tap-greenDeep" /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
                     </div>
                     <div className="p-3.5 flex flex-col flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
