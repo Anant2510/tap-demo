@@ -24,12 +24,12 @@ function flickr(kw, lockKey) { let h = 0; for (const c of String(lockKey || kw))
 
 const IMG_GRADS = [["#2e7d33", "#9efd38"], ["#1a1f29", "#46a41a"], ["#0a3d2e", "#c7f21f"], ["#163a4a", "#5ec6c0"], ["#3a2a1f", "#e8a23a"]];
 function gradFromSeed(seed) { let h = 0; for (const c of String(seed)) h = (h * 31 + c.charCodeAt(0)) >>> 0; const g = IMG_GRADS[h % IMG_GRADS.length]; return `linear-gradient(135deg, ${g[0]}, ${g[1]})`; }
-export function Img({ seed = "tap", src, alt = "", className = "", w = 800, h = 450 }) {
+export function Img({ seed = "tap", src, alt = "", className = "", w = 800, h = 450, fit = "cover" }) {
   const picsum = `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`;
   const [stage, setStage] = useState(src ? 0 : 1); // 0=relevant src · 1=deterministic photo · 2=gradient
   const url = stage === 0 ? src : stage === 1 ? picsum : null;
   if (stage >= 2 || !url) return <div className={className} style={{ background: gradFromSeed(seed) }} aria-hidden="true" />;
-  return <img src={url} alt={alt} loading="lazy" onError={() => setStage(s => s + 1)} className={className} style={{ objectFit: "cover" }} />;
+  return <img src={url} alt={alt} loading="lazy" onError={() => setStage(s => s + 1)} className={className} style={{ objectFit: fit }} />;
 }
 
 /* ---- Buttons ---- */

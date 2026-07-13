@@ -14,6 +14,7 @@ import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddEx
 import { DemoConsole } from "./demo.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
+const AICON = "/v2/assets/icons/";      // approved ancillary icons (bags, meals, lounge…)
 const ASSET = "/v2/assets/homepage/";   // #14/#5 — approved design assets
 
 /* deterministic gradient "photo" header per city/route (real imagery can be added via AEM) */
@@ -134,6 +135,13 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
   const [kids, setKids] = useState(0);
   const [infants, setInfants] = useState(0);
   const [cabin, setCabin] = useState("Economy");
+  // Multi-city: legs 2…5 (leg 1 is the From/To/Depart row above). No return date — a return
+  // is simply another leg. Previously this tab passed no legs at all, so Results silently
+  // fell back to a plain one-way search.
+  const [xLegs, setXLegs] = useState([{ from: "", to: "", date: "" }]);
+  const setXLeg = (i, patch) => setXLegs(a => a.map((l, n) => n === i ? { ...l, ...patch } : l));
+  const addLeg = () => setXLegs(a => a.length >= 4 ? a : [...a, { from: (a[a.length - 1]?.to || ""), to: "", date: "" }]);
+  const dropLeg = (i) => setXLegs(a => a.length <= 1 ? a : a.filter((_, n) => n !== i));
   const [stopover, setStopover] = useState(false);
   return (
     // #32 — two-container layout: OUTER translucent/glass frame (blur lives here only),
@@ -175,9 +183,29 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
         <label className="flex items-center gap-2 text-[12px] font-medium text-ink-muted"><input type="checkbox" checked={stopover} onChange={e => setStopover(e.target.checked)} className="accent-[#46a41a]" /> Add Portugal Stopover <span className="text-ink-faint">· free, up to 10 days</span></label>
       </div>
       </div>
+      {type === "multi" && (
+        <div className="mt-3 space-y-2">
+          {xLegs.map((l, i) => (
+            <div key={i} className="grid lg:grid-cols-12 gap-3">
+              <Field label={`Flight ${i + 2} · from`} className="lg:col-span-3"><AirportPicker value={l.from || to} onChange={v => setXLeg(i, { from: v })} airports={airports} placeholder="Origin" /></Field>
+              <Field label={`Flight ${i + 2} · to`} className="lg:col-span-3"><AirportPicker value={l.to} onChange={v => setXLeg(i, { to: v })} airports={airports} placeholder="Where to?" /></Field>
+              <Field label={`Flight ${i + 2} · date`} className="lg:col-span-2"><Input type="date" min={i === 0 ? date : (xLegs[i - 1]?.date || date)} value={l.date} onChange={e => setXLeg(i, { date: e.target.value })} /></Field>
+              <div className="lg:col-span-4 flex items-end gap-3 pb-1">
+                {xLegs.length > 1 && <button onClick={() => dropLeg(i)} className="text-[12px] font-semibold text-ink-muted hover:text-tap-red transition-colors">Remove</button>}
+                {i === xLegs.length - 1 && xLegs.length < 4 && <button onClick={addLeg} className="text-[12px] font-semibold text-tap-greenDeep hover:underline">+ Add another flight</button>}
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px] text-ink-faint">Up to 5 flights · each leg has its own date; we price the whole itinerary as one trip.</p>
+        </div>
+      )}
       {/* F6 — the Search flight CTA is a separate component, outside the grouped Route/Date/Passenger/Cabin container */}
       <div className="flex justify-end px-1 pt-3">
-        <Btn size="lg" className="w-full sm:w-auto" onClick={() => onSearch({ origin: from, dest: to, date, ret, pax: pax + kids, adults: pax, children: kids, infants, cabin, type, stopover })}><Icon name="search" /> Search flights</Btn>
+        <Btn size="lg" className="w-full sm:w-auto" onClick={() => {
+          const legs = [{ origin: from, dest: to, date }];
+          if (type === "multi") xLegs.forEach(l => { if (l.to) legs.push({ origin: l.from || to, dest: l.to, date: l.date }); });
+          onSearch({ origin: from, dest: to, date, ret, pax: pax + kids, adults: pax, children: kids, infants, cabin, type, stopover, ...(type === "multi" ? { legs, legIndex: 0 } : {}) });
+        }}><Icon name="search" /> Search flights</Btn>
       </div>
     </div>
   );
@@ -540,13 +568,20 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
   const [infants, setInfants] = useState(0);
   const [cabin, setCabin] = useState("Economy");
   const [payMiles, setPayMiles] = useState(false);
-  const [leg2, setLeg2] = useState({ from: pat.dest || "LIS", to: "", date: "" });
+  // Multi-city, airline-standard: an ordered list of legs (flight 1 is the main row above;
+  // these are legs 2…5). Each leg chains from the previous arrival, has its own date, and
+  // there is NO return date — a return is just another leg.
+  const [xLegs, setXLegs] = useState([{ from: pat.dest || "LIS", to: "", date: "" }]);
+  const setXLeg = (i, patch) => setXLegs(a => a.map((l, n) => n === i ? { ...l, ...patch } : l));
+  const lastStop = (i) => (i === 0 ? to : (xLegs[i - 1]?.to || to));            // where the previous leg landed
+  const addLeg = () => setXLegs(a => a.length >= 4 ? a : [...a, { from: (a[a.length - 1]?.to || to), to: "", date: "" }]);
+  const dropLeg = (i) => setXLegs(a => a.length <= 1 ? a : a.filter((_, n) => n !== i));
   const swap = () => { setFrom(to); setTo(from); };
   const go2 = () => {
     if (type === "multi") {
       // B1 — build the leg list; step through them one at a time in Results.
       const legs = [{ origin: from, dest: to, date }];
-      if (leg2.to) legs.push({ origin: leg2.from, dest: leg2.to, date: leg2.date });
+      xLegs.forEach(l => { if (l.to) legs.push({ origin: l.from || to, dest: l.to, date: l.date }); });
       return go("results", { type: "multi", legs, legIndex: 0, pax: pax + kids, adults: pax, children: kids, infants, cabin, payMiles, origin: from, dest: legs[legs.length - 1].dest, date });
     }
     return go("results", { origin: from, dest: to, date, ret: type === "oneway" ? "" : ret, type, pax: pax + kids, adults: pax, children: kids, infants, cabin, payMiles });
@@ -603,11 +638,11 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             </div>
             {/* #14 dates — compact range + calendar icon (dynamic, still selectable) */}
             <div className="lg:col-span-3 p-4">
-              <div className={lbl}>{type === "oneway" ? "Depart" : "Depart · Return"}</div>
+              <div className={lbl}>{type === "round" ? "Depart · Return" : type === "multi" ? "Flight 1 · date" : "Depart"}</div>
               <div className="flex items-center gap-2 mt-1.5"><Icon name="clock" size={14} className="text-ink-muted shrink-0" /><span className="text-[15px] font-bold">{compactRange()}</span></div>
               <div className="flex items-center gap-1.5 mt-1">
                 <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-[10px] text-ink-faint outline-none w-[94px]" />
-                {type !== "oneway" && <><span className="text-ink-faint text-[10px]">→</span><input type="date" value={ret} onChange={e => setRet(e.target.value)} className="bg-transparent text-[10px] text-ink-faint outline-none w-[94px]" /></>}
+                {type === "round" && <><span className="text-ink-faint text-[10px]">→</span><input type="date" value={ret} onChange={e => setRet(e.target.value)} className="bg-transparent text-[10px] text-ink-faint outline-none w-[94px]" /></>}
               </div>
             </div>
             {/* #15 passenger — traveler icon before count */}
@@ -619,11 +654,36 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             </div>
           </div>
           {type === "multi" && (
-            <div className="grid lg:grid-cols-12 gap-3 mt-3">
-              <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · from</div><select value={leg2.from} onChange={e => setLeg2({ ...leg2, from: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-              <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · to</div><select value={leg2.to} onChange={e => setLeg2({ ...leg2, to: e.target.value })} className={cx(bare, "mt-1 appearance-none cursor-pointer")}><option value="">Where to?</option>{airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}</select></div>
-              <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}><div className={lbl}>Flight 2 · date</div><input type="date" value={leg2.date} onChange={e => setLeg2({ ...leg2, date: e.target.value })} className={cx(bare, "mt-1 text-[13px]")} /></div>
-              <div className="lg:col-span-3 flex items-center text-[11px] text-ink-faint">Add up to 5 flights · we'll price the full itinerary.</div>
+            <div className="mt-3 space-y-2">
+              {xLegs.map((l, i) => (
+                <div key={i} className="grid lg:grid-cols-12 gap-3">
+                  <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}>
+                    <div className={lbl}>Flight {i + 2} · from</div>
+                    <select value={l.from || lastStop(i)} onChange={e => setXLeg(i, { from: e.target.value })} className={cx(bare, "mt-1.5")}>
+                      {airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}
+                    </select>
+                  </div>
+                  <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}>
+                    <div className={lbl}>Flight {i + 2} · to</div>
+                    <select value={l.to} onChange={e => setXLeg(i, { to: e.target.value })} className={cx(bare, "mt-1.5")}>
+                      <option value="">Where to?</option>
+                      {airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}
+                    </select>
+                  </div>
+                  <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}>
+                    <div className={lbl}>Flight {i + 2} · date</div>
+                    {/* a leg can't depart before the leg before it */}
+                    <input type="date" min={i === 0 ? date : (xLegs[i - 1]?.date || date)} value={l.date} onChange={e => setXLeg(i, { date: e.target.value })} className={cx(bare, "mt-1.5")} />
+                  </div>
+                  <div className="lg:col-span-3 flex items-center gap-3">
+                    {xLegs.length > 1 && <button onClick={() => dropLeg(i)} className="text-[12px] font-semibold text-ink-muted hover:text-tap-red transition-colors">Remove</button>}
+                    {i === xLegs.length - 1 && xLegs.length < 4 && (
+                      <button onClick={addLeg} className="text-[12px] font-semibold text-tap-greenDeep hover:underline inline-flex items-center gap-1">+ Add another flight</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <p className="text-[11px] text-ink-faint">Up to 5 flights · each leg has its own date, and we price the whole itinerary as one trip.</p>
             </div>
           )}
           {/* #6 status indicators — contained inside the search module */}
@@ -886,12 +946,30 @@ export function Home({ shared, go }) {
             <div className="grid md:grid-cols-3 gap-4">
               {anc.slice(0, 3).map((a, i) => {
                 const s = ((a.code || "") + " " + (a.name || "")).toLowerCase();
-                const ancImg = /upgrad|cabin|business/.test(s) ? "business-upgrade.jpg" : /secur|priorit|fast/.test(s) ? "fast-track-security.jpg" : /chang|flex/.test(s) ? "flexible-change.jpg" : /seat/.test(s) ? "business-upgrade.jpg" : null;   // #14/#7 — approved asset photo; seat reuses the cabin-seat shot
+                // #14/#7 — approved assets only. Photos where we have one; otherwise the approved
+                // icon for that ancillary. Anything unmapped fell through to a blank green panel,
+                // which is why bags & meals showed no picture.
+                const ancImg = /upgrad|cabin|business/.test(s) ? ASSET + "business-upgrade.jpg"
+                  : /secur|priorit|fast/.test(s) ? ASSET + "fast-track-security.jpg"
+                  : /chang|flex/.test(s) ? ASSET + "flexible-change.jpg"
+                  : /seat/.test(s) ? ASSET + "business-upgrade.jpg"
+                  : /veg|kid/.test(s) ? AICON + "veg-meal.png"
+                  : /meal|food|dine|snack/.test(s) ? AICON + "meals.png"
+                  : /carry|cabin bag|hand lugg/.test(s) ? AICON + "carry-on.png"
+                  : /bag|lugg|kg/.test(s) ? AICON + "checked-bag.png"
+                  : /loung/.test(s) ? AICON + "lounge.png"
+                  : /insur|cover|protect/.test(s) ? AICON + "insurance.png"
+                  : /transfer|shuttle/.test(s) ? AICON + "transfer.png"
+                  : /car|rental|drive/.test(s) ? AICON + "cars.png"
+                  : /experien|tour|activit/.test(s) ? AICON + "experiences.png"
+                  : /hotel|stay|night/.test(s) ? AICON + "hotels.png"
+                  : null;
+                const ancIsIcon = !!ancImg && ancImg.startsWith(AICON);   // icons are contained, photos cover
                 const ancIcon = /seat/.test(s) ? "seat" : /bag|lugg/.test(s) ? "bag" : /meal|food|veg|kid/.test(s) ? "leaf" : /loung/.test(s) ? "star" : /wifi|internet/.test(s) ? "bolt" : /upgrad|cabin|business/.test(s) ? "plane" : /insur|secur|protect/.test(s) ? "shield" : "spark";
                 return (
                   <Card key={a.code || i} className="overflow-hidden flex" style={{ borderRadius: "16px" }}>
                     <div className="w-[92px] shrink-0 self-stretch flex items-center justify-center overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
-                      {ancImg ? <Img seed={"anc-" + (a.code || i)} src={ASSET + ancImg} className="w-full h-full" /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
+                      {ancImg ? <Img seed={"anc-" + (a.code || i)} src={ancImg} fit={ancIsIcon ? "contain" : "cover"} className={ancIsIcon ? "w-[54px] h-[54px]" : "w-full h-full"} /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
                     </div>
                     <div className="p-3.5 flex flex-col flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">

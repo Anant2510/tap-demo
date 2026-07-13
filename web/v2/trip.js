@@ -148,6 +148,25 @@ export function resumeBasketTrip(id) {
   writeBasket(a.filter(x => x.id !== id));   // resuming moves it out of the basket into the active trip
   return true;
 }
+// ── Multi-trip checkout ───────────────────────────────────────────────────────
+// Each itinerary is its own order/PNR, but a basket settles in ONE payment — so the
+// trips the member picked ride along in a queue and are issued after the active trip.
+const QKEY = "flytap_checkout_queue";
+export function getQueue() { try { const r = localStorage.getItem(QKEY); const a = r ? JSON.parse(r) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
+export function setQueue(snaps) { try { localStorage.setItem(QKEY, JSON.stringify(snaps || [])); } catch { } notify(); }
+export function clearQueue() { try { localStorage.removeItem(QKEY); } catch { } notify(); }
+// Toggle a single line item off/on inside a PARKED trip (line-item level selection).
+export function toggleSavedExtra(id, code) {
+  const a = readBasket(); const x = a.find(v => v.id === id); if (!x) return false;
+  const ex = Array.isArray(x.snap.extras) ? x.snap.extras : [];
+  const i = ex.findIndex(e => e.code === code);
+  if (i >= 0) { const e = ex[i]; ex.splice(i, 1); (x.snap._off = x.snap._off || []).push(e); }
+  else { const off = x.snap._off || []; const j = off.findIndex(e => e.code === code); if (j >= 0) ex.push(off.splice(j, 1)[0]); }
+  x.snap.extras = ex; writeBasket(a); return true;
+}
+export function savedExtraOn(snap, code) { return (snap.extras || []).some(e => e.code === code); }
+export function savedAllExtras(snap) { return [...(snap.extras || []), ...(snap._off || [])]; }
+
 export function basketTripTotal(snap) {
   const flights = (snap.outbound?.price || 0) + (snap.inbound?.price || 0);
   const extras = (snap.extras || []).reduce((s, e) => s + (e.price || 0), 0);

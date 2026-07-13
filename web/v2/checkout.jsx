@@ -4,7 +4,7 @@
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
 import React, { useState, useEffect, useRef } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS, money, eurRef, getCurrency } from "./lib.js";
-import { trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS, getBasketTrips, saveTripToBasket, removeBasketTrip, resumeBasketTrip, basketTripTotal } from "./trip.js";
+import { getQueue, setQueue, clearQueue as clearBasketQueue, toggleSavedExtra, savedExtraOn, savedAllExtras, trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS, getBasketTrips, saveTripToBasket, removeBasketTrip, resumeBasketTrip, basketTripTotal } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
@@ -855,6 +855,28 @@ export function Basket({ shared, go }) {
   const applyEdit = (item, changes) => { Object.assign(item, changes); pingBasket(); persist(); r(); };   // #22 — mutate the basket line in place
   // Important #5 — multi-trip basket: park the current trip and manage several at once.
   const savedTrips = getBasketTrips();
+  // Multi-trip checkout: every trip in the basket is selected by default (checking out the
+  // whole basket is the common case); un-tick a trip to leave it parked, or expand it to drop
+  // individual line items before paying.
+  const [selTrips, setSelTrips] = useState(() => ({}));      // id -> false when un-ticked
+  const [openTrip, setOpenTrip] = useState(null);
+  const [curOn, setCurOn] = useState(true);                  // the active trip itself
+  const isSel = (id) => selTrips[id] !== false;
+  const toggleSel = (id) => setSelTrips(m => ({ ...m, [id]: m[id] === false }));
+  const chosen = savedTrips.filter(x => isSel(x.id));
+  const chosenTotal = (curOn ? t.total : 0) + chosen.reduce((a, x) => a + basketTripTotal(x.snap), 0);
+  const chosenCount = (curOn ? 1 : 0) + chosen.length;
+  const checkoutChosen = () => {
+    if (!chosenCount) return;
+    if (curOn) { setQueue(chosen.map(x => x.snap)); chosen.forEach(x => removeBasketTrip(x.id)); }
+    else {                                            // active trip left behind → lead with the first picked trip
+      const [lead, ...rest] = chosen;
+      setQueue(rest.map(x => x.snap));
+      rest.forEach(x => removeBasketTrip(x.id));
+      resumeBasketTrip(lead.id);
+    }
+    go("passenger");
+  };
   const park = () => { if (saveTripToBasket()) { resetTrip(); go("home"); } };
   const resumeSaved = (id) => { resumeBasketTrip(id); r(); };
   const removeSaved = (id) => { removeBasketTrip(id); r(); };
@@ -930,7 +952,9 @@ export function Basket({ shared, go }) {
               {savedTrips.map(x => {
                 const s = x.snap, of = s.outbound?.flight || {}, nX = (s.extras || []).length;
                 return (
-                  <div key={x.id} className="rounded-xl border border-line bg-white p-3 flex items-center gap-3">
+                  <div key={x.id} className={cx("rounded-xl border bg-white p-3", isSel(x.id) ? "border-tap-green" : "border-line")}>
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={isSel(x.id)} onChange={() => toggleSel(x.id)} aria-label={`Include this trip in checkout`} className="w-4 h-4 accent-[#46A41A] shrink-0 cursor-pointer" />
                     <span className="w-9 h-9 rounded-lg bg-lime-tint inline-flex items-center justify-center text-tap-greenDeep shrink-0"><Icon name="plane" size={16} /></span>
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-bold truncate">{cityOf(s.origin)} → {cityOf(s.dest)} <span className="text-[10px] font-semibold text-tap-greenDeep uppercase">{s.outbound?.fare || "Classic"}</span></div>
@@ -942,10 +966,47 @@ export function Basket({ shared, go }) {
                       <button onClick={() => removeSaved(x.id)} className="text-[11px] font-semibold text-ink-muted hover:text-tap-red transition-colors">Remove</button>
                     </div>
                   </div>
+                  {/* line-item level: drop individual extras from a parked trip before paying */}
+                  {savedAllExtras(s).length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-line">
+                      <button onClick={() => setOpenTrip(o => o === x.id ? null : x.id)} className="text-[11px] font-semibold text-tap-greenDeep hover:underline">
+                        {openTrip === x.id ? "Hide items" : `${nX} item${nX === 1 ? "" : "s"} · edit`}
+                      </button>
+                      {openTrip === x.id && (
+                        <div className="mt-2 space-y-1">
+                          {savedAllExtras(s).map(e => {
+                            const on = savedExtraOn(s, e.code);
+                            return (
+                              <label key={e.code} className="flex items-center gap-2 text-[11px] cursor-pointer">
+                                <input type="checkbox" checked={on} onChange={() => { toggleSavedExtra(x.id, e.code); r(); }} className="w-3.5 h-3.5 accent-[#46A41A] shrink-0" />
+                                <span className={cx("flex-1 truncate", on ? "text-ink" : "text-ink-faint line-through")}>{e.name}</span>
+                                <span className={cx("v2-num shrink-0", on ? "font-semibold" : "text-ink-faint")}>{eur2(e.price || 0)}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  </div>
                 );
               })}
             </div>
-            <p className="text-[11px] text-ink-faint mt-3">Resuming loads that trip here for checkout. Your current trip stays in the basket if you park it first.</p>
+            {/* The whole basket checks out in ONE payment; each itinerary is still issued as its
+                own PNR, which is how an airline order actually works. */}
+            <div className="mt-3 rounded-xl border border-line bg-white p-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-[12px] font-semibold cursor-pointer">
+                <input type="checkbox" checked={curOn} onChange={() => setCurOn(v => !v)} className="w-4 h-4 accent-[#46A41A]" />
+                <span>This trip ({cityOf(trip.origin)} → {cityOf(trip.dest)}) · <span className="v2-num">{eur2(t.total)}</span></span>
+              </label>
+              <div className="flex-1" />
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-wide text-ink-faint">Selected · {chosenCount} trip{chosenCount === 1 ? "" : "s"}</div>
+                <div className="text-[16px] font-bold v2-num">{eur2(chosenTotal)}</div>
+              </div>
+              <Btn onClick={checkoutChosen} disabled={!chosenCount}>Check out {chosenCount} trip{chosenCount === 1 ? "" : "s"} <Icon name="arrow" size={14} /></Btn>
+            </div>
+            <p className="text-[11px] text-ink-faint mt-2">One payment covers everything selected · each itinerary is issued as its own PNR. Un-tick a trip to leave it parked, or expand it to drop individual items.</p>
           </div>
         )}
 
@@ -1561,7 +1622,12 @@ export function Payment({ shared, go }) {
     miles_used = mix.miles; miles_amt = Math.round(miles_used * MILES_RATE);
     cashback_amt = Math.min(cashbackBal, mix.cashback || 0);
   }
-  const card_amt = Math.max(0, t.total - voucher_amt - miles_amt - cashback_amt);
+  // Multi-trip basket: the other selected itineraries settle on this same payment (each is
+  // still issued as its own PNR). They ride on the card leg — miles/vouchers apply to the
+  // active trip only, which is how airlines apply redemption to a single order.
+  const queued = getQueue();
+  const queuedTotal = queued.reduce((a, sn) => a + basketTripTotal(sn), 0);
+  const card_amt = Math.max(0, t.total - voucher_amt - miles_amt - cashback_amt) + queuedTotal;
   const seatNo = chosenSeat() || (/exec|plus|premium/i.test(trip.outbound?.fare || "") ? seatForFare(trip.outbound?.fare) : (seat?.seat || seatForFare(trip.outbound?.fare)));
   const mixBreakdown = method === "Mix Method" ? [
     { label: "Card payment", text: EUR(card_amt) },
@@ -1604,7 +1670,16 @@ export function Payment({ shared, go }) {
     setBusy(true);
     try {
       const r = await api.post("/pay", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code || e.name), total: t.total, voucher_amt, miles_used, miles_amt, card_amt, seat: seatNo, date: trip.date, fare: trip.outbound?.fare, cabin: fareCabin(trip.outbound?.fare), pax: trip.pax, passengers: (trip.passengers || []).filter(p => p && p.first).map(p => ({ title: p.title, first: p.first, last: p.last })), inbound: trip.inbound?.flight?.flight_no ? { flight_no: trip.inbound.flight.flight_no, date: trip.ret } : null, contact: trip.contact || null });
-      if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to, payNote: method === "Instalments" ? `${instPlan.n}× instalments — ${EUR(instFirst)} today, then ${instPlan.n - 1} × ${EUR(instPer)}` : method === "Pay by Segment" ? `Paid by segment — outbound ${EUR(obShare)}${hasInbound ? ` + return ${EUR(ibShare)}` : ""}` : null }; go("confirmation"); }
+      if (r.ok) {
+        // One payment → many orders: issue each queued itinerary as its own PNR.
+        const alsoBooked = [];
+        for (const sn of queued) {
+          const qo = sn.outbound?.flight; if (!qo?.flight_no) continue;
+          const qr = await api.post("/pay", { flight_no: qo.flight_no, items: (sn.extras || []).map(e => e.code || e.name), total: basketTripTotal(sn), date: sn.date, fare: sn.outbound?.fare, pax: sn.pax || 1, inbound: sn.inbound?.flight?.flight_no ? { flight_no: sn.inbound.flight.flight_no, date: sn.ret } : null, contact: sn.contact || trip.contact || null }).catch(() => null);
+          if (qr && qr.ok) alsoBooked.push({ pnr: qr.pnr, origin: sn.origin, dest: sn.dest, total: basketTripTotal(sn) });
+        }
+        if (alsoBooked.length) { trip.alsoBooked = alsoBooked; clearBasketQueue(); } else if (queued.length) { clearBasketQueue(); }
+        trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to, payNote: method === "Instalments" ? `${instPlan.n}× instalments — ${EUR(instFirst)} today, then ${instPlan.n - 1} × ${EUR(instPer)}` : method === "Pay by Segment" ? `Paid by segment — outbound ${EUR(obShare)}${hasInbound ? ` + return ${EUR(ibShare)}` : ""}` : null }; go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
@@ -1656,6 +1731,15 @@ export function Payment({ shared, go }) {
 
         <div className="grid lg:grid-cols-[1fr_328px] gap-6 mt-5 items-start">
           <div className="space-y-[18px]">
+            {queued.length > 0 && (
+              <div className="rounded-2xl flex items-center gap-3 flex-wrap" style={{ background: "#F2FCD9", border: "1px solid #2E7D33", padding: "14px 16px" }}>
+                <Icon name="cart" size={16} className="text-tap-greenDeep shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-bold" style={{ color: "#1A7333" }}>Paying for {queued.length + 1} trips in one payment</div>
+                  <div className="text-[11px] text-ink-muted">This trip + {queued.length} more from your basket · each is issued as its own PNR. Extra trips add <span className="v2-num font-semibold">{eur2(queuedTotal)}</span>.</div>
+                </div>
+              </div>
+            )}
             <div className="rounded-2xl flex items-center justify-between flex-wrap gap-3" style={{ background: "#FFFFFF", border: "1px solid #E8E8E5", padding: "16px" }}>
               <div className="flex items-center gap-3"><span className="inline-flex items-center justify-center shrink-0" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#F2F2EE" }}><Icon name="lock" size={18} className="text-ink-faint" /></span><div><div style={{ fontSize: "13px", fontWeight: 600, color: "#0A0A0A" }}>Secure payment</div><div className="text-[11px]" style={{ color: "#667080" }}>Encrypted &amp; tokenised · Stripe · 3-D Secure 2.0 · we never see your full card number.</div></div></div>
               <div className="flex flex-wrap gap-1.5">{["VISA", "MC", "AMEX", "MAESTRO", "APPLE PAY", "G PAY", "PIX"].map(b => <span key={b} className="text-[9px] font-bold rounded px-1.5 py-1" style={{ background: "#F2F2EE", color: "#1A1F29" }}>{b}</span>)}<span className="text-[9px] font-bold text-white rounded px-1.5 py-1" style={{ background: "#635bff" }}>stripe</span></div>
@@ -2112,7 +2196,19 @@ export function Confirmation({ shared, go }) {
           <div className="space-y-6">
             <Card className="p-6" style={{ borderRadius: "18px", background: "#FFFFFF", borderColor: "#E8E8E5" }}>
               <div className="flex items-center gap-2 mb-3"><div className="font-semibold text-[16px]">Your itinerary</div><span className="text-[11px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1">PNR {trip.pnr}</span></div>
-              {(() => {
+
+              {/* Multi-trip basket: the other itineraries paid for in the same transaction */}
+              {Array.isArray(trip.alsoBooked) && trip.alsoBooked.length > 0 && (
+                <div className="rounded-xl mb-3" style={{ background: "#F2FCD9", border: "1px solid #2E7D33", padding: "12px 14px" }}>
+                  <div className="text-[12px] font-bold" style={{ color: "#1A7333" }}>{trip.alsoBooked.length + 1} itineraries issued in this payment</div>
+                  {trip.alsoBooked.map(b => (
+                    <div key={b.pnr} className="flex items-center justify-between gap-2 text-[12px] mt-1.5">
+                      <span className="truncate">{b.origin} → {b.dest}</span>
+                      <span className="flex items-center gap-2 shrink-0"><span className="v2-num text-ink-muted">{eur2(b.total)}</span><span className="text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2 py-0.5">PNR {b.pnr}</span></span>
+                    </div>
+                  ))}
+                </div>
+              )}              {(() => {
                 const sh = (hm, m) => { const [h, mm] = String(hm || "00:00").split(":").map(Number); const t = ((h * 60 + mm + m) % 1440 + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
                 const rows = (trip.stopover?.viaLisbon && o) ? [
                   { flight: { ...o.flight, dest: "LIS", arr: sh(o.flight.arr, -125), duration: "7h 15m" }, _lbl: "Outbound · Segment 1", _d: trip.date, _seat: leadSeat },
