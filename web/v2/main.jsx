@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { api, setSessionId, authReady, onCurrencyChange, onLangChange } from "./lib.js";
-import { resetTrip, restoreFromSaved, loadTrip, saveTrip } from "./trip.js";
+import { trip, resetTrip, restoreFromSaved, loadTrip, saveTrip } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
 import { LoginModal } from "./auth.jsx";
@@ -98,13 +98,20 @@ function App() {
   // Log in via the canonical /api/auth/login — by persona (the 5 known) or by email
   // (registrants 6–15). Capture the returned sessionId and bind it BEFORE loadShared so
   // every subsequent request resolves to THIS user. Throws on failure (the modal shows it).
+  // Cart semantics: a basket built before signing in belongs to the same person at the
+  // same browser, so signing in must CARRY it over, not bin it. Only a completed booking
+  // (trip.pnr) or an genuinely empty cart resets. When we carry a cart we also skip the
+  // server-side basket restore so the member's older saved basket can't clobber it.
+  const carryCart = () => !trip.pnr && !!(trip.outbound || trip.inbound || trip.extras.length);
+
   const handleLogin = useCallback(async ({ persona, email } = {}) => {
-    resetTrip();   // new member context starts with an empty basket
+    const keep = carryCart();
+    if (!keep) resetTrip();   // empty cart (or a finished booking) → clean member context
     const body = persona ? { persona } : { email };
     const r = await api.post("/auth/login", body).catch(() => null);
     if (!r || !r.ok || !r.sessionId) throw new Error((r && r.error) || "Couldn't log in — check the email or member.");
     setSessionId(r.sessionId);
-    await loadShared();
+    await loadShared(keep);   // keep=true → don't let the saved server basket overwrite the carried cart
     try { localStorage.setItem("flytap_auth", "1"); localStorage.setItem("flytap_login", JSON.stringify(body)); localStorage.removeItem("flytap_persona"); } catch {}
     setLoggedIn(true); setShowLogin(false); go("home"); window.scrollTo({ top: 0 });
   }, [loadShared, go]);
@@ -112,11 +119,12 @@ function App() {
   // Register a brand-new visitor (anonymous slot 6–15) → bind their fresh session, then
   // they accrue their own history. Re-login on boot is by email (their row persists).
   const handleRegister = useCallback(async ({ first_name, email, phone, home_airport }) => {
-    resetTrip();
+    const keep = carryCart();   // guest → registered is still the same shopper; keep their basket
+    if (!keep) resetTrip();
     const r = await api.post("/auth/register", { first_name, email, phone, home_airport }).catch(() => null);
     if (!r || !r.ok || !r.sessionId) throw new Error((r && r.error) || "Couldn't register — try a different email.");
     setSessionId(r.sessionId);
-    await loadShared();
+    await loadShared(keep);   // carried guest basket wins over any older saved basket
     try { localStorage.setItem("flytap_auth", "1"); localStorage.setItem("flytap_login", JSON.stringify({ email })); localStorage.removeItem("flytap_persona"); } catch {}
     setLoggedIn(true); setShowLogin(false); go("home"); window.scrollTo({ top: 0 });
   }, [loadShared, go]);
