@@ -14,7 +14,7 @@ import { ManageBooking, CabinUpgrade, SeatChange, Rebook, CheckInIndirect, AddEx
 import { DemoConsole } from "./demo.jsx";
 
 const TRIP_TABS = ["Flights", "Flights + Hotel", "Hotels", "Experiences", "Cabs & Transfers", "Flight Status"];
-const AICON = "/v2/assets/icons/";      // approved ancillary icons (bags, meals, lounge…)
+const AICON = "/v2/assets/extras/";     // ancillary artwork (SVG — sharp at any size, unlike the 20px icon PNGs)
 const ASSET = "/v2/assets/homepage/";   // #14/#5 — approved design assets
 
 /* deterministic gradient "photo" header per city/route (real imagery can be added via AEM) */
@@ -621,9 +621,9 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             </button>
           </div>
 
-          <div className="mt-3 rounded-2xl border border-line overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-line">
+          <div className="mt-3 rounded-2xl border border-line overflow-hidden grid v2-searchgrid divide-y lg:divide-y-0 lg:divide-x divide-line">
             {/* #10 #13 route — single container, location icons + circular swap between */}
-            <div className="lg:col-span-3 p-3">
+            <div className="p-3">
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex-1 min-w-0 overflow-hidden">
                   <div className={lbl}>From</div>
@@ -637,7 +637,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
               </div>
             </div>
             {/* #14 dates — compact range + calendar icon (dynamic, still selectable) */}
-            <div className="lg:col-span-3 p-3">
+            <div className="p-3">
               <div className={lbl}>{type === "round" ? "Depart · Return" : type === "multi" ? "Flight 1 · date" : "Depart"}</div>
               <div className="flex items-center gap-2 mt-1.5"><Icon name="clock" size={14} className="text-ink-muted shrink-0" /><span className="text-[15px] font-bold">{compactRange()}</span></div>
               <div className="flex items-center gap-1.5 mt-1">
@@ -646,10 +646,10 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
               </div>
             </div>
             {/* #15 passenger — traveler icon before count */}
-            <div className="lg:col-span-2 p-3"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
-            <div className="lg:col-span-2 p-3"><div className={lbl}>Cabin</div><div className="relative mt-1.5"><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "appearance-none pr-6 truncate cursor-pointer")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><Icon name="chevron" size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" /></div></div>
+            <div className="p-3"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
+            <div className="p-3"><div className={lbl}>Cabin</div><div className="relative mt-1.5"><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "appearance-none pr-6 truncate cursor-pointer")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><Icon name="chevron" size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" /></div></div>
             {/* #11 search CTA — 161×92 rounded green button */}
-            <div className="lg:col-span-2 p-2 flex items-stretch">
+            <div className="p-2 flex items-stretch">
               <button onClick={go2} className="w-full text-white font-bold text-[14px] flex items-center justify-center gap-2.5 rounded-[16px] hover:opacity-95 transition-opacity" style={{ background: "rgba(70,164,26,1)", padding: "16px 22px" }}>Search flight <Icon name="arrow" size={15} /></button>
             </div>
           </div>
@@ -953,16 +953,16 @@ export function Home({ shared, go }) {
                   : /secur|priorit|fast/.test(s) ? ASSET + "fast-track-security.jpg"
                   : /chang|flex/.test(s) ? ASSET + "flexible-change.jpg"
                   : /seat/.test(s) ? ASSET + "business-upgrade.jpg"
-                  : /veg|kid/.test(s) ? AICON + "veg-meal.png"
-                  : /meal|food|dine|snack/.test(s) ? AICON + "meals.png"
-                  : /carry|cabin bag|hand lugg/.test(s) ? AICON + "carry-on.png"
-                  : /bag|lugg|kg/.test(s) ? AICON + "checked-bag.png"
-                  : /loung/.test(s) ? AICON + "lounge.png"
-                  : /insur|cover|protect/.test(s) ? AICON + "insurance.png"
-                  : /transfer|shuttle/.test(s) ? AICON + "transfer.png"
-                  : /car|rental|drive/.test(s) ? AICON + "cars.png"
-                  : /experien|tour|activit/.test(s) ? AICON + "experiences.png"
-                  : /hotel|stay|night/.test(s) ? AICON + "hotels.png"
+                  : /veg|kid/.test(s) ? AICON + "veg-meal.svg"
+                  : /meal|food|dine|snack/.test(s) ? AICON + "meal.svg"
+                  : /carry|cabin bag|hand lugg/.test(s) ? AICON + "carry-on.svg"
+                  : /bag|lugg|kg/.test(s) ? AICON + "checked-bag.svg"
+                  : /loung/.test(s) ? AICON + "lounge.svg"
+                  : /insur|cover|protect/.test(s) ? AICON + "insurance.svg"
+                  : /transfer|shuttle/.test(s) ? AICON + "transfer.svg"
+                  : /car|rental|drive/.test(s) ? AICON + "transfer.svg"
+                  : /experien|tour|activit/.test(s) ? AICON + "experiences.svg"
+                  : /hotel|stay|night/.test(s) ? AICON + "hotel.svg"
                   : null;
                 const ancIsIcon = !!ancImg && ancImg.startsWith(AICON);
                 // The repo's PNGs are 12-28px UI glyphs — blown up to 54px they blur. Use the vector
@@ -978,7 +978,7 @@ export function Home({ shared, go }) {
                 return (
                   <Card key={a.code || i} className="overflow-hidden flex" style={{ borderRadius: "16px" }}>
                     <div className="w-[92px] shrink-0 self-stretch flex items-center justify-center overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
-                      {ancImg && !ancIsIcon ? <Img seed={"anc-" + (a.code || i)} src={ancImg} className="w-full h-full" /> : ancIsIcon ? <Icon name={ancVec} size={40} className="text-tap-greenDeep" /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
+                      {ancImg ? (ancIsIcon ? <img src={ancImg} alt={a.name || ""} className="w-[64px] h-[64px]" style={{ objectFit: "contain" }} /> : <Img seed={"anc-" + (a.code || i)} src={ancImg} className="w-full h-full" />) : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
                     </div>
                     <div className="p-3.5 flex flex-col flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">

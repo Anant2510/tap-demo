@@ -36,3 +36,10 @@ button{font-family:inherit}
 .dual-range::-moz-range-track{background:transparent;border:none}
 .dual-range:focus{outline:none}
 .dual-range:focus::-webkit-slider-thumb{box-shadow:0 0 0 4px rgba(70,164,26,.2)}
+
+
+/* Search bar: five cells sized by content need, not equal 12-col chunks. From/To holds TWO
+   airport pickers plus the swap button, so it gets the most; Cabin/Passenger need least. */
+@media (min-width: 1024px) {
+  .v2-searchgrid { grid-template-columns: 2fr 1.3fr 0.95fr 0.9fr 1.05fr; }
+}
