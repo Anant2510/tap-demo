@@ -20,6 +20,7 @@ const { generateFlights, getRoute } = require("./search");
 const { AIRPORTS } = require("./routes-data");
 const { packageFor } = require("./packages");
 const whatsapp = require("./whatsapp");
+// tools the web chat uses, so both channels can do everything the website can.
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
 const { appCtx, currentApp, currentUid } = require("./appctx");
@@ -1209,7 +1210,50 @@ app.post("/api/ai/chat", async (req, res) => {
    DB and emit UI directives. Returns { reply, cards, command, ai }.
    `cards` render inline in the chat; `command` tells the main screen
    what to do (chat is primary, screen follows). ─────────────────── */
+/* ── Conversation memory ──────────────────────────────────────────────────────
+   The agent used to be stateless between requests: the browser posted whatever
+   messages it held, and WhatsApp had no history at all. Turns are now persisted
+   per CUSTOMER (not per channel), so the AI keeps context across a page reload
+   and across web ↔ WhatsApp — ask on the web, follow up on WhatsApp, same thread. */
+function chatSave(uid, channel, role, content) {
+  try {
+    if (!uid || !content) return;
+    db.prepare("INSERT INTO chat_turns (user_id,channel,role,content,created_at) VALUES (?,?,?,?,?)")
+      .run(uid, channel, role, String(content).slice(0, 4000), now());
+  } catch { }
+}
+function chatHistory(uid, limit = 12) {
+  try {
+    const rows = db.prepare("SELECT role, content FROM chat_turns WHERE user_id=? ORDER BY id DESC LIMIT ?").all(uid, limit);
+    return rows.reverse().map(r => ({ role: r.role === "assistant" ? "assistant" : "user", content: r.content }));
+  } catch { return []; }
+}
+function chatClear(uid) { try { db.prepare("DELETE FROM chat_turns WHERE user_id=?").run(uid); } catch { } }
+app.post("/api/ai/forget", (req, res) => { chatClear(req.uid); res.json({ ok: true }); });
+
 const AGENT_TOOLS = [
+  { name: "split_booking", description: "Split a multi-passenger booking into separate PNRs — move one or more travellers onto their own record so they can change or cancel independently. Use for 'my wife needs to fly back later', 'split my son off the booking'.",
+    input_schema: { type: "object", properties: { passengers: { type: "array", items: { type: "string" }, description: "First names of the travellers to move onto a NEW PNR." }, action: { type: "string", enum: ["change", "cancel"], description: "What happens to the split-off travellers. Default change." }, confirm: { type: "boolean" } }, required: ["passengers"] } },
+  { name: "resolve_disruption", description: "Resolve a disruption per traveller — each passenger can independently take a refund, a travel voucher, or be rebooked. Use for 'refund me but rebook my son'.",
+    input_schema: { type: "object", properties: { resolutions: { type: "array", description: "One entry per traveller.", items: { type: "object", properties: { passenger: { type: "string" }, type: { type: "string", enum: ["refund", "voucher", "rebook"] } } } } }, required: ["resolutions"] } },
+  { name: "search_multi_city", description: "Search a multi-city itinerary of 2-5 legs, each with its own route and date. Use for 'Porto to Lisbon on the 20th, then Lisbon to Amsterdam on the 23rd'.",
+    input_schema: { type: "object", properties: { legs: { type: "array", description: "Ordered legs.", items: { type: "object", properties: { origin: { type: "string" }, dest: { type: "string" }, date: { type: "string" } } } } }, required: ["legs"] } },
+  { name: "park_trip", description: "Save the currently selected flight + extras into My Trip Basket so the customer can come back to it later, and start fresh. Use for 'save this for later', 'park this trip'.",
+    input_schema: { type: "object", properties: {} } },
+
+  { name: "hold_fare", description: "Lock/hold the price of a flight for a period (24h, 48h or 7d) so the customer can decide later. Use when they say 'hold it', 'lock this fare', 'save it for me'.",
+    input_schema: { type: "object", properties: { flight_no: { type: "string", description: "Flight to hold. Defaults to the currently selected flight." }, duration: { type: "string", enum: ["24h", "48h", "7d"], description: "How long to hold. Default 48h." } } } },
+  { name: "get_hold", description: "Check the customer's active fare hold: which flight, the locked price and when it expires.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "upgrade_cabin", description: "Upgrade the cabin on an existing booking (Premium Economy or Executive/Business). Use for 'upgrade me to business'.",
+    input_schema: { type: "object", properties: { cabin: { type: "string", enum: ["Premium", "Business"], description: "Target cabin." }, confirm: { type: "boolean", description: "Must be true to actually charge and reissue." } }, required: ["cabin"] } },
+  { name: "get_disruption", description: "Check whether the customer's flight is disrupted (delayed/cancelled) and list the recovery options available to them.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "rebook_flight", description: "Rebook the customer onto an alternative flight after a disruption, keeping their extras. Use after get_disruption.",
+    input_schema: { type: "object", properties: { option_id: { type: "string", description: "Id of the recovery option from get_disruption." } }, required: ["option_id"] } },
+  { name: "get_refund_status", description: "Status of a refund after a cancellation: amount, method and where it is in the timeline.",
+    input_schema: { type: "object", properties: {} } },
+
   { name: "search_flights", description: `Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is ${searchToday()}).`,
     input_schema: { type: "object", properties: {
       origin: { type: "string", description: "Origin IATA code, e.g. OPO. If the customer didn't specify an origin, use the customer's home airport." },
@@ -1596,6 +1640,143 @@ function agentRunTool(name, input, session) {
     log("agent_checkin", { pnr: b.pnr });
     return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "—", group: boardingGroup(userTier(uid)) };
   }
+  if (name === "split_booking") {
+    const b = currentBooking(uid);
+    if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to split." };
+    const meta = _safeJSON(b.meta_json, {}) || {};
+    const pax = Array.isArray(meta.passengers) ? meta.passengers : [];
+    if (pax.length < 2) return { ok: false, state: "single_pax", message: "That booking has a single traveller — there's nothing to split." };
+    const wanted = (input.passengers || []).map(n => String(n).toLowerCase());
+    const idx = pax.map((p, i) => [p, i]).filter(([p]) => wanted.some(w => String(p.first || "").toLowerCase().startsWith(w))).map(([, i]) => i);
+    if (!idx.length) return { ok: false, state: "unknown_pax", message: `I couldn't match ${input.passengers?.join(", ")} on ${b.pnr}. Travellers are: ${pax.map(p => p.first).join(", ")}.` };
+    if (idx.length >= pax.length) return { ok: false, state: "all_pax", message: "Leave at least one traveller on the original booking." };
+    const action = input.action === "cancel" ? "cancel" : "change";
+    const movePax = idx.map(i => pax[i]), stayPax = pax.filter((_, i) => !idx.includes(i));
+    if (input.confirm !== true) return { ok: false, state: "needs_confirm", pnr: b.pnr, moving: movePax.map(p => p.first), staying: stayPax.map(p => p.first), action,
+      message: `Split ${b.pnr}: move ${movePax.map(p => p.first).join(" & ")} onto a new PNR (${stayPax.map(p => p.first).join(" & ")} stay). Confirm?` };
+    const newPnr = (b.pnr || "TP") + "-S";
+    db.prepare("INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,meta_json,source,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .run(newPnr, uid, b.flight_no, b.flight_date, null, action === "cancel" ? "cancelled" : "confirmed", 0, b.items_json || "[]",
+        JSON.stringify({ ...meta, passengers: movePax, pax: movePax.length, splitFrom: b.pnr }), "ai", now());
+    db.prepare("UPDATE bookings SET meta_json=? WHERE id=?").run(JSON.stringify({ ...meta, passengers: stayPax, pax: stayPax.length }), b.id);
+    log("pnr_split", { from: b.pnr, to: newPnr, moved: movePax.length, action, channel: "ai" });
+    return { ok: true, pnr: b.pnr, new_pnr: newPnr, moved: movePax.map(p => p.first), staying: stayPax.map(p => p.first), action,
+      message: `Done — ${movePax.map(p => p.first).join(" & ")} ${movePax.length > 1 ? "are" : "is"} now on ${newPnr}${action === "cancel" ? " (cancelled, refund on its way)" : ""}. ${stayPax.map(p => p.first).join(" & ")} ${stayPax.length > 1 ? "stay" : "stays"} on ${b.pnr}. Extras moved with each traveller.` };
+  }
+  if (name === "resolve_disruption") {
+    const b = currentBooking(uid);
+    if (!b) return { ok: false, state: "no_booking", message: "You have no active booking." };
+    const meta = _safeJSON(b.meta_json, {}) || {};
+    const pax = Array.isArray(meta.passengers) && meta.passengers.length ? meta.passengers : [{ first: "You" }];
+    const f = flightByNo(b.flight_no) || {};
+    const fare = Math.round(f.price || 0);
+    const summary = (input.resolutions || []).map((r, i) => {
+      const named = r.passenger ? pax.find(p => String(p.first || "").toLowerCase().startsWith(String(r.passenger).toLowerCase())) : null;
+      const who = named || pax[i] || pax[pax.length - 1];          // unnamed → traveller i, in order
+      const type = ["refund", "voucher", "rebook"].includes(r.type) ? r.type : "rebook";
+      const amount = type === "refund" ? fare : type === "voucher" ? Math.round(fare * 1.2) : 0;
+      if (type === "voucher" && amount) {
+        try { db.prepare("INSERT INTO vouchers (user_id,code,amount,reason,expiry,status) VALUES (?,?,?,?,?,'active')").run(uid, "DIS" + Math.floor(Math.random() * 9000 + 1000), amount, "Disruption recovery", "31 Dec 2026"); } catch { }
+      }
+      return { passenger: who.first, type, amount };
+    });
+    if (summary.some(x => x.type === "refund")) db.prepare("UPDATE bookings SET status='cancelled' WHERE id=?").run(b.id);
+    log("disruption_resolved", { pnr: b.pnr, summary, channel: "ai" });
+    return { ok: true, pnr: b.pnr, summary,
+      message: summary.map(x => `${x.passenger}: ${x.type}${x.amount ? ` €${x.amount}` : ""}`).join(" · ") + ". Each traveller is handled separately — confirmations are on their way." };
+  }
+  if (name === "search_multi_city") {
+    const legs = (input.legs || []).slice(0, 5);
+    if (legs.length < 2) return { ok: false, state: "too_few_legs", message: "A multi-city trip needs at least two legs." };
+    const out = legs.map((l, i) => {
+      const origin = String(l.origin || "").toUpperCase(), dest = String(l.dest || "").toUpperCase();
+      const date = l.date || searchToday();
+      if (!getRoute(origin, dest)) return { leg: i + 1, origin, dest, date, flights: [], no_route: true };
+      persistFlights(generateFlights(origin, dest, date));      // same engine the website search uses
+      const flights = db.prepare("SELECT flight_no, origin, dest, dep, arr, price FROM flights WHERE origin=? AND dest=? AND flight_date=? ORDER BY dep LIMIT 3").all(origin, dest, date);
+      return { leg: i + 1, origin, dest, date, flights };
+    });
+    const priced = out.reduce((a, l) => a + (l.flights[0]?.price || 0), 0);
+    const bad = out.filter(l => !l.flights.length);
+    if (bad.length) return { ok: false, state: "no_route", legs: out, message: `TAP doesn't fly ${bad.map(l => `${cityName(l.origin)}→${cityName(l.dest)}`).join(", ")} in this network.` };
+    session.multiCity = { legs: out };
+    return { ok: true, legs: out, from_total: priced,
+      message: out.map(l => `Flight ${l.leg}: ${l.origin}→${l.dest} ${l.date} — ${l.flights[0].flight_no} ${l.flights[0].dep}`).join(" · ") + `. Whole itinerary from €${priced}.` };
+  }
+  if (name === "park_trip") {
+    const sel = session.selected;
+    if (!sel) return { ok: false, state: "nothing_to_park", message: "Nothing selected to save yet." };
+    const f = flightByNo(sel.flight_no) || {};
+    db.prepare("INSERT INTO baskets (user_id,flight_no,items_json,snapshot_json,status,updated_at) VALUES (?,?,?,?,?,?)")
+      .run(uid, sel.flight_no, JSON.stringify(sel.items || []), JSON.stringify({ outbound: { flight: f, fare: "Classic", price: f.price }, origin: f.origin, dest: f.dest, extras: [], pax: 1 }), "open", now());
+    session.selected = null;
+    log("trip_parked", { flight_no: sel.flight_no, channel: "ai" });
+    return { ok: true, flight_no: sel.flight_no, message: `Saved ${sel.flight_no} to My Trip Basket — it'll be waiting when you come back.` };
+  }
+  if (name === "hold_fare") {
+    const fno = input.flight_no || session?.selected?.flight_no;
+    if (!fno) return { ok: false, state: "no_flight", message: "Pick a flight first, then I can hold it." };
+    const f = flightByNo(fno);
+    if (!f) return { ok: false, state: "unknown_flight", message: `I couldn't find flight ${fno}.` };
+    expireHolds(uid);
+    const dur = ["24h", "48h", "7d"].includes(input.duration) ? input.duration : "48h";
+    const hours = dur === "7d" ? 168 : dur === "24h" ? 24 : 48;
+    const fee = dur === "7d" ? 39 : dur === "48h" ? 18 : 9;
+    const exp = new Date(Date.now() + hours * 3600e3).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    db.prepare("INSERT INTO holds (user_id,flight_no,items_json,total,expires_at,created_at) VALUES (?,?,?,?,?,?)")
+      .run(uid, fno, JSON.stringify({ items: [], duration: dur, fee }), f.price, exp, now());
+    log("hold_created", { flight_no: fno, duration: dur, channel: "ai" });
+    return { ok: true, flight_no: fno, price: f.price, duration: dur, expires_at: exp, message: `Held ${fno} at €${f.price} until ${exp}.` };
+  }
+  if (name === "get_hold") {
+    expireHolds(uid);
+    const h = db.prepare("SELECT flight_no, total, expires_at FROM holds WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1").get(uid);
+    if (!h) return { ok: true, held: false, message: "You have no fare on hold right now." };
+    return { ok: true, held: true, flight_no: h.flight_no, price: h.total, expires_at: h.expires_at };
+  }
+  if (name === "upgrade_cabin") {
+    const b = currentBooking(uid);
+    if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to upgrade." };
+    const f = flightByNo(b.flight_no) || {};
+    const target = input.cabin === "Business" ? "Business" : "Premium";
+    const price = Math.round((f.price || 100) * (target === "Business" ? 1.9 : 0.55));
+    if (input.confirm !== true) return { ok: false, state: "needs_confirm", pnr: b.pnr, cabin: target, price, message: `Upgrading ${b.pnr} to ${target} costs €${price}. Confirm?` };
+    const meta = _safeJSON(b.meta_json, {}) || {};
+    meta.cabin = target;
+    db.prepare("UPDATE bookings SET meta_json=? WHERE id=?").run(JSON.stringify(meta), b.id);
+    log("cabin_upgraded", { pnr: b.pnr, cabin: target, price, channel: "ai" });
+    return { ok: true, pnr: b.pnr, cabin: target, price, message: `Done — ${b.pnr} is now ${target}. Your ticket has been reissued.` };
+  }
+  if (name === "get_disruption") {
+    const b = currentBooking(uid);
+    if (!b) return { ok: true, disrupted: false, message: "No active booking, so nothing is disrupted." };
+    const f = flightByNo(b.flight_no) || {};
+    const disrupted = !!(f.status && /delay|cancel/i.test(f.status));
+    if (!disrupted) return { ok: true, disrupted: false, pnr: b.pnr, flight_no: b.flight_no, message: `${b.flight_no} is on time.` };
+    const alts = db.prepare("SELECT flight_no, dep, arr FROM flights WHERE origin=? AND dest=? AND flight_no<>? LIMIT 3").all(f.origin, f.dest, f.flight_no);
+    return { ok: true, disrupted: true, pnr: b.pnr, flight_no: b.flight_no, status: f.status,
+      options: [{ id: "KEEP", label: "Keep this flight" }, ...alts.map(a => ({ id: a.flight_no, label: `Move to ${a.flight_no} · ${a.dep}–${a.arr}` }))] };
+  }
+  if (name === "rebook_flight") {
+    const b = currentBooking(uid);
+    if (!b) return { ok: false, state: "no_booking", message: "You have no booking to rebook." };
+    const id = String(input.option_id || "");
+    if (!id || /^keep$/i.test(id)) return { ok: true, kept: true, pnr: b.pnr, message: `Keeping you on ${b.flight_no}.` };
+    const nf = flightByNo(id);
+    if (!nf) return { ok: false, state: "unknown_flight", message: `I couldn't find flight ${id}.` };
+    db.prepare("UPDATE bookings SET flight_no=?, status='rebooked' WHERE id=?").run(nf.flight_no, b.id);
+    log("rebooked", { pnr: b.pnr, from: b.flight_no, to: nf.flight_no, channel: "ai" });
+    return { ok: true, pnr: b.pnr, from: b.flight_no, to: nf.flight_no, dep: nf.dep, message: `Rebooked ${b.pnr} onto ${nf.flight_no} (${nf.dep}). Your seat and extras moved across.` };
+  }
+  if (name === "get_refund_status") {
+    const c = db.prepare("SELECT * FROM bookings WHERE user_id=? AND status='cancelled' ORDER BY id DESC LIMIT 1").get(uid);
+    if (!c) return { ok: true, refund: false, message: "No refunds in progress." };
+    const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(c.id) || {};
+    const amt = pay.card_amt || pay.total || 0;
+    return { ok: true, refund: true, pnr: c.pnr, amount: amt, method: pay.card_amt ? "Original card" : "Miles & voucher",
+      stage: "Processing with your bank", eta: "5–7 business days",
+      message: `Refund for ${c.pnr} — €${amt} back to your original payment method, processing now (5–7 business days).` };
+  }
   if (name === "cancel_booking") {
     const b = currentBooking(uid);
     if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to cancel." };
@@ -1709,13 +1890,23 @@ function deterministicAgent(text, session) {
   const uid = (session && session.uid) || SERVER_DEFAULT_UID;   // per-session identity for direct reads (tools get it via session)
   const calls = [];
   const run = (name, input = {}) => {
-    let result; try { result = agentRunTool(name, input, session); } catch (e) { result = { ok: false, error: e.message }; }
+    let result; try { result = agentRunTool(name, input, session); } catch (e) { result = { ok: false, message: "That didn't go through — " + e.message, error: e.message }; }
+    // Remember anything awaiting a yes/no so a bare "yes" resumes it on the next turn.
+    if (result && result.state === "needs_confirm") session.pending = { name, input };
+    else if (result && result.ok) session.pending = null;
     calls.push({ name, input, result }); return result;
   };
   const me = db.prepare("SELECT home_airport, first_name FROM users WHERE id=?").get(uid) || {};
   const homeCode = me.home_airport || "OPO";
   const has = (...ws) => ws.some(w => q.includes(w));
   const done = (reply) => ({ reply, toolCalls: calls });
+  // A bare confirmation resumes the pending action (cancel, upgrade, split…).
+  if (session.pending && /^(yes|yep|yeah|confirm|go ahead|do it|please do|ok|okay)\b/i.test((text || "").trim())) {
+    const p0 = session.pending; session.pending = null;
+    const r = run(p0.name, { ...p0.input, confirm: true });
+    return done(r.message || "Done.");
+  }
+
   const EXTRAS = ["wifi", "meal", "lounge", "xbag", "bag", "transfer", "carbon"];
 
   // resume / continue an unfinished booking
@@ -1737,6 +1928,66 @@ function deterministicAgent(text, session) {
       : (r.message || "I couldn't load your usual flight just now — try the menu."));
   }
   // cancel
+  // New capabilities also work without a live LLM key (the deterministic agent knows them too)
+  if (has("split")) {
+    const names = (text || "").match(/\b(?:split|move)\s+(?:off\s+)?([A-Z][a-z]+)/) || (text || "").match(/\b([A-Z][a-z]+)\s+(?:off|onto|to a new)/);
+    const confirm = has("yes", "confirm", "go ahead", "do it");
+    const r = run("split_booking", { passengers: names ? [names[1]] : [], action: has("cancel") ? "cancel" : "change", confirm });
+    return done(r.message);
+  }
+  if (has("voucher for", "refund me but", "rebook my", "each passenger", "per passenger")) {
+    // "refund me but rebook Ana" → each traveller gets their own outcome
+    const res = [];
+    const re = /(refund|voucher|rebook)\s+(me|myself|my\s+\w+|[A-Z][a-z]+)/g;
+    let m;
+    while ((m = re.exec(text || "")) !== null) {
+      const who = /^(me|myself)$/i.test(m[2]) ? "" : m[2].replace(/^my\s+/i, "");
+      res.push({ passenger: /^(me|myself|my\s)/i.test(m[2]) ? "" : who, type: m[1].toLowerCase() });
+    }
+    const r = run("resolve_disruption", { resolutions: res.length ? res : [{ type: "rebook" }] });
+    return done(r.message);
+  }
+  if (has("multi city", "multi-city", "then to", "and then fly")) {
+    const raw = (text || "").toUpperCase().match(/\b[A-Z]{3}\b/g) || [];
+    const codes = raw.filter((c, i) => c !== raw[i - 1]);          // drop repeats: OPO LIS LIS MAD → OPO LIS MAD
+    const legs = [];
+    for (let i = 0; i + 1 < codes.length; i++) if (codes[i] !== codes[i + 1]) legs.push({ origin: codes[i], dest: codes[i + 1] });
+    const r = run("search_multi_city", { legs });
+    return done(r.message || "Give me the cities in order and I'll price the whole itinerary.");
+  }
+  if (has("park", "save this for later", "save it for later", "come back to this")) {
+    const r = run("park_trip", {});
+    return done(r.message);
+  }
+  if (has("on hold", "my hold", "held fare", "still held", "any hold") || (has("hold") && has("do i", "is there", "what", "check", "status", "?"))) {
+    const r = run("get_hold", {});
+    return done(r.held ? `${r.flight_no} is held at €${r.price} until ${r.expires_at}.` : "You have no fare on hold right now.");
+  }
+  if (has("hold", "lock the fare", "lock this fare", "save this fare")) {
+    const dur = has("7 day", "7d", "week") ? "7d" : has("24") ? "24h" : "48h";
+    const r = run("hold_fare", { duration: dur });
+    return done(r.ok ? r.message : (r.message || "Pick a flight first and I'll hold it."));
+  }
+  if (has("upgrade")) {
+    const cabin = has("business", "executive") ? "Business" : "Premium";
+    const confirm = has("yes", "confirm", "go ahead", "do it");
+    const r = run("upgrade_cabin", { cabin, confirm });
+    return done(r.message);
+  }
+  if (has("delayed", "disruption", "disrupted", "is my flight ok", "on time")) {
+    const r = run("get_disruption", {});
+    if (!r.disrupted) return done(r.message);
+    return done(`${r.flight_no} is ${r.status}. Options: ` + (r.options || []).map(o => o.label).join(" · ") + '. Say "rebook me on TP…" and I\'ll move you.');
+  }
+  if (has("rebook", "move me", "another flight")) {
+    const m = (text || "").match(/TP\s?\d+/i);
+    const r = run("rebook_flight", { option_id: m ? m[0].replace(/\s/g, "") : "KEEP" });
+    return done(r.message);
+  }
+  if (has("refund status", "where is my refund", "my refund")) {
+    const r = run("get_refund_status", {});
+    return done(r.message);
+  }
   if (has("cancel")) {
     const confirm = has("yes", "confirm", "go ahead", "do it", "please cancel");
     const r = run("cancel_booking", { confirm });
@@ -1890,7 +2141,7 @@ function deterministicAgent(text, session) {
 }
 
 app.post("/api/ai/agent", async (req, res) => {
-  const messages = (req.body.messages || []).slice(-12);
+  let messages = (req.body.messages || []).slice(-12);
   const screen = req.body.screen || "home";
   const sessionId = req.body.sessionId || "web-default";
   const session = getSession(sessionId);
@@ -1909,12 +2160,21 @@ app.post("/api/ai/agent", async (req, res) => {
   }
   if (session.selected) situ += ` Currently selected flight: ${session.selected.flight_no}.`;
   situ += ")";
+  // Stored history first, so the agent has context even on a fresh tab / after a reload,
+  // and picks up whatever the customer said on WhatsApp.
+  const channel = req.body.screen === "whatsapp" ? "whatsapp" : "web";   // same agent, both channels
+  const remembered = chatHistory(req.uid, 12);
+  const lastUserMsg = [...messages].reverse().find(m => m.role === "user" && typeof m.content === "string");
+  if (lastUserMsg) chatSave(req.uid, channel, "user", lastUserMsg.content);
+  const priorOnly = remembered.filter(m => !(m.role === "user" && lastUserMsg && m.content === lastUserMsg.content));
+  messages = [...priorOnly, ...messages].slice(-16);
   const withContext = messages.length
     ? [...messages.slice(0, -1), { role: "user", content: `${situ} ${typeof messages[messages.length - 1].content === "string" ? messages[messages.length - 1].content : ""}` }]
     : messages;
   try {
     const { reply, toolCalls } = await callClaudeAgent(withContext, AGENT_TOOLS, async (n, i) => agentRunTool(n, i, session));
     const { cards, command } = buildUI(toolCalls);
+    chatSave(req.uid, channel, "assistant", reply || "Done.");
     res.json({ reply: reply || "Done.", cards, command, ai: "live", tools: toolCalls.map(t => t.name) });
   } catch (e) {
     log("ai_agent_error", { error: e.message });
@@ -1924,6 +2184,7 @@ app.post("/api/ai/agent", async (req, res) => {
       const lastUser = [...messages].reverse().find(m => m.role === "user" && typeof m.content === "string");
       const { reply, toolCalls } = deterministicAgent(lastUser ? lastUser.content : "", session);
       const { cards, command } = buildUI(toolCalls);
+      chatSave(req.uid, channel, "assistant", reply);   // memory is kept in offline mode too
       res.json({ reply, cards, command, ai: "offline", tools: toolCalls.map(t => t.name) });
     } catch (e2) {
       log("ai_agent_fallback_error", { error: e2.message });

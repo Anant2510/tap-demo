@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS emails (
   id INTEGER PRIMARY KEY, user_id INTEGER, to_addr TEXT, subject TEXT, email_type TEXT,
   html TEXT, status TEXT, provider_id TEXT, created_at TEXT, app TEXT DEFAULT 'v1'
 );
+CREATE TABLE IF NOT EXISTS chat_turns (
+  id INTEGER PRIMARY KEY, user_id INTEGER, channel TEXT, role TEXT, content TEXT, created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS wa_messages (
   id INTEGER PRIMARY KEY, direction TEXT, wa_id TEXT, msg_type TEXT, body TEXT,
   payload_json TEXT, status TEXT, created_at TEXT
