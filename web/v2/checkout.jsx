@@ -39,10 +39,9 @@ function seedExtras() {
   // Seed a representative recommended basket (stay + lounge + experience) alongside the mandatory
   // insurance so the cart/payment summaries match the reference design — a stay + lounge together
   // also earns the cross-sell bundle discount. Names are destination-neutral (never hardcoded).
-  [["ins-plus", "Travel Insurance · Plus", 38, "Insurance", "auto"],
-   ["hotel-stay", "Boutique hotel · 3 nights", 180, "Hotels", "recommended"],
-   ["lounge-premium", "Premium lounge access", 30, "Lounge & services", "recommended"],
-   ["exp-cityhighlights", "City highlights experience", 45, "Experiences", "recommended"]].forEach(([code, name, price, cat, source]) =>
+  // v33 View&Customize #2 — recommended products are OFFERED, never auto-added; they enter the
+  // cart only when the member explicitly clicks Add (toggleExtra dedupes by code — no duplicates).
+  [["ins-plus", "Travel Insurance · Plus", 38, "Insurance", "auto"]].forEach(([code, name, price, cat, source]) =>
      trip.extras.push({ code, name, price: PER_PAX_CATS.has(cat) ? price * px : price, qty: 1, cat, source }));
   trip.seeded = true;
   pingBasket();
@@ -267,6 +266,7 @@ const SEAT_CABINS = {
       { code: "std", name: "Standard", price: 0, sub: "Pick any available seat", note: "Free for Star members" },
       { code: "nsf", name: "Next Seat Free", price: 48, sub: "Adjacent seat blocked", note: "Privacy & space" },
       { code: "couple", name: "Couple seat", price: 36, sub: "Auto-paired window+aisle", note: "Travel together" },
+      { code: "legroom", name: "Extra legroom", price: 18, sub: "Exit rows · +10cm pitch", note: "Stretch out" },
       { code: "win", name: "Window+", price: 68, sub: "Window + free middle + legroom", note: "Premium experience" },
     ],
     legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window"], ["bg-tap-green/50", "Extra legroom"], ["bg-surface-mute", "Taken"]],
@@ -304,12 +304,12 @@ const SEAT_CABINS = {
 };
 const SEAT_PAX_NAMES = ["Daniel", "Mariana", "Sofia", "Lars", "Guest"];
 
-function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, onClose, onConfirm }) {
+function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, initialType, onClose, onConfirm }) {
   const cfg = SEAT_CABINS[cabin] || SEAT_CABINS.Economy;
   const rowsArr = Array.from({ length: cfg.rows }, (_, i) => cfg.startRow + i);
   const takenSet = new Set(cfg.taken), winSet = new Set(cfg.window || []), legSet = new Set(cfg.legroom || []);
   const firstFree = (() => { const out = []; for (const row of rowsArr) for (let b = 0; b < cfg.blocks.length; b++) for (const c of cfg.blocks[b]) { const id = row + c + "-" + b; if (!takenSet.has(id)) { out.push(id); if (out.length >= Math.max(1, pax)) return out; } } return out; })();
-  const [type, setType] = useState(cfg.types[0].code);
+  const [type, setType] = useState(() => (initialType && cfg.types.some(t => t.code === initialType)) ? initialType : cfg.types[0].code);
   const [picks, setPicks] = useState(() => firstFree.slice(0, Math.max(1, pax)));
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -324,7 +324,8 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, onClose, onConfirm
     if (takenSet.has(id)) return;
     setPicks((cur) => cur.includes(id) ? cur.filter(s => s !== id) : (cur.length >= pax ? [...cur.slice(1), id] : [...cur, id]));
   };
-  const total = picks.reduce((s, id) => s + feeOf(id), 0);
+  const typeFee = (cfg.types.find(t => t.code === type)?.price || 0) * Math.max(1, picks.length);   // seat-type price per traveller
+  const total = picks.reduce((s, id) => s + feeOf(id), 0) + typeFee;
   const label = picks.map(seatLabel).join(", ");
   const seatClass = (id) => {
     if (picks.includes(id)) return "bg-lime text-ink ring-2 ring-tap-green";
@@ -415,7 +416,7 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, onClose, onConfirm
               </div>
               <div className="h-px bg-line my-3" />
               <div className="flex items-center justify-between"><span className="text-[13px] font-bold">Seats total</span><span className="text-[16px] font-black v2-num">{eurC(total)}</span></div>
-              <Btn size="lg" className="w-full mt-3" disabled={picks.length === 0} onClick={() => onConfirm(label, total)}>Confirm seats →</Btn>
+              <Btn size="lg" className="w-full mt-3" disabled={picks.length === 0} onClick={() => onConfirm(label, total, type)}>Confirm seats →</Btn>
             </div>
           </div>
         </div>
@@ -545,7 +546,7 @@ function CartView({ go, mode = "cart", shared }) {
   const save = () => api.post("/basket", { flight_no: trip.outbound.flight.flight_no, items: trip.extras.map(e => e.code), snapshot: tripSnapshot() }).catch(() => {});
   const add = (code, name, price, cat, meta) => { toggleExtra({ code, name, price, cat, ...(meta || {}) }); save(); r(); };
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
-  const seat = trip.extras.find(e => e.cat === "Seats & baggage" && /^seat-/.test(e.code || ""));   // View&Customize #1 — only a seat upgrade counts as "seat"; bags (bag-*) are independent ancillaries
+  const seat = trip.extras.find(e => e.cat === "Seats & baggage" && /^seat-(?!map)/.test(e.code || ""));   // seat TYPE only — seat-map (picked seats) is a separate line   // View&Customize #1 — only a seat upgrade counts as "seat"; bags (bag-*) are independent ancillaries
   const pax = trip.pax || 1;
   const cityOf = (c) => shared?.airports?.find(a => a.code === c)?.city || c;   // F8/F9 — resolve booked-destination city
   const destCity = cityOf(trip.dest) || "your destination";
@@ -556,7 +557,12 @@ function CartView({ go, mode = "cart", shared }) {
   const seatIncluded = { Economy: { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" }, Premium: { name: "Premium seat", sub: "Wider seat · recline · priority · included" }, Business: { name: "Business seat", sub: "Lie-flat · lounge access · included" } }[cab] || { name: "Standard", sub: "Standard 78cm pitch · auto-assigned" };
   // #33 — within the selected cabin, keep the included seat AND still offer cabin-appropriate upgrades.
   const SEAT_TYPE_OPTS = {
-    Economy: [{ code: "seat-nsf", name: "Next Seat Free", sub: "+10cm legroom · exit-row seats", price: 48 }, { code: "seat-win", name: "Window+", sub: "Window + free middle + legroom", price: 68 }],
+    // v33 View&Customize #4 — the selector shows the SAME seat products as the Full Cabin View
+    Economy: [
+      { code: "seat-nsf", name: "Next Seat Free", sub: "Adjacent seat blocked · privacy & space", price: 48 },
+      { code: "seat-couple", name: "Couple seat", sub: "Auto-paired window+aisle · travel together", price: 36 },
+      { code: "seat-legroom", name: "Extra legroom", sub: "Exit rows · +10cm pitch", price: 18 },
+      { code: "seat-win", name: "Window+", sub: "Window + free middle + legroom", price: 68 }],
     Premium: [{ code: "seat-legroom", name: "Extra legroom", sub: "Bulkhead & front rows · more recline", price: 20 }, { code: "seat-solo", name: "Solo · no neighbour", sub: "Block the seat beside you", price: 40 }],
     Business: [{ code: "seat-throne", name: "Throne seat", sub: "Extra-wide solo suite · single aisle", price: 45 }, { code: "seat-winsuite", name: "Window suite", sub: "Window · do-not-disturb divider", price: 30 }],
   }[cab] || [];
@@ -569,16 +575,23 @@ function CartView({ go, mode = "cart", shared }) {
   const [allHotels, setAllHotels] = useState(false);
   const [ins, setIns] = useState(() => hasExtra("ins-std") ? "standard" : hasExtra("ins-plus") ? "plus" : "plus");
   const [seatMapOpen, setSeatMapOpen] = useState(false);
-  const confirmSeats = (lbl, tot) => {
+  const confirmSeats = (lbl, tot, typeCode) => {
     const ex = trip.extras.find(e => e.code === "seat-map");
     if (ex) toggleExtra(ex);
     toggleExtra({ code: "seat-map", name: `Seats · ${lbl}`, price: tot, cat: "Seats & baggage" });
+    // v33 View&Customize #4 — the seat TYPE chosen inside the Full Cabin View syncs back to the
+    // selector tiles (and persists), so both components always agree.
+    if (typeCode !== undefined) {
+      const t = SEAT_TYPE_OPTS.find(o => o.code === "seat-" + typeCode);
+      if (seat && (!t || seat.code !== t.code)) toggleExtra(seat);                       // clear old type
+      if (t && (!seat || seat.code !== t.code)) toggleExtra({ code: t.code, name: t.name, price: 0, cat: "Seats & baggage", note: "included in seat total" });
+    }
     save(); r(); setSeatMapOpen(false);
   };
 
   const SeatType = ({ code, name, sub, price }) => {
     const on = code === "std" ? !seat : hasExtra(code);
-    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); r(); }} className={cx("flex-1 text-left rounded-xl p-3", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
+    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); r(); }} className={cx("flex-1 min-w-[200px] shrink-0 text-left rounded-xl p-3", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
       <div className="rounded-xl border border-line bg-surface p-3 mb-3 flex justify-center gap-1.5">{[0, 1, 2, 3, 4].map(i => { const yours = on && i === 2; const free = on && code !== "std" && i === 3; return <span key={i} className={cx("w-6 h-6 rounded", yours ? "bg-lime" : free ? "bg-lime/40" : "bg-surface-mute")} />; })}</div>
       <div className="flex items-center gap-2">
         <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span>
@@ -677,7 +690,7 @@ function CartView({ go, mode = "cart", shared }) {
   return (
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <RevalGate reval={reval} setReval={setReval} go={go} />
-      {seatMapOpen && <SeatMapModal pax={pax} cabin={cab} aircraft={trip.outbound?.flight?.aircraft} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
+      {seatMapOpen && <SeatMapModal pax={pax} cabin={cab} aircraft={trip.outbound?.flight?.aircraft} initialType={(seat && String(seat.code || "").replace(/^seat-/, "")) || "std"} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
       {isBasket
         ? <div className="mx-auto max-w-page px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
         : <Stepper active={1} />}
@@ -687,42 +700,14 @@ function CartView({ go, mode = "cart", shared }) {
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adult{trip.pax > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>All extras optional</Chip></div>
         {isBasket && <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5 text-[12px] flex items-center gap-2 flex-wrap"><Pill tone="lime">Pinned</Pill><span className="font-semibold">Your core flight stays in the basket</span><span className="text-ink-faint">— extras below are optional and can be removed.</span></div>}
 
-        {!isBasket && trip.outbound && (() => {
-          const RC = ({ leg, f, date }) => (
-            <div className="px-4 py-3">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-2">{leg} · {fmtDate(date).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {f.flight_no} · {f.aircraft}</div>
-              <div className="flex items-stretch rounded-xl border overflow-hidden" style={{ borderColor: "#E0E3E8" }}>
-                <div className="flex-1 px-3 py-2.5 text-center"><div className="text-[18px] font-bold v2-num leading-none">{f.origin}</div><div className="text-[12px] font-semibold v2-num mt-1">{f.dep}</div><div className="text-[10px] text-ink-faint mt-0.5">{cityOf(f.origin)}</div></div>
-                <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
-                <div className="flex-1 px-3 py-2.5 flex flex-col items-center justify-center text-center"><Icon name="plane" size={15} className="text-tap-greenDeep" /><div className="text-[10px] text-ink-muted font-semibold mt-1">{f.duration}</div><div className="text-[9px] text-ink-faint uppercase tracking-wide">Nonstop</div></div>
-                <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
-                <div className="flex-1 px-3 py-2.5 text-center"><div className="text-[18px] font-bold v2-num leading-none">{f.dest}</div><div className="text-[12px] font-semibold v2-num mt-1">{f.arr}</div><div className="text-[10px] text-ink-faint mt-0.5">{cityOf(f.dest)}</div></div>
-              </div>
-            </div>
-          );
-          const obf = trip.outbound.flight, ibf = trip.inbound?.flight;
-          const sh = (hm, m) => { const [h, mm] = String(hm || "00:00").split(":").map(Number); const t = ((h * 60 + mm + m) % 1440 + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
-          return (
-            <div className="mt-4 rounded-2xl border border-line overflow-hidden bg-surface">
-              <div className="px-4 py-2.5 flex items-center justify-between" style={{ background: "#F2F2EE", borderBottom: "1px solid #E8E8E5" }}>
-                <div className="text-[13px] font-bold flex items-center gap-2"><Icon name="plane" size={14} className="text-tap-greenDeep" /> Your flights · {fareLabel} fare</div>
-                <button onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type })} className="text-[12px] font-semibold text-tap-greenDeep hover:underline">Change flight</button>
-              </div>
-              {trip.stopover?.viaLisbon ? (<>
-                <RC leg="Outbound · Segment 1" f={{ ...obf, dest: "LIS", arr: sh(obf.arr, -125), duration: "7h 15m" }} date={trip.date} />
-                <div className="px-4 py-1.5 text-[11px] font-semibold text-tap-greenDeep flex items-center gap-2" style={{ borderTop: "1px dashed #DCDCD8", borderBottom: "1px dashed #DCDCD8" }}><Icon name="clock" size={12} /> Stopover · {trip.stopover.nights} night{trip.stopover.nights > 1 ? "s" : ""} in Lisbon</div>
-                <RC leg="Outbound · Segment 2" f={{ ...obf, origin: "LIS", dep: sh(obf.arr, -70), duration: "1h 05m" }} date={trip.date} />
-              </>) : <RC leg="Outbound" f={obf} date={trip.date} />}
-              {ibf && <><div style={{ borderTop: "1px solid #E8E8E5" }} /><RC leg="Return" f={ibf} date={trip.ret} /></>}
-            </div>
-          );
-        })()}
+        {/* v33 View&Customize #1 — the flight itinerary summary is not part of this screen in the
+            approved design; flight details live in the basket, My Trips and itinerary pages. */}
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-5">
             <Module n="01" icon="seat" kicker="Seats & baggage" title="Seats & baggage" sub="Pick where you sit and what you bring.">
               <div className="flex items-center justify-between mb-2"><Eyebrow>Choose your seat type · per passenger · both flights</Eyebrow><button onClick={() => setSeatMapOpen(true)} className="text-[12px] font-semibold text-tap-greenDeep shrink-0 hover:underline">Full Cabin View</button></div>
-              <div className="flex flex-col sm:flex-row gap-3"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} />{SEAT_TYPE_OPTS.map(o => <SeatType key={o.code} code={o.code} name={o.name} sub={o.sub} price={o.price} />)}</div>
+              <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} />{SEAT_TYPE_OPTS.map(o => <SeatType key={o.code} code={o.code} name={o.name} sub={o.sub} price={o.price} />)}</div>
               <Eyebrow className="mt-4 mb-2">Baggage · what's included with {fareLabel} fare</Eyebrow>
               <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked />{fareBags >= 1 ? <Bag name={fareBags === 2 ? "2× Checked bags · 23kg" : "Checked bag · 23kg"} sub={`${fareBags} piece${fareBags > 1 ? "s" : ""} per traveller · included with ${fareLabel} fare`} locked /> : <Bag code="bag-checked" name="Checked bag · 23kg" sub={`Not included in ${fareLabel} · add one`} price={30} />}<Bag code="bag-extra" name={fareBags >= 1 ? "Extra checked bag · 23kg" : "Second checked bag · 23kg"} sub="Add another bag · saves €15 vs airport" price={55} /></div>
             </Module>
@@ -783,7 +768,7 @@ function CartView({ go, mode = "cart", shared }) {
 
             <Module n="07" icon="bag" kicker="Meals" title="Meals & onboard extras" badge={catCount("Onboard") ? catBadge("Onboard") : null} sub="Pick a meal for each traveller. We confirm 24h before departure.">
               <div className="grid sm:grid-cols-4 gap-3">
-                {[["Standard meal", "Chef-curated 3-course", 0, "bag"], ["Vegetarian", "Plant-based · seasonal", 0, "leaf"], ["Premium meal", "Tasting menu", 28, "star"], ["Skip meal", "No meal · sleep", 0, "x"]].map(([n, s, p, ic]) => {
+                {[["Standard meal", "Chef-curated 3-course", 0, "meal.svg"], ["Vegetarian", "Plant-based · seasonal", 0, "veg-meal.svg"], ["Premium meal", "Tasting menu", 28, "premium-meal.svg"], ["Skip meal", "No meal · sleep", 0, "skip-meal.svg"]].map(([n, s, p, ic]) => {
                   const on = meal === n;
                   const select = () => {
                     setMeal(n);
@@ -792,7 +777,7 @@ function CartView({ go, mode = "cart", shared }) {
                     else if (e) { toggleExtra(e); save(); }
                     r();
                   };
-                  return <button key={n} onClick={select} className={cx("text-left rounded-xl p-3 flex flex-col", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}><div className="flex items-start justify-between gap-2"><span className="w-9 h-9 rounded-lg bg-surface-mute text-ink-slate inline-flex items-center justify-center shrink-0"><Icon name={ic} size={18} /></span><span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span></div><div className="text-[13px] font-bold mt-2">{n}</div><div className="text-[10px] text-ink-faint flex-1 mt-0.5">{s}</div><div className="h-px bg-line my-2" /><div className="text-[11px] font-semibold">{p ? <span className="v2-num">{eur2(p)} <span className="text-[10px] text-ink-faint font-normal">per pax</span></span> : on ? <span className="text-[rgba(10,10,10,1)]">Included</span> : <span className="text-ink-faint font-normal">{n === "Skip meal" ? "No meal" : "Free"}</span>}</div></button>;
+                  return <button key={n} onClick={select} className={cx("text-left rounded-xl p-3 flex flex-col", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}><div className="flex items-start justify-between gap-2"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><img src={"/v2/assets/extras/" + ic} alt="" className="w-[26px] h-[26px]" style={{ objectFit: "contain" }} /></span><span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span></div><div className="text-[13px] font-bold mt-2">{n}</div><div className="text-[10px] text-ink-faint flex-1 mt-0.5">{s}</div><div className="h-px bg-line my-2" /><div className="text-[11px] font-semibold">{p ? <span className="v2-num">{eur2(p)} <span className="text-[10px] text-ink-faint font-normal">per pax</span></span> : on ? <span className="text-[rgba(10,10,10,1)]">Included</span> : <span className="text-ink-faint font-normal">{n === "Skip meal" ? "No meal" : "Free"}</span>}</div></button>;
                 })}
               </div>
             </Module>
@@ -838,7 +823,7 @@ export function Basket({ shared, go }) {
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
   const SECTIONS = [
     ["Hotels", "Stay & accommodation", "home"],
-    ["Cars & transfers", "Transfers & car hire", "swap"],
+    ["Cars & transfers", "Getting around", "swap"],
     ["Lounge & services", "Lounge & priority", "star"],
     ["Onboard", "Meals & onboard", "bag"],
     ["Seats & baggage", "Seats & baggage", "seat"],
@@ -890,7 +875,7 @@ export function Basket({ shared, go }) {
       case "Hotels": { const nn = e.nights || nights, rt = e.rate || (nn > 0 ? Math.round(e.price / nn) : e.price);
         return { sub: `Deluxe room · ${px} adult${plural} · Breakfast included · Free cancellation`, chips: [dateRange, `${nn} nights`, "★ 9.2 Excellent"], links: ["Change room", "View hotel"], perUnit: `${eur2(rt)} × ${nn} nights`, qty: false }; }
       case "Cars & transfers":
-        return { sub: "Private sedan · Meet & greet · Up to 3 bags · English-speaking driver", chips: [`${dateOne} · ${e.time || "14:15"}`, "One-way", `${px} pax`], links: ["Change vehicle", "Edit time"], perUnit: `${eur2(e.price)} per car`, qty: true };
+        return { sub: "Private sedan · Meet & greet · Up to 3 bags · English-speaking driver", chips: [`${dateOne} · ${e.time || "14:15"}`, "One-way", `${px} pax`], links: ["Change vehicle"], perUnit: `${eur2(e.price)} per car`, qty: true };
       case "Insurance":
         return { sub: "Medical up to €50K · Baggage protection · Trip cancellation · 24/7 assistance", chips: [dateRange, `${px} traveler${plural}`, "Recommended"], links: ["Change plan", "Compare plans"], perUnit: `${eur2(Math.round(e.price / px))} × ${px} traveler${plural}`, qty: true };
       case "Lounge & services":
@@ -904,25 +889,21 @@ export function Basket({ shared, go }) {
 
   const Leg = ({ label, f, date }) => (
     <div className="py-3">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-ink-faint mb-2.5">{label} · {fmtDate(date)} <span className="text-ink-muted font-semibold">{f.flight_no}</span> · {f.aircraft || "A330neo"}</div>
-      <div className="flex items-stretch rounded-xl border overflow-hidden" style={{ borderColor: "#E0E3E8" }}>
-        <div className="flex-1 px-3 py-3 text-center">
-          <div className="text-[20px] font-bold leading-none v2-num">{f.origin}</div>
-          <div className="text-[13px] font-semibold v2-num mt-1.5">{f.dep || "—"}</div>
-          <div className="text-[10px] text-ink-faint mt-0.5">Terminal 1</div>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-ink-faint mb-2">{label} · {fmtDate(date)}</div>
+      {/* v33 My Trip Cart #1/#6 — Figma journey row: one horizontal summary (route · time · flight no)
+          with vertical dividers between the grouped metadata, not a three-column airport card. */}
+      <div className="flex items-center flex-wrap rounded-xl border overflow-hidden" style={{ borderColor: "#E0E3E8" }}>
+        <div className="px-4 py-3 flex items-center gap-2">
+          <span className="text-[16px] font-bold v2-num">{f.origin}</span>
+          <Icon name="arrow" size={13} className="text-tap-greenDeep" />
+          <span className="text-[16px] font-bold v2-num">{f.dest}</span>
         </div>
         <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
-        <div className="flex-1 px-3 py-3 flex flex-col items-center justify-center text-center">
-          <Icon name="plane" size={16} className="text-tap-greenDeep" />
-          <div className="text-[10px] text-ink-muted font-semibold mt-1">{f.duration || ""}</div>
-          <div className="text-[9px] text-ink-faint uppercase tracking-wide mt-0.5">Nonstop · Direct</div>
-        </div>
+        <div className="px-4 py-3 text-[13px] font-semibold v2-num">{f.dep || "—"}{f.arr ? ` – ${f.arr}` : ""}</div>
         <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
-        <div className="flex-1 px-3 py-3 text-center">
-          <div className="text-[20px] font-bold leading-none v2-num">{f.dest}</div>
-          <div className="text-[13px] font-semibold v2-num mt-1.5">{f.arr || "—"}</div>
-          <div className="text-[10px] text-ink-faint mt-0.5">Terminal 1</div>
-        </div>
+        <div className="px-4 py-3 text-[12px] font-semibold text-ink-muted v2-num">{f.flight_no}</div>
+        <div className="flex-1" />
+        <div className="px-4 py-3 text-[11px] text-ink-faint whitespace-nowrap">{f.duration || ""}{f.aircraft ? ` · ${f.aircraft}` : ""}</div>
       </div>
     </div>
   );
@@ -1015,11 +996,10 @@ export function Basket({ shared, go }) {
           <div className="space-y-6 min-w-0">
             {/* flights anchor — tinted header (#1) + zebra benefits row (#2) */}
             <div>
-              <div className="flex items-center gap-2 mb-2"><h2 className="text-[15px] font-bold">Your flights</h2><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">1 item · Anchor</span></div>
+              <div className="flex items-center gap-2 mb-2"><h2 className="text-[18px] font-semibold">Your flights</h2></div>
               <Card className="overflow-hidden" style={{ borderRadius: "18px" }}>
                 <div className="flex items-center justify-between flex-wrap gap-2 px-5 border-b border-line" style={{ background: "#F2F2EE", paddingTop: "12px", paddingBottom: "12px" }}>
-                  <div className="flex items-center gap-2 text-[12px]"><Icon name="lock" size={12} className="text-ink-muted" /><span className="font-bold uppercase tracking-wide text-[11px] text-ink">Pinned</span><span className="text-ink-muted">— your core flight stays in the cart · {ob?.fare || "Classic"} · Economy</span></div>
-                  <button onClick={() => go("cart")} className="text-[12px] font-semibold text-tap-greenDeep inline-flex items-center gap-1 hover:underline"><Icon name="search" size={12} /> Change flight</button>
+                  <div className="flex items-center gap-2 text-[12px]"><Icon name="lock" size={12} className="text-ink-muted" /><span className="font-bold uppercase tracking-wide text-[10px] text-ink">Pinned</span><span className="text-ink-muted">— your core flight stays in the cart · {ob?.fare || "Classic"} · Economy</span></div>
                 </div>
                 <div className="px-5 pt-1 pb-2">
                   {trip.stopover?.viaLisbon ? (() => {
@@ -1032,11 +1012,14 @@ export function Basket({ shared, go }) {
                   })() : <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} f={obf} date={trip.date} />}
                   {ib && <><Divider className="my-1" /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} f={ibf} date={trip.ret} /></>}
                 </div>
-                <div className="bg-surface-2 border-t border-line px-5 py-2.5 flex items-center justify-between flex-wrap gap-2 text-[11px] text-ink-muted">
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    {["1× carry-on (8kg)", "1× checked bag (23kg)", "Seat selection", "Changes for fee"].map(x => <span key={x} className="inline-flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> {x}</span>)}
+                <div className="border-t border-line flex items-center justify-between flex-wrap gap-3" style={{ background: "#FAFAF7", padding: "14px 20px" }}>
+                  {/* v33 My Trip Cart #7/#8 — Figma footer groups ACTIONS (not entitlement chips). #9 bg #FAFAF7, #10 padding 14/20. */}
+                  <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] font-semibold text-tap-greenDeep">
+                    <button onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type, pax: trip.pax, cabin: trip.cabin })} className="hover:underline">Change flight</button>
+                    <button onClick={() => go("cart")} className="hover:underline">Seat selection</button>
+                    <button onClick={() => go("cart")} className="hover:underline">Add baggage</button>
                   </div>
-                  <span className="text-right"><span className="block text-[10px] uppercase tracking-wide text-ink-faint">Flights subtotal</span><span className="block text-[18px] font-bold v2-num leading-none mt-0.5" style={{ color: "#0A0A0A" }}>{eur2((ob?.price || 0) + (ib?.price || 0))}</span></span>
+                  <span className="text-right"><span className="block text-[10px] uppercase tracking-wide text-ink-faint">Flights subtotal</span><span className="block text-[22px] font-bold v2-num leading-none mt-0.5" style={{ color: "#0A0A0A" }}>{eur2((ob?.price || 0) + (ib?.price || 0))}</span><span className="block text-[11px] text-ink-faint v2-num mt-1">{eur2(((ob?.price || 0) + (ib?.price || 0)) / Math.max(1, trip.pax || 1))} per traveller</span></span>
                 </div>
               </Card>
             </div>
@@ -1047,7 +1030,7 @@ export function Basket({ shared, go }) {
               if (!items.length) return null;
               return (
                 <div key={cat}>
-                  <div className="flex items-center gap-2 mb-2"><h2 className="text-[15px] font-bold">{title}</h2><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">{items.length} item{items.length > 1 ? "s" : ""}</span></div>
+                  <div className="flex items-center gap-2 mb-2"><h2 className="text-[18px] font-semibold">{title}</h2></div>
                   <div className="space-y-3">
                     {items.map(e => {
                       const meta = cardMeta(e, cat);
@@ -2153,7 +2136,11 @@ export function StopoverBuilder({ shared, go }) {
 
 export function Confirmation({ shared, go }) {
   const [recs, setRecs] = useState([]);
-  useEffect(() => { api.get("/destinations").then(d => setRecs((d || []).slice(0, 4))).catch(() => {}); }, []);
+  // v33 Booking Confirmed #4 — everything on this page keys off the CURRENT booking; a new
+  // PNR resets local state and re-fetches, so no data from a previous booking can linger.
+  useEffect(() => { api.get("/destinations").then(d => setRecs((d || []).slice(0, 4))).catch(() => {}); }, [trip.pnr]);
+  const [walletAdded, setWalletAdded] = useState(false);
+  useEffect(() => { setAddedRecs(new Set()); setWalletAdded(false); }, [trip.pnr]);
   // A14 · contextual ancillary recommendations for THIS booking — derived from route,
   // trip length, party size and what was NOT already purchased. Limited to 3, added to the PNR.
   const [addedRecs, setAddedRecs] = useState(() => new Set());
@@ -2172,7 +2159,12 @@ export function Confirmation({ shared, go }) {
     else out.push({ code: "xsell-sintra", name: `A day out near ${city}`, sub: "Hand-picked local experience · small group.", price: 89, tag: "Make the most of it" });
     return out.slice(0, 3);
   })();
-  const addRec = async (code) => { setAddedRecs(s => new Set(s).add(code)); try { await api.post("/bookings/ancillary", { pnr: trip.pnr, code }); } catch { } };
+  // v33 Booking Confirmed #3 — recommendations TOGGLE: clicking "Added ✓" removes the item again.
+  const toggleRec = async (code) => {
+    const on = addedRecs.has(code);
+    setAddedRecs(prev => { const n = new Set(prev); on ? n.delete(code) : n.add(code); return n; });
+    try { await api.post("/bookings/ancillary", { pnr: trip.pnr, code, ...(on ? { remove: true } : {}) }); } catch { }
+  };
   if (!trip.pnr) return noTrip(go);
   const pay = trip.payment || {}, o = trip.outbound, i = trip.inbound, u = shared.profile?.user || {}, t = tripTotals();
   const pax = trip.passengers.filter(p => p && p.first).length ? trip.passengers.filter(p => p && p.first) : [{ first: u.first_name, last: "" }];
@@ -2187,7 +2179,39 @@ export function Confirmation({ shared, go }) {
   };
   const addCalendar = () => { const ics = [o, i].filter(Boolean).map(c => buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? leadSeat : (inSeat || "22B")}` })).join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
   const downloadTicket = () => downloadFile(`eticket-${trip.pnr}.txt`, ticketText(), "text/plain");
-  const addWallet = () => downloadFile(`boarding-pass-${trip.pnr}.txt`, ticketText(), "text/plain");
+  // v33 Booking Confirmed #2 — the invoice link DOWNLOADS a real PDF (was wrongly routed to the basket).
+  const buildInvoicePdf = (lines) => {
+    const esc = (t) => String(t).replace(/€/g, "EUR ").replace(/—/g, "-").replace(/[^\x20-\x7E]/g, "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+    const content = "BT /F1 11 Tf 50 792 Td 16 TL " + lines.map((l, n) => `(${esc(l)}) Tj T*`).join(" ") + " ET";
+    const objs = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+    let out = "%PDF-1.4\n"; const offs = [];
+    objs.forEach((o, n) => { offs.push(out.length); out += `${n + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, "0") + " 00000 n \n").join("");
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return out;
+  };
+  const downloadInvoice = () => {
+    const t2 = tripTotals();
+    const rows = [
+      "TAP AIR PORTUGAL — INVOICE", "",
+      `Invoice no: INV-${trip.pnr}`, `PNR: ${trip.pnr}`, `Date: ${new Date().toLocaleDateString("en-GB")}`,
+      `Passenger: ${pax.map(px2 => `${px2.first} ${px2.last || ""}`.trim()).join(", ")}`, "",
+      `Flights subtotal: ${eur2((o?.price || 0) + (i?.price || 0))}`,
+      ...trip.extras.map(e => `${e.name}: ${eur2(e.price * (e.qty || 1))}`),
+      "", `Total paid: ${eur2(pay.total ?? t2.total)}`, `Payment method: ${pay.method || "Card"}`,
+      "", "This document serves as your receipt. Obrigado por voar TAP.",
+    ];
+    downloadFile(`invoice-${trip.pnr}.pdf`, buildInvoicePdf(rows), "application/pdf");
+  };
+  // v33 Booking Confirmed #1 — Wallet is an integration flow, not a file download.
+  const addWallet = () => setWalletAdded(true);
   return (
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <div className="mx-auto max-w-page px-6 py-8">
@@ -2227,7 +2251,7 @@ export function Confirmation({ shared, go }) {
                 ));
               })()}
               <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="star" size={11} className="text-ink-muted" /> {/exec/i.test(o?.fare || "") ? "Lounge access" : "Miles earned"}</span></div>
-              <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} className="hover:underline">Add to Wallet</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
+              <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} disabled={walletAdded} className={walletAdded ? "text-tap-greenDeep cursor-default" : "hover:underline"}>{walletAdded ? "Added to Wallet ✓" : "Add to Wallet"}</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
             <section>
@@ -2246,7 +2270,7 @@ export function Confirmation({ shared, go }) {
                       <div className="text-[11px] text-ink-muted mt-1 flex-1 max-w-[280px]">{r.sub}</div>
                       <div className="flex items-center justify-between mt-3">
                         <div className="text-[20px] font-bold v2-num">{eur2(r.price)}</div>
-                        <Btn size="sm" variant={on ? "primary" : "outline"} style={{ borderRadius: "20px", padding: "10px 14px" }} disabled={on} onClick={() => addRec(r.code)}>{on ? "Added ✓" : "+ Add to trip"}</Btn>
+                        <span className="inline-flex items-center gap-2">{on && <button onClick={() => go("addextras")} className="text-[11px] font-semibold text-tap-greenDeep hover:underline whitespace-nowrap">Review extras →</button>}<Btn size="sm" variant={on ? "primary" : "outline"} style={{ borderRadius: "20px", padding: "10px 14px" }} title={on ? "Remove from trip" : "Add to trip"} onClick={() => toggleRec(r.code)}>{on ? "Added ✓" : "+ Add to trip"}</Btn></span>
                       </div>
                       </div>
                     </Card>
@@ -2288,7 +2312,7 @@ export function Confirmation({ shared, go }) {
                 {pay.payNote && <div className="text-[11px] text-tap-greenDeep font-semibold flex items-center gap-1.5" style={{ padding: "0 20px 14px" }}><Icon name="clock" size={12} className="shrink-0" /> {pay.payNote}</div>}
                 <div style={{ padding: "14px 20px", borderTop: "1px solid #E8E8E5", background: "#F2FFDB" }}><div className="text-[13px] font-bold text-ink flex items-center gap-1.5"><Icon name="spark" size={13} className="text-tap-green" /> You earned {miles(EARN(t.total))} miles</div><div className="text-[11px] text-ink-muted mt-0.5">+ {Math.round(EARN(t.total) * 0.2)} status miles · 2 trips to next tier</div></div>
               </div>
-              <button onClick={() => go("basket")} className="w-full mt-3 inline-flex items-center justify-center gap-2 text-[13px] font-semibold hover:brightness-95" style={{ height: "42px", borderRadius: "9999px", background: "#FFFFFF", border: "1px solid #E8E8E5", color: "#0A0A0A" }}>Download invoice (PDF)<span style={{ fontWeight: 400 }}>→</span></button>
+              <button onClick={downloadInvoice} className="w-full mt-3 inline-flex items-center justify-center gap-2 text-[13px] font-semibold hover:brightness-95" style={{ height: "42px", borderRadius: "9999px", background: "#FFFFFF", border: "1px solid #E8E8E5", color: "#0A0A0A" }}>Download invoice (PDF)<span style={{ fontWeight: 400 }}>→</span></button>
             </Card>
             <Card className="p-4 text-[12px] space-y-2.5" style={{ borderRadius: "14px" }}><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="shield" size={15} /></span><div><div style={{ fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}>Free 24h cancellation</div><div style={{ color: "#667080" }}>Full refund on flights &amp; most extras.</div></div></div><div className="flex items-start gap-2.5"><span className="text-tap-green mt-0.5"><Icon name="heart" size={15} /></span><div><div style={{ fontSize: "12px", fontWeight: 500, color: "#0A0A0A" }}>24/7 TAP Care</div><div style={{ color: "#667080" }}>Need help? Chat with us 24/7.</div></div></div></Card>
           </aside>
@@ -2322,7 +2346,7 @@ export function ExpressCheckout({ shared, go, params }) {
     // route) and the flight segments (the stale route, e.g. DEL/DXB) disagree. Rebuild to the usual route.
     if (trip.outbound && (trip.outbound.flight?.origin !== origin || trip.outbound.flight?.dest !== dest)) resetTrip();
     if (!trip.outbound) {
-      Object.assign(trip, { origin, dest, date, ret: retDate, pax: 1, cabin: "Economy" });
+      Object.assign(trip, { origin, dest, date, ret: retDate, pax: Math.max(1, Number(params?.pax) || 1), cabin: params?.cabin || "Economy" });
       api.get(`/search?origin=${origin}&dest=${dest}&date=${date}`).then(r => {
         const f = (r.flights || []).find(x => x.flight_no === pat.usualOutNo) || (r.flights || []).find(x => x.recommended) || (r.flights || [])[0];
         if (f) setLeg("outbound", { flight: f, fare: "Classic", price: f.price, origin, dest, date });
@@ -2343,9 +2367,14 @@ export function ExpressCheckout({ shared, go, params }) {
   const legOnRoute = (leg, from, to) => !!(leg && leg.flight && leg.flight.origin === from && leg.flight.dest === to);
   const o = legOnRoute(trip.outbound, origin, dest) ? trip.outbound : null;
   const i = legOnRoute(trip.inbound, dest, origin) ? trip.inbound : null;
-  const base = o?.price || 0;
+  // v33 Express #5 — every traveller from the search is priced and shown; nothing is hardcoded to 1.
+  const paxN = Math.max(1, Number(params?.pax) || Number(trip.pax) || 1);
+  const paxRows = Array.from({ length: paxN }, (_, n) => n === 0
+    ? { first: u.first_name || "Traveller", last: (u.full_name || "").split(" ").slice(-1)[0] || "", lead: true }
+    : (trip.passengers?.[n]?.first ? { ...trip.passengers[n], lead: false } : { first: `Traveller ${n + 1}`, last: "", lead: false }));
+  const base = (o?.price || 0) * paxN;
   const seatNo = chosenSeat() || (/exec|plus|premium/i.test(o?.fare || "") ? seatForFare(o?.fare) : (seat?.seat || seatForFare(o?.fare)));
-  const seatCost = seatUp ? 18 : 0, bagCost = bag ? 25 : 0, carbonCost = carbon ? 2 : 0;
+  const seatCost = seatUp ? 18 * paxN : 0, bagCost = bag ? 25 * paxN : 0, carbonCost = carbon ? 2 * paxN : 0;   // per traveller
   const taxes = Math.round((base + seatCost + bagCost + carbonCost) * 0.12);
   const total = base + seatCost + bagCost + carbonCost + taxes;
   const earn = Math.round(total * 2.88);
@@ -2354,7 +2383,7 @@ export function ExpressCheckout({ shared, go, params }) {
     if (!o) return; setBusy(true);
     try {
       const items = ["seat-" + seatNo, bag && "checked-bag", carbon && "carbon"].filter(Boolean);
-      const r = await api.post("/pay", { flight_no: o.flight.flight_no, items, total, voucher_amt: 0, miles_used: 0, miles_amt: 0, card_amt: total, seat: seatNo, date, fare: o?.fare, cabin: fareCabin(o?.fare), pax: trip.pax, passengers: (trip.passengers || []).filter(p => p && p.first).map(p => ({ title: p.title, first: p.first, last: p.last })) });
+      const r = await api.post("/pay", { flight_no: o.flight.flight_no, items, total, voucher_amt: 0, miles_used: 0, miles_amt: 0, card_amt: total, seat: seatNo, date, fare: o?.fare, cabin: fareCabin(o?.fare), pax: paxN, passengers: ((trip.passengers || []).filter(p => p && p.first).length ? (trip.passengers || []).filter(p => p && p.first) : paxRows).map(p => ({ title: p.title, first: p.first, last: p.last })) });
       if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total, card_amt: total, method: "Card", email: r.email?.to }; go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
@@ -2387,8 +2416,22 @@ export function ExpressCheckout({ shared, go, params }) {
                   <div className="flex justify-between"><span>Miles earned</span><span className="font-semibold text-ink">100% (Classic)</span></div>
                 </div>}
               </Sec>
-              <Sec title="Passenger" action="Edit" onAction={() => go("passenger")}>
-                <div className="flex items-center gap-3"><span className="w-9 h-9 rounded-full inline-flex items-center justify-center text-[14px] font-bold" style={{ background: "#F7FAFA", color: "#1A1F29" }}>{(u.first_name || "D")[0]}</span><div><div className="font-bold text-[14px] flex items-center gap-2">{u.full_name || u.first_name} <span className="text-[11px] font-semibold rounded-full" style={{ background: "#FFF7E5", color: "#C8A24B", padding: "4px 10px" }}>{u.tier} · {u.member_no}</span></div><div className="text-[11px] text-ink-faint">DOB {u.dob || "—"} · Passport ••••{(u.doc_id || "0000").slice(-4)} · Nationality {u.nationality || "PT"}</div><div className="text-[12px] text-tap-greenDeep font-semibold mt-3">Frequent flyer benefits applied: priority boarding, lounge</div></div></div>
+              <Sec title={paxN > 1 ? `Passengers · ${paxN}` : "Passenger"} action="Edit" onAction={() => go("passenger")}>
+                <div className="space-y-2.5">
+                  {paxRows.map((p2, n) => (
+                    <div key={n} className="flex items-center gap-3">
+                      <span className="w-9 h-9 rounded-full inline-flex items-center justify-center text-[14px] font-bold" style={{ background: "#F7FAFA", color: "#1A1F29" }}>{(p2.first || "T")[0]}</span>
+                      <div>
+                        <div className="font-bold text-[14px] flex items-center gap-2">{[p2.first, p2.last].filter(Boolean).join(" ")}
+                          {p2.lead
+                            ? <span className="text-[11px] font-semibold rounded-full" style={{ background: "#FFF7E5", color: "#C8A24B", padding: "4px 10px" }}>{u.tier || "Gold"} · Lead</span>
+                            : <span className="text-[11px] font-semibold rounded-full" style={{ background: "#F2F2EE", color: "#667080", padding: "4px 10px" }}>Adult</span>}
+                        </div>
+                        <div className="text-[11px] text-ink-faint mt-0.5">{p2.lead ? (u.email || "Contact on file") : "Details at check-in"}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </Sec>
               <Sec title="Baggage" action="+ Add bag" onAction={() => go("cart")}>
                 <div className="flex items-center justify-between text-[13px] py-1"><div><div className="font-semibold">Cabin bag · 8kg</div><div className="text-[11px] text-ink-faint">Included in fare</div></div><span className="text-[11px] font-semibold uppercase tracking-wide text-ink rounded-full" style={{ background: "#F7F8FA", padding: "4px 10px" }}>Included</span></div>

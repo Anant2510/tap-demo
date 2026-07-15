@@ -462,7 +462,9 @@ export function Results({ shared, params, go }) {
 
       {/* selection bar — always shown so the next-step CTA is explicit; it stays disabled with a
           validation message until a flight + fare is selected for the current leg (#28). */}
-      <div className="sticky bottom-4 z-30 mt-6">
+      {/* v33 Outbound #11 — the selection bar appears only AFTER a flight+fare is picked;
+          "Change" (#12) deselects and removes it. */}
+      {sel && <div className="sticky bottom-4 z-30 mt-6">
         <div className="mx-auto max-w-page px-6">
           <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
             <div className="min-w-0">
@@ -479,12 +481,12 @@ export function Results({ shared, params, go }) {
               </>}
             </div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
-              {!isMulti && <button onClick={() => go("express", { origin: params.origin, dest: params.dest, date: params.date, ret: params.ret, type, pax: params.pax, cabin: params.cabin })} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ width: "143px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", background: "#FFFFFF", color: "#0A0A0A", fontSize: "13px", fontWeight: 600 }}>Express Checkout</button>}
+              {!isMulti && <button onClick={() => { setSel(null); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ width: "110px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", color: "#fff", background: "transparent" }}>Change</button>}
               <Btn variant="lime" className="text-[14px] font-bold" style={{ minWidth: "150px", height: "41px", padding: "0 22px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Customize your cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Customize your cart")} <Icon name="arrow" size={14} /></Btn>
             </div>
           </div>
         </div>
-        </div>
+      </div>}
       {holdOpen && (sel?.flight || view[0]) && (
         <HoldFareModal flight={sel?.flight || view[0]} date={date} fare={sel?.fare || "Eco Classic"}
           price={sel?.price ?? (view[0] && view[0]._fares.find(x => x.key === "Classic").price) ?? 0} seat="12A"
@@ -736,7 +738,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
       {pairing && <span className="absolute top-0 left-4 z-10 text-[10px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-md px-2 py-1 inline-flex items-center gap-1">★ Best pairing • recommended for you</span>}
       <Card style={{ borderRadius: "16px", borderColor: isSelected ? "#9EFD38" : "#E2E2E5", borderWidth: isSelected ? "2px" : undefined }} className={cx("overflow-hidden", pairing && "ring-2 ring-tap-green bg-lime-tint/40", !pairing && expanded && !isSelected && "ring-2 ring-lime")}>
       {/* header row — compact single-line layout per design */}
-      <div className="p-5 flex flex-wrap items-center gap-4">
+      <div className="p-5 flex flex-wrap items-center gap-3">
         {/* times + route — airport under time, no arrow */}
         <div className="flex items-center gap-4 min-w-[230px]">
           <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-left">{f.dep}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.origin}</div></div>
@@ -759,7 +761,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
           {pairing && <div className="text-[11px] text-tap-greenDeep font-medium mt-1.5 flex items-start gap-1.5"><span className="text-amber-500 leading-none mt-0.5">●</span> Home in {f.dest} by {f.arr} · same fare brand → bundle €15 off</div>}
         </div>
         {/* price panel — light grey, right-aligned */}
-        <div className="text-right rounded-xl min-w-[151px]" style={{ background: "#F9F9FA", padding: "22px 24px 22px 20px" }}>
+        <div className="text-right min-w-[151px] self-stretch flex flex-col justify-center border-l" style={{ borderColor: "#ECECEF", background: isSelected ? "rgba(249,249,250,1)" : "transparent", margin: "-20px -20px -20px 0", padding: "22px 24px 22px 20px", borderTopRightRadius: "14px", borderBottomRightRadius: "14px" }}>
           {pairing && <div className="text-[11px] font-bold text-tap-greenDeep">BUNDLE −€15</div>}
           {payMilesOn && milesFor ? (() => { const mm = milesFor(selFare.price); return (
             <><div className="text-[18px] font-bold text-tap-greenDeep v2-num leading-tight">{mm.full ? `${miles(mm.miles)} mi` : `${miles(mm.miles)} mi + ${EUR(mm.cash)}`}</div>

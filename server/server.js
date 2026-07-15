@@ -975,6 +975,13 @@ app.post("/api/bookings/ancillary", async (req, res) => {
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);
   if (!a) return res.json({ ok: false });
   const items = JSON.parse(b.items_json || "[]");
+  // v33 Booking Confirmed #3 — recommendations can be UN-done before travel
+  if (req.body.remove) {
+    const next = items.filter(x => x !== code);
+    db.prepare("UPDATE bookings SET items_json=? WHERE id=?").run(JSON.stringify(next), b.id);
+    log("ancillary_removed", { pnr: b.pnr, code });
+    return res.json({ ok: true, pnr: b.pnr, items: next, removed: code });
+  }
   if (!items.includes(code)) items.push(code);
   db.prepare("UPDATE bookings SET items_json=? WHERE id=?").run(JSON.stringify(items), b.id);
   log("ancillary_added", { pnr: b.pnr, code, price: a.price, channel: "whatsapp/portal" });
