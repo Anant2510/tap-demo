@@ -463,8 +463,9 @@ export function Results({ shared, params, go }) {
       {/* selection bar — always shown so the next-step CTA is explicit; it stays disabled with a
           validation message until a flight + fare is selected for the current leg (#28). */}
       {/* v33 Outbound #11 — the selection bar appears only AFTER a flight+fare is picked;
-          "Change" (#12) deselects and removes it. */}
-      {sel && <div className="sticky bottom-4 z-30 mt-6">
+          "Change" (#12) deselects and removes it. On the INBOUND leg the bar stays visible once
+          the outbound is locked (carried Inbound #10: "OUTBOUND ✓ · INBOUND: select to continue"). */}
+      {(sel || (leg === "inbound" && trip.outbound)) && <div className="sticky bottom-4 z-30 mt-6">
         <div className="mx-auto max-w-page px-6">
           <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
             <div className="min-w-0">
