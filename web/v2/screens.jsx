@@ -148,10 +148,12 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
     // INNER solid white box holds the tabs + form. Tabs restyled to pills with a clear
     // active state. Replaces the previous single flat Card.
     <div className="rounded-[26px] bg-white/55 backdrop-blur-2xl border border-white/60 shadow-pop p-2.5 sm:p-3">
-      {/* tab bar — navigation-bar structure with an underline active state (Figma) */}
-      <div className="flex gap-1 overflow-x-auto v2-track px-1.5 pt-1 border-b border-white/40">
+      {/* HomePage #1 — service tabs are flat and integrated into the bar (not rounded pills).
+          Figma: selected tab 14/20 padding, 1px bottom border rgba(70,164,26,1), bg rgba(242,255,219,1),
+          13.5px bold text rgba(70,164,26,1); inactive tabs are borderless and muted. */}
+      <div className="flex overflow-x-auto v2-track border-b border-line px-1">
         {TRIP_TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 px-3 py-2.5 -mb-px border-b-2 text-[13px] whitespace-nowrap transition-colors", tab === t ? "border-tap-green text-tap-green font-bold" : "border-transparent text-ink-muted hover:text-ink font-semibold")}>{t}</button>
+          <button key={t} onClick={() => setTab(t)} className={cx("shrink-0 border-b-2 -mb-px whitespace-nowrap text-[13.5px] transition-colors", tab === t ? "font-bold" : "border-transparent text-ink-muted hover:text-ink font-semibold")} style={tab === t ? { padding: "14px 20px", color: "rgba(70,164,26,1)", borderBottomColor: "rgba(70,164,26,1)", background: "rgba(242,255,219,1)" } : { padding: "14px 20px" }}>{t}</button>
         ))}
       </div>
       {/* inner solid white box — the form content */}
@@ -604,7 +606,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
       <div className="rounded-[18px] bg-surface overflow-hidden" style={{ boxShadow: "0px 8px 24px -16px rgba(15,20,16,0.12)" }}>
         {/* #7 service tabs — flat, integrated into the bar */}
         <div className="flex overflow-x-auto v2-track font-bold border-b border-line px-1">
-          {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 px-4 py-3 border-b-2 -mb-px transition-colors whitespace-nowrap text-[13.5px]", i === 0 ? "font-bold" : "border-transparent text-ink-muted hover:text-ink font-semibold")} style={i === 0 ? { color: "rgba(70,164,26,1)", borderBottomColor: "rgba(70,164,26,1)" } : {}}>{t}</button>)}
+          {TRIP_TABS.map((t, i) => <button key={t} className={cx("shrink-0 border-b-2 -mb-px transition-colors whitespace-nowrap text-[13.5px]", i === 0 ? "font-bold" : "border-transparent text-ink-muted hover:text-ink font-semibold")} style={i === 0 ? { padding: "14px 20px", color: "rgba(70,164,26,1)", borderBottomColor: "rgba(70,164,26,1)", background: "rgba(242,255,219,1)" } : { padding: "14px 20px" }}>{t}</button>)}
         </div>
         <div className="p-4 sm:p-5">
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -659,16 +661,11 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
                 <div key={i} className="grid lg:grid-cols-12 gap-3">
                   <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}>
                     <div className={lbl}>Flight {i + 2} · from</div>
-                    <select value={l.from || lastStop(i)} onChange={e => setXLeg(i, { from: e.target.value })} className={cx(bare, "mt-1.5")}>
-                      {airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}
-                    </select>
+                    <div className="mt-1.5"><AirportPicker value={l.from || lastStop(i)} onChange={v => setXLeg(i, { from: v })} airports={airports} placeholder="Search city, airport or country" buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div>
                   </div>
                   <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}>
                     <div className={lbl}>Flight {i + 2} · to</div>
-                    <select value={l.to} onChange={e => setXLeg(i, { to: e.target.value })} className={cx(bare, "mt-1.5")}>
-                      <option value="">Where to?</option>
-                      {airports.map(a => <option key={a.code} value={a.code}>{a.code} · {a.city}</option>)}
-                    </select>
+                    <div className="mt-1.5"><AirportPicker value={l.to} onChange={v => setXLeg(i, { to: v })} airports={airports} placeholder="Search city, airport or country" buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div>
                   </div>
                   <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}>
                     <div className={lbl}>Flight {i + 2} · date</div>
@@ -946,39 +943,18 @@ export function Home({ shared, go }) {
             <div className="grid md:grid-cols-3 gap-4">
               {anc.slice(0, 3).map((a, i) => {
                 const s = ((a.code || "") + " " + (a.name || "")).toLowerCase();
-                // #14/#7 — approved assets only. Photos where we have one; otherwise the approved
-                // icon for that ancillary. Anything unmapped fell through to a blank green panel,
-                // which is why bags & meals showed no picture.
-                const ancImg = /upgrad|cabin|business/.test(s) ? ASSET + "business-upgrade.jpg"
+                // HomePage #2 — every recommendation card shows a realistic photo, not a flat SVG glyph.
+                // Curated JPGs where we have them; otherwise a topic-relevant photo resolved by imageFor()
+                // and rendered through <Img> (which falls back to a deterministic photo, then a gradient).
+                const ancPhoto = /upgrad|cabin|business/.test(s) ? ASSET + "business-upgrade.jpg"
                   : /secur|priorit|fast/.test(s) ? ASSET + "fast-track-security.jpg"
                   : /chang|flex/.test(s) ? ASSET + "flexible-change.jpg"
                   : /seat/.test(s) ? ASSET + "business-upgrade.jpg"
-                  : /veg|kid/.test(s) ? AICON + "veg-meal.svg"
-                  : /meal|food|dine|snack/.test(s) ? AICON + "meal.svg"
-                  : /carry|cabin bag|hand lugg/.test(s) ? AICON + "carry-on.svg"
-                  : /bag|lugg|kg/.test(s) ? AICON + "checked-bag.svg"
-                  : /loung/.test(s) ? AICON + "lounge.svg"
-                  : /insur|cover|protect/.test(s) ? AICON + "insurance.svg"
-                  : /transfer|shuttle/.test(s) ? AICON + "transfer.svg"
-                  : /car|rental|drive/.test(s) ? AICON + "transfer.svg"
-                  : /experien|tour|activit/.test(s) ? AICON + "experiences.svg"
-                  : /hotel|stay|night/.test(s) ? AICON + "hotel.svg"
-                  : null;
-                const ancIsIcon = !!ancImg && ancImg.startsWith(AICON);
-                // The repo's PNGs are 12-28px UI glyphs — blown up to 54px they blur. Use the vector
-                // equivalent (crisp at any size) until real artwork lands; photos still use <Img>.
-                const ancVec = /veg|kid|meal|food|dine|snack/.test(s) ? "leaf"
-                  : /bag|lugg|kg|carry/.test(s) ? "bag"
-                  : /loung/.test(s) ? "star"
-                  : /insur|cover|protect/.test(s) ? "shield"
-                  : /transfer|shuttle|car|rental|drive/.test(s) ? "swap"
-                  : /experien|tour|activit/.test(s) ? "spark"
-                  : /hotel|stay|night/.test(s) ? "home" : "star";
-                const ancIcon = /seat/.test(s) ? "seat" : /bag|lugg/.test(s) ? "bag" : /meal|food|veg|kid/.test(s) ? "leaf" : /loung/.test(s) ? "star" : /wifi|internet/.test(s) ? "bolt" : /upgrad|cabin|business/.test(s) ? "plane" : /insur|secur|protect/.test(s) ? "shield" : "spark";
+                  : imageFor(a.code + " " + a.name) || imageFor(s);
                 return (
                   <Card key={a.code || i} className="overflow-hidden flex" style={{ borderRadius: "16px" }}>
-                    <div className="w-[92px] shrink-0 self-stretch flex items-center justify-center overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5e8, #dbead0)" }}>
-                      {ancImg ? (ancIsIcon ? <img src={ancImg} alt={a.name || ""} className="w-[64px] h-[64px]" style={{ objectFit: "contain" }} /> : <Img seed={"anc-" + (a.code || i)} src={ancImg} className="w-full h-full" />) : <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #dcecca, #b7d69a)" }}><span className="w-11 h-11 rounded-2xl bg-white/85 inline-flex items-center justify-center text-tap-greenDeep shadow-sm"><Icon name={ancIcon} size={26} /></span></div>}
+                    <div className="w-[92px] shrink-0 self-stretch overflow-hidden" style={{ background: "#eef5e8" }}>
+                      <Img seed={"anc-" + (a.code || i)} src={ancPhoto || undefined} alt={a.name || ""} className="w-full h-full" fit="cover" />
                     </div>
                     <div className="p-3.5 flex flex-col flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
