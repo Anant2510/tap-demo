@@ -21,6 +21,24 @@ function notify() { _listeners.forEach(fn => { try { fn(); } catch { } }); saveT
 export function pingBasket() { notify(); }
 
 export function setLeg(leg, choice) { trip[leg] = choice; notify(); }
+// Route sync — the selected flight and the searched route must always agree. If trip.origin/dest
+// (the current search) no longer matches trip.outbound's flight (a leftover from a previous,
+// unrelated search), the flight is stale and must be dropped so the page shows the correct route
+// and prompts a fresh selection — instead of the header showing AMS–JFK while the flight card
+// shows a stale DEL–JFK. Returns true if it cleared anything.
+export function syncTripRoute() {
+  // Multi-city legs legitimately differ from trip.origin/dest (each leg is its own route), so
+  // this consistency check only applies to simple one-way / round trips where the outbound must
+  // match the searched origin→dest exactly.
+  if (trip.type === "multi") return false;
+  const o = trip.outbound?.flight;
+  if (!trip.pnr && trip.origin && trip.dest && o && (o.origin !== trip.origin || o.dest !== trip.dest)) {
+    trip.outbound = null; trip.inbound = null; trip.legs = [];
+    notify();
+    return true;
+  }
+  return false;
+}
 // Locking a fare must PERSIST — setting trip.fareHold directly skips notify(), so the
 // snapshot is written without the lock and a reload loses it (the fare then re-validates
 // and prompts "price has changed" on a fare the member is actually holding).
@@ -109,6 +127,11 @@ export function loadTrip() {
 // exactly where they left off (flight + add-ons), with the count showing in the nav.
 export function restoreFromSaved(saved) {
   if (!saved) return false;
+  // Cart persistence #2 — a restore may NEVER overwrite the current booking context. If this
+  // session already holds a confirmed booking (pnr) or an in-progress trip (a chosen flight),
+  // that context wins; restoring a stale/superseded server basket here is exactly the bug where
+  // "the cart reloads data from a previous booking". Only an empty context may be resumed.
+  if (trip.pnr || trip.outbound || (trip.extras && trip.extras.length)) return false;
   const snap = saved.snapshot || {};
   const extras = Array.isArray(snap.extras) ? snap.extras : [];
   if (!extras.length && !snap.outbound) return false;

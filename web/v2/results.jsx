@@ -120,6 +120,14 @@ export function Results({ shared, params, go }) {
       date: out,
       ret: type === "oneway" ? null : back,
     });
+    // Route sync — if the outbound-leg search route changed to something the currently-held
+    // outbound flight doesn't match (a leftover from a previous, unrelated search), drop the
+    // stale flight so downstream pages show the correct route and the user re-picks for it.
+    // Only on the outbound leg: on the inbound leg trip.outbound is legitimately the chosen
+    // outbound while the params are the swapped return route.
+    if (leg !== "inbound" && trip.outbound?.flight && (trip.outbound.flight.origin !== (params.origin || trip.origin) || trip.outbound.flight.dest !== (params.dest || trip.dest))) {
+      trip.outbound = null; trip.inbound = null; trip.legs = [];
+    }
     pingBasket(); // notify the nav badge / summaries to re-read trip
   }, [pax, type, cabin, params.origin, params.dest, params.date, params.ret, leg]); // eslint-disable-line react-hooks/exhaustive-deps
 

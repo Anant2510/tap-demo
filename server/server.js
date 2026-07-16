@@ -698,7 +698,7 @@ app.post("/api/pay", async (req, res) => {
     VALUES (?,?,?,?,?,?,?)`).run(Number(b.lastInsertRowid), tot, vAmt, mUsed, mAmt, cAmt, now());
   if (mUsed > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=?").run(mUsed, req.uid);
   if (vAmt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=? AND status='active'").run(req.uid);
-  db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=? AND status='open'").run(req.uid);
+  db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=? AND status IN ('open','superseded')").run(req.uid);
   // Booking completed → clear the "resume your search" banner for this destination
   db.prepare("DELETE FROM synced_searches WHERE user_id=?").run(req.uid);
   // Feed the booking back into travel history → future recommendations learn from it
@@ -1538,7 +1538,7 @@ function agentRunTool(name, input, session) {
       .run(Number(b.lastInsertRowid), gross, voucher_amt, miles_used, miles_amt, card_amt, now());
     if (miles_used > 0) db.prepare("UPDATE users SET miles = miles - ? WHERE id=?").run(miles_used, uid);
     if (voucher_amt > 0) db.prepare("UPDATE vouchers SET status='redeemed' WHERE user_id=? AND status='active'").run(uid);
-    db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=? AND status='open'").run(uid);
+    db.prepare("UPDATE baskets SET status='purchased' WHERE user_id=? AND status IN ('open','superseded')").run(uid);
     db.prepare("DELETE FROM synced_searches WHERE user_id=?").run(uid);
     db.prepare(`INSERT INTO travel_history (user_id,flight_no,route,trip_date,dep_time,purpose) VALUES (?,?,?,?,?,'Business')`)
       .run(uid, f.flight_no, `${f.origin}→${f.dest}`, bookDate, f.dep);

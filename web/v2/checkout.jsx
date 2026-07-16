@@ -4,7 +4,7 @@
 // A booking completes for real via /api/pay (DB row + email + CDP "booked").
 import React, { useState, useEffect, useRef } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS, money, eurRef, getCurrency } from "./lib.js";
-import { getQueue, setQueue, clearQueue as clearBasketQueue, toggleSavedExtra, savedExtraOn, savedAllExtras, trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS, getBasketTrips, saveTripToBasket, removeBasketTrip, resumeBasketTrip, basketTripTotal } from "./trip.js";
+import { getQueue, setQueue, clearQueue as clearBasketQueue, toggleSavedExtra, savedExtraOn, savedAllExtras, trip, tripTotals, toggleExtra, hasExtra, extrasByCategory, bundleSavings, setLeg, pingBasket, clearBasket, resetTrip, syncTripRoute, saveTrip, tripSnapshot, extrasBySource, SOURCE_META, SOURCE_ORDER, PER_PAX_CATS, getBasketTrips, saveTripToBasket, removeBasketTrip, resumeBasketTrip, basketTripTotal } from "./trip.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 
 const EARN = (t) => Math.round(t * 2.88);
@@ -812,6 +812,19 @@ export function Basket({ shared, go }) {
   const [editItem, setEditItem] = useState(null);   // #22 — { item, link } for the active line-item editor (hook must precede any early return)
   const enhanceRef = useRef(null);   // UI-18 — carousel scroll target for nav controls
   useEffect(() => { if (trip.pnr) resetTrip(); }, []);   // #32 — a confirmed booking must not linger as a stale basket on a direct revisit
+  // Route sync — self-correct if a loaded trip has a flight whose route no longer matches the
+  // searched route (stale cross-search data), so the header and the flight card always agree.
+  useEffect(() => { syncTripRoute(); }, []);
+  // My Trip Basket #1 — the basket must show PARKED trips even when there's no trip currently
+  // in the linear flow. If the active trip is empty but the basket holds parked trips, promote
+  // the most recent one into the active slot so the full basket UI renders it (the rest stay
+  // parked and appear as trip cards). Only a genuinely empty basket shows the empty state.
+  useEffect(() => {
+    if (!trip.outbound && !trip.pnr) {
+      const parked = getBasketTrips();
+      if (parked.length) { resumeBasketTrip(parked[0].id); r(); }
+    }
+  }, []); // eslint-disable-line
   if (!trip.outbound) return noTrip(go);
   const t = tripTotals();
   const ob = trip.outbound, ib = trip.inbound;
@@ -1391,6 +1404,7 @@ function PaxCard({ idx, lead, prefill, profile, onRemove, showErr, onChange, pax
 const Toggle = ({ on, set }) => <button onClick={() => set(!on)} className="w-12 h-7 rounded-[14px] relative transition-colors shrink-0" style={{ background: on ? "#C7F21F" : "#D9DBE0" }}><span className={cx("absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all", on ? "right-0.5" : "left-0.5")} /></button>;
 
 export function Passenger({ shared, go }) {
+  syncTripRoute();   // drop a stale flight whose route ≠ the searched route, so the page is consistent
   if (!trip.outbound) return noTrip(go);
   useEffect(() => { api.post("/journey", { origin: trip.origin, dest: trip.dest, date: trip.date, stage: "passenger", device: "Web app" }).catch(() => {}); }, []); // eslint-disable-line
   seedExtras();
@@ -1662,7 +1676,15 @@ export function Payment({ shared, go }) {
           if (qr && qr.ok) alsoBooked.push({ pnr: qr.pnr, origin: sn.origin, dest: sn.dest, total: basketTripTotal(sn) });
         }
         if (alsoBooked.length) { trip.alsoBooked = alsoBooked; clearBasketQueue(); } else if (queued.length) { clearBasketQueue(); }
-        trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to, payNote: method === "Instalments" ? `${instPlan.n}× instalments — ${EUR(instFirst)} today, then ${instPlan.n - 1} × ${EUR(instPer)}` : method === "Pay by Segment" ? `Paid by segment — outbound ${EUR(obShare)}${hasInbound ? ` + return ${EUR(ibShare)}` : ""}` : null }; go("confirmation"); }
+        trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to, payNote: method === "Instalments" ? `${instPlan.n}× instalments — ${EUR(instFirst)} today, then ${instPlan.n - 1} × ${EUR(instPer)}` : method === "Pay by Segment" ? `Paid by segment — outbound ${EUR(obShare)}${hasInbound ? ` + return ${EUR(ibShare)}` : ""}` : null };
+        // Cart persistence #1 — a completed booking is not a resumable cart. saveTrip() sees the pnr
+        // and purges the localStorage trip immediately (the pnr was set by direct assignment, which
+        // doesn't fire notify()/saveTrip on its own, so the pre-payment snapshot would otherwise linger
+        // and be restored on the next boot). Also drop the client-side basket queue and clear the
+        // server "resume your search" context so no stale search/basket can reload into a new booking.
+        saveTrip(); clearBasketQueue();
+        api.post("/journey/clear", { origin: trip.origin, dest: trip.dest }).catch(() => {});
+        go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }

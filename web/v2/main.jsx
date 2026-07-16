@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { api, setSessionId, authReady, onCurrencyChange, onLangChange } from "./lib.js";
-import { trip, resetTrip, restoreFromSaved, loadTrip, saveTrip } from "./trip.js";
+import { trip, resetTrip, restoreFromSaved, loadTrip, saveTrip, saveTripToBasket, getBasketTrips, syncTripRoute } from "./trip.js";
 import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
 import { LoginModal } from "./auth.jsx";
@@ -33,6 +33,20 @@ function App() {
     return () => window.removeEventListener("hashchange", on);
   }, []);
   const go = useCallback((r, p) => {
+    // My Trip Basket #2 — auto-park an unfinished trip. When the user leaves the booking flow
+    // (flights → cart → passenger → payment / basket) for a page outside it, and there's a trip
+    // in progress (a chosen flight, not yet booked), save it to the basket so progress is never
+    // lost. It reappears as a trip card and can be resumed or checked out later. Booked trips
+    // (pnr set) and the basket page itself are excluded, and we don't duplicate an identical park.
+    try {
+      const fromRoute = (window.location.hash || "#/home").replace(/^#\/?/, "").split("?")[0] || "home";
+      const FLOW = new Set(["results", "cart", "passenger", "payment", "express", "split"]);
+      const STAYS_IN_CONTEXT = new Set(["basket", "confirmation", "hold", "passenger", "payment", "cart", "results", "express", "split", "stopover"]);
+      if (FLOW.has(fromRoute) && !STAYS_IN_CONTEXT.has(r) && trip.outbound && !trip.pnr) {
+        const already = getBasketTrips().some(x => (x.snap?.outbound?.flight?.flight_no || "") === (trip.outbound?.flight?.flight_no || "") && (x.snap?.date || "") === (trip.date || ""));
+        if (!already) { saveTripToBasket(); resetTrip(); }
+      }
+    } catch { }
     const qs = p ? "?" + new URLSearchParams(Object.fromEntries(Object.entries(p).filter(([, v]) => v != null && v !== ""))).toString() : "";
     window.location.hash = `#/${r}${qs}`;
   }, []);
@@ -147,6 +161,13 @@ function App() {
 
   // Re-bind a persisted admin session on reload so a refresh keeps the operator signed in.
   useEffect(() => { if (admin) { try { const s = localStorage.getItem("flytap_adminsid"); if (s) setSessionId(s); } catch {} } }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Route/itinerary consistency — the header route (trip.origin/dest) and the flight card
+  // (trip.outbound's flight) must never disagree. If a stale flight from a previous, unrelated
+  // search is still attached when the searched route has changed (e.g. header AMS–JFK while the
+  // flight card shows DEL–JFK), drop it so every section reflects the same itinerary and the user
+  // is prompted to pick the correct flight. Runs on every navigation, so no page can render a mismatch.
+  useEffect(() => { syncTripRoute(); }, [route, shared.loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (admin) return <AdminConsole onLogout={adminLogout} />;
   let Screen, entry = ROUTES[route] || ROUTES.home;
