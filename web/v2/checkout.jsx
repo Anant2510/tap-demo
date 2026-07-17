@@ -67,13 +67,13 @@ const adjSeat = (lead, n = 0) => { const m = String(lead || "22A").match(/^(\d+)
 function Stepper({ active }) {
   return (
     <div className="bg-surface border-b border-line">
-      <div className="mx-auto max-w-page px-6 py-4 flex items-center gap-2 overflow-x-auto v2-track text-[13px] font-semibold whitespace-nowrap">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-4 flex items-center gap-2 overflow-x-auto v2-track text-[13px] font-semibold whitespace-nowrap">
         {STEPS.map((s, i) => (
           <React.Fragment key={s}>
             <span className={cx("shrink-0 flex items-center gap-1.5", i < active ? "text-tap-greenDeep" : i === active ? "text-ink font-bold" : "text-ink-faint")}>
               <span className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-[11px]", i < active ? "bg-tap-green text-white" : i === active ? "bg-lime-tint text-tap-greenDeep ring-1 ring-lime" : "bg-surface-mute text-ink-faint")}>{i < active ? "✓" : i + 1}</span>{s}
             </span>
-            {i < STEPS.length - 1 && <span className={cx("flex-1 min-w-[14px] h-0.5 rounded-full", i < active ? "bg-ink-700" : "bg-line-strong")} />}
+            {i < STEPS.length - 1 && <span className={cx("w-8 sm:w-12 h-0.5 rounded-full shrink-0", i < active ? "bg-ink-700" : "bg-line-strong")} />}
           </React.Fragment>
         ))}
       </div>
@@ -229,7 +229,7 @@ function FlightSummary({ go }) {
   };
   return (
     <Card className="p-5">
-      <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2 flex-wrap"><span className="text-tap-green font-black">TAP</span><Pill tone="slate">{o.fare} · Economy</Pill>{trip.stopover?.viaLisbon && <Pill tone="lime">Via Lisbon · {trip.stopover.nights}n stopover</Pill>}</div><button className="text-[12px] font-semibold text-tap-greenDeep" onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type })}>Change flight</button></div>
+      <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2 flex-wrap"><img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "15px", width: "auto" }} /><Pill tone="slate">{o.fare} · Economy</Pill>{trip.stopover?.viaLisbon && <Pill tone="lime">Via Lisbon · {trip.stopover.nights}n stopover</Pill>}</div><button className="text-[12px] font-semibold text-tap-greenDeep" onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type })}>Change flight</button></div>
       {trip.stopover?.viaLisbon ? <StopoverLegs c={o} date={trip.date} /> : <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} c={o} date={trip.date} />}<Divider /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} c={i} date={trip.ret} />
       <div className="mt-3 pt-3 border-t border-line flex flex-wrap items-center gap-3 text-[11px] text-ink-muted"><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> 1× carry-on (8kg)</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> 1× checked bag (23kg)</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> Seat selection</span><span className="flex items-center gap-1"><Icon name="check" size={12} className="text-tap-green" /> Changes for fee</span><span className="ml-auto text-ink-faint">BOOKING REF · PENDING</span></div>
     </Card>
@@ -611,8 +611,8 @@ function CartView({ go, mode = "cart", shared }) {
   const featBadge = (t) => <span key={t} className="inline-flex items-center justify-center rounded-[4px]" style={{ background: "rgba(242,242,238,1)", color: "rgba(107,107,107,1)", padding: "3px 8px", fontSize: "10px", fontWeight: 400, letterSpacing: "0.2px", lineHeight: 1 }}>{t}</span>;
   const HotelRow = ({ code, name, stars, tags, rating, reviews, pn, total, rec, img }) => { const on = hasExtra(code); const nn = tripDays; const tot = pn > 0 ? pn * nn : total; return (
     <div className="flex rounded-[14px] overflow-hidden w-full" style={on ? { background: "rgba(250,250,247,1)", border: "2px solid rgba(158,253,56,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>
-      <Img seed={"hotel-" + code} src={img || imageFor("hotel-" + code)} alt={name} className="w-[200px] self-stretch shrink-0 object-cover" />
-      <div className="flex-1 min-w-0 flex items-center justify-between gap-6 p-4 pl-5">
+      <Img seed={"hotel-" + code} src={img || imageFor("hotel-" + code)} alt={name} className="w-[116px] sm:w-[200px] self-stretch shrink-0 object-cover" />
+      <div className="flex-1 min-w-0 flex items-center justify-between gap-3 sm:gap-6 p-3 sm:p-4 sm:pl-5">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap"><span className="text-[15px] font-bold">{name}</span><span className="text-[#E8C75A]">{"★".repeat(stars)}</span>{rec && <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-surface-dark text-lime">Recommended</span>}</div>
           <div className="flex flex-wrap gap-1.5 mt-2">{tags.map(featBadge)}</div>
@@ -692,9 +692,9 @@ function CartView({ go, mode = "cart", shared }) {
       <RevalGate reval={reval} setReval={setReval} go={go} />
       {seatMapOpen && <SeatMapModal pax={pax} cabin={cab} aircraft={trip.outbound?.flight?.aircraft} initialType={(seat && String(seat.code || "").replace(/^seat-/, "")) || "std"} onClose={() => setSeatMapOpen(false)} onConfirm={confirmSeats} />}
       {isBasket
-        ? <div className="mx-auto max-w-page px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
+        ? <div className="mx-auto max-w-page px-4 sm:px-6 pt-5 text-[12px] text-ink-faint"><button onClick={() => go("home")} className="hover:text-ink">Homepage</button> › <span className="text-ink-muted">My trip basket</span></div>
         : <Stepper active={1} />}
-      <div className="mx-auto max-w-page px-6 py-6">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">{isBasket ? "My trip basket" : "View & customize cart"}</h1><span className="inline-flex items-center text-[10px] font-bold tracking-wide uppercase px-2.5 py-1 rounded-full bg-surface-mute text-ink-slate border border-line">{isBasket ? `${trip.extras.length + 1} items` : "8 modules"}</span></div>
         <p className="text-[13px] text-ink-muted mt-1">{isBasket ? "Review and customize everything you've added to your trip before checkout." : "Choose hotels, transfers, protection and experiences to complete your trip. Everything you add flows into your cart."}</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adult{trip.pax > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>All extras optional</Chip></div>
@@ -1439,7 +1439,7 @@ export function Passenger({ shared, go }) {
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <RevalGate reval={reval} setReval={setReval} go={go} />
       <Stepper active={3} />
-      <div className="mx-auto max-w-page px-6 py-6">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Passenger details</h1><Pill tone="slate">{paxCount} traveler{paxCount > 1 ? "s" : ""}</Pill></div>
         <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Enter passenger information exactly as it appears on travel documents. We'll use this to issue tickets and send trip updates.</p>
         <div className="flex flex-wrap gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{paxCount} adult{paxCount > 1 ? "s" : ""}</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {last}{paxCount > 1 ? " + " + (paxCount - 1) : ""}</Chip></div>
@@ -1729,7 +1729,7 @@ export function Payment({ shared, go }) {
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <RevalGate reval={reval} setReval={setReval} go={go} />
       <Stepper active={4} />
-      <div className="mx-auto max-w-page px-6 py-6">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-6">
         <div className="flex items-center gap-3"><h1 className="text-[26px] font-bold">Payment</h1><Pill tone="slate"><Icon name="lock" size={11} /> Secure checkout · powered by Stripe</Pill></div>
         <p className="text-[13px] text-ink-muted mt-1">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
         <div className="flex flex-wrap items-center gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {trip.pax > 1 ? "+ " + (trip.pax - 1) : ""}</Chip><span className="ml-auto inline-flex items-center gap-2 rounded-lg bg-surface-mute px-3 py-1.5"><span className="w-2 h-2 rounded-full bg-tap-red inline-block" /><span className="leading-tight"><span className="block text-[9px] font-bold uppercase tracking-wide text-ink-faint">Price locked</span><SessionTimer prefix="" suffix=" remaining" className="block text-[12px] font-bold text-ink v2-num" /></span></span></div>
@@ -1957,7 +1957,7 @@ export function MilesShop({ shared, go }) {
     </div>
   );
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <Eyebrow>Miles &amp; Go · redemption</Eyebrow>
@@ -2071,7 +2071,7 @@ export function StopoverBuilder({ shared, go }) {
     </div>
   );
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Eyebrow>Portugal Stopover · free on TAP long-haul via Lisbon</Eyebrow>
       <h1 className="text-[30px] font-black mt-1">Break your trip in Lisbon</h1>
       <p className="text-[13px] text-ink-muted mt-1 max-w-2xl">Stop over for up to a few nights at no extra airfare. We've tailored the picks to your profile{premium ? " — boutique stays first, as a " + (u.tier || "premium") + " member." : "."} Every component is priced separately — add only what you want.</p>
@@ -2236,7 +2236,7 @@ export function Confirmation({ shared, go }) {
   const addWallet = () => setWalletAdded(true);
   return (
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
-      <div className="mx-auto max-w-page px-6 py-8">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
         <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center shrink-0"><Icon name="check" size={22} /></span><div><h1 className="text-[36px] font-bold leading-tight">Booking Confirmed</h1><div className="text-[16px] text-ink-muted leading-6">PNR {trip.pnr} · Receipt sent to {pay.email || u.email}</div></div></div>
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
           <div className="space-y-6">
@@ -2261,7 +2261,7 @@ export function Confirmation({ shared, go }) {
                   { _stop: trip.stopover.nights },
                   { flight: { ...o.flight, origin: "LIS", dep: sh(o.flight.arr, -70), duration: "1h 05m" }, _lbl: "Outbound · Segment 2", _d: trip.date, _seat: leadSeat },
                   ...(i ? [{ flight: i.flight, _lbl: "Return", _d: trip.ret, _seat: inSeat || "22B" }] : []),
-                ] : [o, i].filter(Boolean).map((c, idx) => ({ flight: c.flight, _lbl: null, _d: idx === 0 ? trip.date : trip.ret, _seat: idx === 0 ? leadSeat : (inSeat || "22B") }));
+                ] : [o, i].filter(Boolean).map((c, idx) => ({ flight: c.flight, _lbl: trip.type === "multi" ? `Flight ${idx + 1}` : null, _d: idx === 0 ? trip.date : trip.ret, _seat: idx === 0 ? leadSeat : (inSeat || "22B") }));
                 return rows.map((c, idx) => c._stop ? (
                   <div key={idx} className="flex items-center gap-2 px-5 py-2 mb-2 text-[12px] font-semibold text-tap-greenDeep" style={{ borderTop: "1px dashed #DCDCD8", borderBottom: "1px dashed #DCDCD8" }}><Icon name="clock" size={13} /> Stopover · {c._stop} night{c._stop > 1 ? "s" : ""} in Lisbon</div>
                 ) : (
@@ -2415,8 +2415,8 @@ export function ExpressCheckout({ shared, go, params }) {
 
   return (
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
-      <div className="bg-surface border-b border-line"><div className="mx-auto max-w-page px-6 py-4 flex items-center gap-3 text-[13px] font-semibold"><span className="flex items-center gap-1.5 text-ink"><span className="w-5 h-5 rounded-full bg-lime text-ink inline-flex items-center justify-center text-[11px]">1</span> Review &amp; Pay</span><span className="flex-1 h-px bg-line-strong" /><span className="flex items-center gap-1.5 text-ink-faint"><span className="w-5 h-5 rounded-full bg-surface-mute text-ink-faint inline-flex items-center justify-center text-[11px]">2</span> Confirmation</span></div></div>
-      <div className="mx-auto max-w-page px-6 py-6">
+      <div className="bg-surface border-b border-line"><div className="mx-auto max-w-page px-4 sm:px-6 py-4 flex items-center gap-3 text-[13px] font-semibold"><span className="flex items-center gap-1.5 text-ink"><span className="w-5 h-5 rounded-full bg-lime text-ink inline-flex items-center justify-center text-[11px]">1</span> Review &amp; Pay</span><span className="flex-1 h-px bg-line-strong" /><span className="flex items-center gap-1.5 text-ink-faint"><span className="w-5 h-5 rounded-full bg-surface-mute text-ink-faint inline-flex items-center justify-center text-[11px]">2</span> Confirmation</span></div></div>
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-6">
         <h1 className="text-[26px] font-bold">Express checkout</h1>
         <p className="text-[13px] text-ink-muted mt-1">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
         {!o ? <Card className="p-10 text-center mt-6"><div className="text-[14px] text-ink-muted">Loading your usual {cityOf(origin)} ⇄ {cityOf(dest)} trip…</div></Card> : (

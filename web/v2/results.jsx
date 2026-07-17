@@ -264,7 +264,7 @@ export function Results({ shared, params, go }) {
     <div className="bg-surface-soft min-h-screen pb-6">
       {/* search summary bar */}
       <div className="bg-surface border-b border-line">
-        <div className="mx-auto max-w-page px-6 py-3 flex flex-wrap items-center gap-2">
+        <div className="mx-auto max-w-page px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2">
           <Chip label="From" value={`${cityOf(origin)} · ${origin}`} />
           <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="px-1.5 hover:text-tap-greenDeep" style={{ color: "#232323" }} title="Swap origin and destination" aria-label="Swap"><Icon name="swap" size={19} /></button>
           <Chip label="To" value={`${cityOf(dest)} · ${dest}`} />
@@ -276,13 +276,13 @@ export function Results({ shared, params, go }) {
                 : `${fmtDate(date)} — ${fmtDate(retDate)}`.replace(/ \d{4}/g, "")   // outbound: full trip span
           } />
           <Chip label="Pax" value={`${(() => { const a = +params.adults || pax; const c = +params.children || 0; const inf = +params.infants || 0; return [`${a} adult${a !== 1 ? "s" : ""}`, c ? `${c} child${c !== 1 ? "ren" : ""}` : "", inf ? `${inf} infant${inf !== 1 ? "s" : ""}` : ""].filter(Boolean).join(" · "); })()} · ${CABIN_LABEL[cabin] || "Economy"}`} />
-          <button onClick={() => go("home")} className="ml-auto inline-flex items-center justify-center text-ink hover:border-tap-green" style={{ width: "99px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #E2E2E5", fontSize: "13px", fontWeight: 600 }}>Edit search</button>
+          <button onClick={() => go("home")} className="ml-auto inline-flex items-center justify-center text-ink hover:border-tap-green whitespace-nowrap" style={{ height: "36px", padding: "10px 16px", borderRadius: "9999px", border: "1px solid #E2E2E5", fontSize: "13px", fontWeight: 600 }}>Edit search</button>
         </div>
       </div>
 
       {isMulti && (
         <div className="bg-surface-dark">
-          <div className="mx-auto max-w-page px-6 py-2.5 flex items-center gap-2 overflow-x-auto v2-track">
+          <div className="mx-auto max-w-page px-4 sm:px-6 py-2.5 flex items-center gap-2 overflow-x-auto v2-track">
             <span className="text-[10px] font-bold uppercase tracking-wide text-lime shrink-0 mr-1">Multi-city itinerary</span>
             {mLegs.map((L, i) => {
               const picked = (trip.legs || [])[i];
@@ -297,20 +297,22 @@ export function Results({ shared, params, go }) {
 
       {/* stepper — full booking journey */}
       <div className="bg-surface border-b border-line">
-        <div className="mx-auto max-w-page px-6 py-4 flex items-center gap-2 overflow-x-auto v2-track text-[13px] font-semibold whitespace-nowrap">
+        <div className="mx-auto max-w-page px-4 sm:px-6 py-4 flex items-center justify-between gap-4 text-[13px] font-semibold whitespace-nowrap">
+          <div className="flex items-center gap-2 overflow-x-auto v2-track min-w-0">
           {["Select flights", "View & customize cart", "My Trip Basket", "Passenger details", "Payment"].map((s, i) => (
             <React.Fragment key={s}>
               <span className={cx("shrink-0 flex items-center gap-1.5", i === 0 ? "text-ink font-bold" : "text-ink-faint")}>
                 <span className={cx("w-5 h-5 rounded-full inline-flex items-center justify-center text-[11px]", i === 0 ? "bg-lime-tint text-tap-greenDeep ring-1 ring-lime" : "bg-surface-mute text-ink-faint")}>{i + 1}</span>{s}
               </span>
-              {i < 4 && <span className={cx("flex-1 min-w-[14px] h-0.5 rounded-full", i === 0 ? "bg-ink-700" : "bg-line-strong")} />}
+              {i < 4 && <span className={cx("w-8 sm:w-12 h-0.5 rounded-full shrink-0", i === 0 ? "bg-ink-700" : "bg-line-strong")} />}
             </React.Fragment>
           ))}
+          </div>
+          <div className="text-right shrink-0"><div className="text-[12px] text-ink-muted">Step 1 of 5</div><div className="text-[13px] font-bold text-ink">Pick your flight</div></div>
         </div>
-        <div className="mx-auto max-w-page px-6 pb-3 -mt-1 text-right"><div className="text-[12px] text-ink-muted">Step 1 of 5</div><div className="text-[13px] font-bold text-ink">Pick your flight</div></div>
       </div>
 
-      <div className="mx-auto max-w-page px-6 py-6 grid lg:grid-cols-[260px_1fr] gap-6">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-6 grid lg:grid-cols-[260px_1fr] gap-6">
         {/* J2 — mobile-only filters toggle (hidden on lg where the sidebar is always visible) */}
         <button onClick={() => setFiltersOpen(o => !o)} className="lg:hidden w-full flex items-center justify-between rounded-xl border border-line-strong bg-surface px-4 py-3 text-[14px] font-semibold text-ink"><span className="flex items-center gap-2"><Icon name="menu" size={16} className="text-ink-muted" /> Filters &amp; sort</span><Icon name={filtersOpen ? "x" : "arrow"} size={16} className="text-ink-muted" /></button>
         {/* filters */}
@@ -362,7 +364,7 @@ export function Results({ shared, params, go }) {
                         <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.arr}</div><div className="text-[11px] text-ink-faint mt-1">{of.dest}</div></div>
                       </div>
                       <div className="flex-1 min-w-[160px]">
-                        <div className="flex items-center gap-2"><span className="inline-flex items-center justify-center text-[12px] font-black leading-none tracking-tight shrink-0"><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+                        <div className="flex items-center gap-2"><img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "15px", width: "auto" }} /><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
                         <div className="text-[11px] text-ink-faint mt-0.5">{of.aircraft} · Bag included</div>
                       </div>
                       <div className="text-right rounded-xl bg-surface border border-line min-w-[148px]" style={{ padding: "22px 24px 22px 20px" }}>
@@ -409,20 +411,20 @@ export function Results({ shared, params, go }) {
             );
           })()}
           {/* date strip */}
-          <Card className="p-1.5 flex items-stretch gap-1">
+          <div className="mx-auto flex items-stretch gap-1" style={{ width: "100%", maxWidth: "964px", height: "64px", borderRadius: "14px", border: "1px solid rgba(226, 226, 229, 1)", boxShadow: "0px 4px 14px 0px rgba(0, 0, 0, 0.05)", padding: "0 16px", background: "#fff" }}>
             <button onClick={() => setWeekAnchor(shiftISO(weekAnchor || date, -7))} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Previous week">‹</button>
-            <div className="flex-1 flex gap-1 overflow-x-auto v2-track">
+            <div className="flex-1 flex gap-1 overflow-x-auto v2-track justify-center items-stretch">
             {week.map(d => {
               const on = d.date === date;
               return <button key={d.date} onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: d.date })}
-                className={cx("flex-1 min-w-[88px] px-3 text-center transition-colors", on ? "" : "rounded-xl py-2 hover:bg-surface-mute")} style={on ? { background: "#F2FFDB", paddingTop: "24px", paddingBottom: "24px", borderBottom: "1px solid #2E7D33" } : undefined}>
-                <div className={cx("text-[11px]", on ? "font-bold" : "text-ink-muted")} style={on ? { color: "#111111" } : undefined}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}</div>
-                <div className={cx("text-[15px] font-bold v2-num", !on && "text-ink")} style={on ? { color: "#46A41A" } : undefined}>{d.price ? EUR(d.price) : "—"}</div>
+                className={cx("text-center transition-colors flex flex-col items-center justify-center gap-1", on ? "" : "min-w-[84px] px-3 rounded-xl hover:bg-surface-mute")} style={on ? { width: "126.29px", padding: "14px", background: "rgba(242, 255, 219, 1)", borderBottom: "1px solid #2E7D33" } : undefined}>
+                <div className={cx(on ? "" : "text-[11px]", on ? "" : "text-ink-muted")} style={on ? { color: "#111111", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "11px", lineHeight: "100%", letterSpacing: "0.5px" } : undefined}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}</div>
+                <div className={cx(on ? "" : "text-[15px] font-bold", "v2-num", !on && "text-ink")} style={on ? { color: "#46A41A", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "15px", lineHeight: "100%", letterSpacing: "0.5px" } : undefined}>{d.price ? EUR(d.price) : "—"}</div>
               </button>;
             })}
             </div>
             <button onClick={() => setWeekAnchor(shiftISO(weekAnchor || date, 7))} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Next week">›</button>
-          </Card>
+          </div>{/* end fare selector */}
 
           {/* sort tabs — borderless, label-only, green active state */}
           <div className="flex items-center gap-2 overflow-x-auto v2-track">
@@ -474,7 +476,7 @@ export function Results({ shared, params, go }) {
           "Change" (#12) deselects and removes it. On the INBOUND leg the bar stays visible once
           the outbound is locked (carried Inbound #10: "OUTBOUND ✓ · INBOUND: select to continue"). */}
       {(sel || (leg === "inbound" && trip.outbound)) && <div className="sticky bottom-4 z-30 mt-6">
-        <div className="mx-auto max-w-page px-6">
+        <div className="mx-auto max-w-page px-4 sm:px-6">
           <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
             <div className="min-w-0">
               {sel ? <>
@@ -530,7 +532,7 @@ function HoldFareModal({ flight, date, fare, price, seat, onClose, onHeld, onCon
   }
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4" onClick={onClose}>
-      <div className="bg-surface rounded-2xl shadow-pop w-full max-w-[760px] my-6 p-7" onClick={e => e.stopPropagation()}>
+      <div className="bg-surface rounded-2xl shadow-pop w-full max-w-[760px] my-6 p-5 sm:p-7" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3">
           <span className="w-10 h-10 rounded-full bg-lime inline-flex items-center justify-center text-ink"><Icon name="clock" size={20} /></span>
           <div className="text-[22px] font-black">Not ready to book?</div>
@@ -747,7 +749,10 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
       {pairing && <span className="absolute top-0 left-4 z-10 text-[10px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-md px-2 py-1 inline-flex items-center gap-1">★ Best pairing • recommended for you</span>}
       <Card style={{ borderRadius: "16px", borderColor: isSelected ? "#9EFD38" : "#E2E2E5", borderWidth: isSelected ? "2px" : undefined }} className={cx("overflow-hidden", pairing && "ring-2 ring-tap-green bg-lime-tint/40", !pairing && expanded && !isSelected && "ring-2 ring-lime")}>
       {/* header row — compact single-line layout per design */}
-      <div className="p-5 flex flex-wrap items-center gap-3">
+      <div className="p-5 flex flex-wrap items-stretch gap-3">
+        {/* flight details — one row that spreads across the full available width so the content
+            isn't congested on the left with a gap before the fare panel (approved layout) */}
+        <div className="flex-1 min-w-[420px] flex items-center justify-between gap-4">
         {/* times + route — airport under time, no arrow */}
         <div className="flex items-center gap-4 min-w-[230px]">
           <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-left">{f.dep}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.origin}</div></div>
@@ -761,7 +766,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
         </div>
         {/* airline block — TP mark + number, aircraft, bag + earn MI */}
         <div className="flex-1 min-w-[180px]">
-          <div className="flex items-center gap-2"><span className="inline-flex items-center justify-center rounded-[3px] px-1 text-[12px] font-black leading-none tracking-tight shrink-0" style={{ height: "13px" }}><span className="text-tap-red">T</span><span className="text-ink">A</span><span className="text-tap-greenDeep">P</span></span><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+          <div className="flex items-center gap-2"><img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "16px", width: "auto" }} /><span className="text-[13px] font-semibold">{f.flight_no.replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
           <div className="text-[11px] text-ink-faint mt-0.5">{f.aircraft}{m.features.length ? " · " + m.features.join(" · ") : ""}</div>
           <div className="flex items-center gap-2 mt-1.5">
             {headline.feats[1][1] ? <Badge tone="green">Bag included</Badge> : <Badge>No bag</Badge>}
@@ -769,6 +774,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
           </div>
           {pairing && <div className="text-[11px] text-tap-greenDeep font-medium mt-1.5 flex items-start gap-1.5"><span className="text-amber-500 leading-none mt-0.5">●</span> Home in {f.dest} by {f.arr} · same fare brand → bundle €15 off</div>}
         </div>
+        </div>{/* end flight details row */}
         {/* price panel — light grey, right-aligned */}
         <div className="text-right min-w-[151px] self-stretch flex flex-col justify-center border-l" style={{ borderColor: "#ECECEF", background: isSelected ? "rgba(249,249,250,1)" : "transparent", margin: "-20px -20px -20px 0", padding: "22px 24px 22px 20px", borderTopRightRadius: "14px", borderBottomRightRadius: "14px" }}>
           {pairing && <div className="text-[11px] font-bold text-tap-greenDeep">BUNDLE −€15</div>}

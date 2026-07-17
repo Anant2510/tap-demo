@@ -27,12 +27,29 @@ export function setLeg(leg, choice) { trip[leg] = choice; notify(); }
 // and prompts a fresh selection — instead of the header showing AMS–JFK while the flight card
 // shows a stale DEL–JFK. Returns true if it cleared anything.
 export function syncTripRoute() {
-  // Multi-city legs legitimately differ from trip.origin/dest (each leg is its own route), so
-  // this consistency check only applies to simple one-way / round trips where the outbound must
-  // match the searched origin→dest exactly.
-  if (trip.type === "multi") return false;
+  if (trip.pnr) return false;
+  // Multi-city: each leg is its own route, but the legs must CHAIN — leg N's destination must be
+  // leg N+1's origin (JFK→LIS then LIS→OPO). If a stale flight from a previous search breaks the
+  // chain (e.g. a leftover direct JFK→OPO sitting in leg 1 while leg 2 is LIS→OPO, so the itinerary
+  // shows a direct flight instead of the two stopover segments), drop the whole leg set so the user
+  // re-picks each leg for the current multi-city route. Returns true if it cleared anything.
+  if (trip.type === "multi") {
+    const legs = (trip.legs && trip.legs.length ? trip.legs : [trip.outbound, trip.inbound]).filter(Boolean);
+    if (legs.length >= 2) {
+      for (let i = 0; i < legs.length - 1; i++) {
+        const a = legs[i]?.flight, b = legs[i + 1]?.flight;
+        if (a && b && a.dest && b.origin && a.dest !== b.origin) {
+          trip.outbound = null; trip.inbound = null; trip.legs = [];
+          notify();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  // Simple one-way / round trip: the outbound must match the searched origin→dest exactly.
   const o = trip.outbound?.flight;
-  if (!trip.pnr && trip.origin && trip.dest && o && (o.origin !== trip.origin || o.dest !== trip.dest)) {
+  if (trip.origin && trip.dest && o && (o.origin !== trip.origin || o.dest !== trip.dest)) {
     trip.outbound = null; trip.inbound = null; trip.legs = [];
     notify();
     return true;

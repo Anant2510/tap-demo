@@ -175,7 +175,7 @@ export function ManageBooking({ shared, go }) {
   const total = subtotal + taxes - savings;
   const earn = Math.round(total * 2.77);
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "Home", page: "home" }, { label: "My trips" }]} />
       <h1 className="text-[30px] font-black">My trips</h1>
       <div className="text-[13px] text-ink-muted mt-1">{list.length} upcoming flight{list.length !== 1 ? "s" : ""} · manage seats, check-in, extras and more</div>
@@ -345,7 +345,7 @@ export function Retrieve({ shared, go }) {
     setNotFound(false); setFound(true); window.scrollTo({ top: 0 });
   };
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: "Retrieve booking" }]} />
       <h1 className="text-[26px] font-black">Retrieve your booking</h1>
       {/* supporting description (#1) */}
@@ -491,7 +491,7 @@ export function CabinUpgrade({ shared, go }) {
     </div>
   );
   return (
-    <div className="bg-white min-h-screen"><div className="mx-auto max-w-page px-6 py-8">
+    <div className="bg-white min-h-screen"><div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr} — ${cityOf(shared.airports, booking.flight?.origin)}–${cityOf(shared.airports, booking.flight?.dest)} · ${fmtDate(booking.flight_date)}`, page: "manage" }, { label: "Cabin upgrade" }]} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
@@ -627,7 +627,7 @@ export function SeatChange({ shared, go }) {
   );
 
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <nav className="text-[12px] text-ink-faint flex items-center gap-1.5 flex-wrap">
           <button onClick={() => go("manage")} className="hover:text-ink transition-colors">My Trip</button>
@@ -818,7 +818,7 @@ export function DisruptionCenter({ shared, go }) {
     { k: "voucher", label: "Voucher", sub: "+20% travel credit", amt: voucherAmt },
   ];
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: booking.pnr, page: "manage" }, { label: "Disruption" }]} />
       <h1 className="text-[28px] font-black">Your flight was disrupted</h1>
       <p className="text-[13px] text-ink-muted mt-1">{dis.recovery?.message || `Flight ${booking.flight_no} is affected.`} Choose how each traveller in this booking would like to be handled — they don't all have to do the same thing.</p>
@@ -962,7 +962,7 @@ export function Rebook({ shared, go }) {
   const status = /cancel/i.test(blob) ? "Cancelled" : /delay/i.test(blob) ? "Delayed" : "Schedule change";
   const cityO = cityOf(shared.airports, cur.origin), cityD = cityOf(shared.airports, cur.dest);
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${active?.pnr || "Booking"}${curFlight ? " — " + curFlight : ""}`, page: "manage" }, { label: "Change flight", page: "manage" }, { label: "Review & rebook" }]} />
       <h1 className="text-[28px] font-black">Rebook your flight</h1>
       <p className="text-[13px] text-ink-muted mt-1">{rec.message}</p>
@@ -990,10 +990,10 @@ export function Rebook({ shared, go }) {
                     <Card className={cx("p-4 transition-colors", on ? "ring-2 ring-tap-green" : "hover:border-tap-green/40")}>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green bg-tap-green" : "border-line-strong")}>{on && <span className="w-1.5 h-1.5 bg-white rounded-full" />}</span>
-                        <span className="text-tap-green font-black text-[13px]">TAP</span><span className="text-[12px] font-semibold v2-num">{o.id}</span>
+                        <img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "15px", width: "auto" }} /><span className="text-[12px] font-semibold v2-num">{o.id}</span>
                         <span className="text-[11px] text-ink-muted">· {o.detail || o.label}</span>
-                        {idx === 0 && <span className="text-[9px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-full px-2 py-0.5">Best</span>}
-                        <span className="ml-auto text-[13px] font-bold text-tap-greenDeep">+€0</span>
+                        {o.tag && <span className={cx("text-[9px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5", o.tag === "COMP HOTEL" ? "bg-[#fff4d6] text-[#8C590D]" : o.tag === "SAME DAY" ? "bg-ink text-white" : "bg-tap-greenDeep text-white")}>{o.tag}</span>}
+                        <span className={cx("ml-auto text-[13px] font-bold", (o.fareDelta || 0) < 0 ? "text-tap-greenDeep" : "text-ink")}>{(o.fareDelta || 0) < 0 ? "−€" + Math.abs(o.fareDelta) : "+€" + (o.fareDelta || 0)}</span>
                       </div>
                       {hasTimes && (
                         <div className="flex items-center gap-3 mt-3 pl-6">
@@ -1124,7 +1124,7 @@ export function CheckInIndirect({ shared, go, params }) {
             <div><div className="text-[10px] uppercase tracking-widest text-white/50">Boarding pass{passes.length > 1 ? ` · ${bi + 1} of ${passes.length}` : ""}</div><div className="text-[20px] font-black mt-1">{res.route}</div></div>
             <div className="text-right"><div className="text-[10px] uppercase tracking-widest text-white/50">Group</div><div className="text-[28px] font-black text-lime">{res.group}</div></div>
           </div>
-          <div className="p-5 grid grid-cols-3 gap-4 text-center">
+          <div className="p-4 sm:p-5 grid grid-cols-3 gap-2 sm:gap-4 text-center">
             <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Passenger</div><div className="font-bold text-[14px] mt-0.5">{p.name}</div></div>
             <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Seat</div><div className="font-bold text-[14px] mt-0.5 v2-num">{p.seat || res.seat}</div></div>
             <div><div className="text-[10px] uppercase tracking-wide text-ink-faint">Date</div><div className="font-bold text-[14px] mt-0.5">{fmtDate(res.date)}</div></div>
@@ -1140,7 +1140,7 @@ export function CheckInIndirect({ shared, go, params }) {
   const selCount = bookedPax.filter(isOn).length;
   const total = bookedPax.length;
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr}${booking.flight_no ? " — " + booking.flight_no : ""}`, page: "manage" }, { label: "Online check-in" }]} />
       <h1 className="text-[26px] font-black">Check in for your flight</h1>
       <p className="text-[13px] text-ink-muted mt-1 flex items-center gap-1.5 flex-wrap"><Icon name="check" size={13} className="text-tap-green" /> Open · {booking.flight_no || "TP1042"} {cityOf(shared.airports, booking.flight?.origin)}–{cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)} · Booked via Booking.com agency</p>
@@ -1255,7 +1255,7 @@ export function AddExtras({ shared, go, params }) {
   /* ── STEP 1 · pick an upcoming trip ───────────────────────────── */
   if (step === "pick") {
     return (
-      <div className="mx-auto max-w-page px-6 py-8">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
         <Crumb go={go} />
         <h1 className="text-[26px] font-black">Add extras to your trip</h1>
         <p className="text-[13px] text-ink-muted mt-1">Choose which upcoming trip to add extras to.</p>
@@ -1297,7 +1297,7 @@ export function AddExtras({ shared, go, params }) {
   /* ── STEP 3 · review & pay ────────────────────────────────────── */
   if (step === "pay") {
     return (
-      <div className="mx-auto max-w-page px-6 py-8">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
         <button onClick={() => setStep("extras")} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Back to extras</button>
         <h1 className="text-[26px] font-black">Review &amp; pay</h1>
         <p className="text-[13px] text-ink-muted mt-1">PNR {sel.pnr} · {fmtDate(sel.flight_date)} · {cityOf(airports, sel.flight?.origin)}–{cityOf(airports, sel.flight?.dest)}</p>
@@ -1335,7 +1335,7 @@ export function AddExtras({ shared, go, params }) {
   if (step === "done") {
     const ok = result && result.ok;
     return (
-      <div className="mx-auto max-w-page px-6 py-8">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
         <SuccessHead title={ok ? "Extras added to your trip" : "Couldn't add extras"} sub={ok ? `PNR ${sel.pnr}${result.total > 0 ? " · " + EUR(result.total) + " charged" : ""}${result.email ? " · confirmation sent to " + result.email : ""}` : "Please try again."} />
         {ok && (
           <Card className="p-5 mt-5 max-w-lg">
@@ -1422,7 +1422,7 @@ export function AddExtras({ shared, go, params }) {
   ];
 
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       {/* #1 — breadcrumb now carries flight context (route) so the user always sees which flight */}
       <Crumb go={go} trail={[
         { label: "My Trip", page: "manage" },
@@ -1582,7 +1582,7 @@ export function SplitBooking({ shared, params, go }) {
     const s = result.summary || {}, rec = result.original || {}, spl = result.split || {};
     const cancelled = result.action === "cancel";
     return (
-      <div className="mx-auto max-w-page px-6 py-8">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
         <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: "Change / split" }]} />
         <SuccessHead title="Your booking was split into two records" sub={`${rec.pnr} stays as booked · ${spl.pnr} ${cancelled ? "cancelled with refund" : "moved to a new flight"}`} />
         <div className="grid md:grid-cols-2 gap-4 mt-5">
@@ -1618,7 +1618,7 @@ export function SplitBooking({ shared, params, go }) {
   }
 
   return (
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: "Change / split travellers" }]} />
       <h1 className="text-[26px] font-black">Change or split travellers</h1>
       <p className="text-[13px] text-ink-muted mt-1">Move one or more travellers to a different flight, or cancel just their seats — the rest of the party keeps their booking. This creates a second record (PNR split).</p>
@@ -1776,7 +1776,7 @@ export function Refund({ shared, go, params }) {
   const refundTotalMi = milesFor(refundTotal);
   return (
     <div className="bg-white min-h-full">
-    <div className="mx-auto max-w-page px-6 py-8">
+    <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: `${booking.pnr}${booking.flight_no ? " — " + booking.flight_no : ""}`, page: "manage" }, { label: "Refund request" }]} />
       <h1 className="text-[36px] font-bold" style={{ color: "#0A0A0A" }}>Refund request</h1>
       <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Flight cancelled by airline. Choose how to receive each item refund. Travel-bank gets +10% bonus.</p>

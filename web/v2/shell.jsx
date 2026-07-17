@@ -5,12 +5,7 @@ import { miles, api, setCurrency, setLang, t } from "./lib.js";
 import { trip, onTripChange } from "./trip.js";
 
 export const TapLogo = ({ onDark = false }) => (
-  <span className="text-[22px] font-black tracking-tight select-none">
-    <span style={{ color: "var(--tap-red)" }}>T</span>
-    <span style={{ color: onDark ? "#fff" : "var(--ink)" }}>A</span>
-    <span style={{ color: "var(--tap-green)" }}>P</span>
-    <span className={cx("ml-2 text-[10px] font-semibold tracking-[0.2em]", onDark ? "text-white/60" : "text-ink-faint")}>AIR PORTUGAL</span>
-  </span>
+  <img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className={cx("object-contain select-none", onDark && "bg-white rounded px-2 py-1")} style={{ height: onDark ? "22px" : "24px", width: "auto", boxSizing: onDark ? "content-box" : undefined }} />
 );
 
 const NAV = [
@@ -124,7 +119,7 @@ export function TopNav({ route, go, profile, loggedIn, onLogin, onLogout }) {
   return (
     <header className="sticky top-0 z-40 bg-surface-mute/85 backdrop-blur border-b border-line">
       {searchOpen && <SearchOverlay go={go} upcoming={upcomingTrips} onClose={() => setSearchOpen(false)} />}
-      <div className="mx-auto max-w-page px-6 h-16 flex items-center gap-6">
+      <div className="mx-auto max-w-page px-4 sm:px-6 h-16 flex items-center gap-6">
         <button onClick={() => go("home")} className="shrink-0"><TapLogo /></button>
         <div className="relative lg:hidden">
           <button onClick={() => setMobileNav(o => !o)} className="p-2 -ml-1 rounded-lg text-ink hover:bg-surface-mute" aria-label="Menu"><Icon name={mobileNav ? "x" : "menu"} size={20} /></button>
@@ -228,7 +223,7 @@ export function Footer() {
   ];
   return (
     <footer className="mt-16 bg-surface-dark text-white">
-      <div className="mx-auto max-w-page px-6 py-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr] gap-8">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr] gap-8">
         <div className="col-span-2 md:col-span-3 lg:col-span-1">
           <TapLogo onDark />
           <p className="text-[12px] text-white/55 mt-3 max-w-[230px]">An original premium airline concept connecting the Americas to Europe through Portugal.</p>
@@ -240,7 +235,7 @@ export function Footer() {
           <div key={h}><div className="text-[12px] font-bold mb-3">{h}</div><ul className="space-y-2">{items.map(i => <li key={i}><a className="text-[12px] text-white/55 hover:text-white">{i}</a></li>)}</ul></div>
         ))}
       </div>
-      <div className="border-t border-white/10"><div className="mx-auto max-w-page px-6 py-4 flex flex-wrap items-center justify-between gap-3 text-[11px] text-white/40">
+      <div className="border-t border-white/10"><div className="mx-auto max-w-page px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3 text-[11px] text-white/40">
         <span>© 2026 FlyTap · Privacy · Terms · Cookies · Accessibility</span>
         <span>Portugal · Brasil · United States</span>
       </div></div>

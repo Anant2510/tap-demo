@@ -788,6 +788,13 @@ function rankedAlts(f, uid, exclude, date) {
 }
 // Deterministic, persona-aware recovery for delay OR cancel (works offline; the /api/disrupt
 // path may still enrich the delay message via Claude when a key is configured).
+// Badge for a rebooking alternative: the closest-to-original departure is BEST, a same-day
+// later flight is SAME DAY, and a next-day option (overnight) carries a complimentary hotel.
+function rebookTag(a, i) {
+  if (a.gapMin > 1200) return "COMP HOTEL";
+  if (i === 0) return "BEST";
+  return "SAME DAY";
+}
 function buildRecoveryDet(f, u, action, alts) {
   const routeStr = `${cityName(f.origin)}→${cityName(f.dest)}`;
   if (action === "cancel") {
@@ -797,7 +804,7 @@ function buildRecoveryDet(f, u, action, alts) {
       message: `We're sorry — ${f.flight_no} (${routeStr}) has been cancelled. As a ${u.tier || "valued"} member you can rebook free on the next available flight, take a full refund the way you paid, or a travel voucher with +20% bonus — each traveller can choose independently.`,
       options: [
         { id: "__refund", label: "Full refund", detail: "Back to your original payment method, instantly." },
-        ...alts.map(a => ({ id: a.flight_no, label: `Rebook ${a.flight_no} · departs ${a.dep}`, detail: a.reasons.join(" · ") })),
+        ...alts.map((a, i) => ({ id: a.flight_no, label: `Rebook ${a.flight_no} · departs ${a.dep}`, detail: a.reasons.join(" · "), dep: a.dep, arr: a.arr, price: a.price, gapMin: a.gapMin, tag: rebookTag(a, i), fareDelta: Math.round((a.price || 0) - (f.price || 0)) - (a.gapMin > 1200 ? 44 : 0), note: a.gapMin > 1200 ? "Overnight — hotel & meals covered" : (a.gapMin <= 0 ? "Departs earlier" : a.gapMin <= 240 ? `+${a.gapMin} min` : `+${Math.round(a.gapMin / 60)} h`) })),
         { id: "__voucher", label: "Travel voucher +20%", detail: "Bonus value toward a future TAP trip." },
       ],
       compensation: `${u.tier || "Gold"} + EU261: airport care, rebooking priority and cash compensation where eligible — applied automatically.`,

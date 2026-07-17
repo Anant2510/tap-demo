@@ -837,7 +837,7 @@ export function Home({ shared, go }) {
           <source src="/v2/hero.mp4" type="video/mp4" />
         </video>
         <div className="absolute inset-0 bg-black/15" />
-        <div className="relative mx-auto max-w-page px-6 pt-12 pb-14">
+        <div className="relative mx-auto max-w-page px-4 sm:px-6 pt-12 pb-14">
           <div className="rounded-[37px] border-2 border-white shadow-pop p-5 sm:p-8 max-w-[1320px] mx-auto" style={{ background: "rgba(255,255,255,0.9)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}>
             <div className="flex items-start justify-between">
               <PersonalizedTag />
@@ -852,7 +852,7 @@ export function Home({ shared, go }) {
         </div>
       </div>
 
-      <div className="mx-auto max-w-page px-6 py-8 space-y-12">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-8 space-y-12">
         {/* COMMUTE TEMPLATES */}
         <section>
           <div className="flex items-end justify-between mb-4">
@@ -920,7 +920,7 @@ export function Home({ shared, go }) {
         </div>
       </section>
 
-      <div className="mx-auto max-w-page px-6 py-10 space-y-12">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-10 space-y-12">
         {/* PICK UP WHERE YOU LEFT OFF */}
         <section>
           <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Pick up where you left off</h2><span className="text-[11px] text-ink-faint">{journey?.updated_at ? "Updated " + timeAgo(journey.updated_at) : ""}</span></div>
@@ -976,7 +976,7 @@ export function Home({ shared, go }) {
       {/* TOMORROW'S TRIP · LIVE — own white band so sections alternate (zebra) */}
       {upcoming && (
         <section className="bg-surface border-y border-line">
-          <div className="mx-auto max-w-page px-6 py-10">
+          <div className="mx-auto max-w-page px-4 sm:px-6 py-10">
             <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Your next trip · live</h2><span className="text-[11px] text-ink-faint">Auto-pulled from itinerary</span></div>
             <div className="rounded-2xl border border-line bg-surface-soft p-5">
               <div className="flex flex-wrap items-center gap-6">
@@ -1022,7 +1022,7 @@ export function Home({ shared, go }) {
 
       {/* WORTH YOUR WHILE — grey page band */}
       {anc.length > 0 && (
-        <div className="mx-auto max-w-page px-6 py-10">
+        <div className="mx-auto max-w-page px-4 sm:px-6 py-10">
           <section>
             <div className="flex items-end justify-between mb-4"><h2 className="text-[22px] font-bold">Worth your while{upcoming ? ` · for ${upcoming.flight?.dep || "your trip"}` : ""}</h2><span className="text-[11px] text-ink-faint">Ranked for {u.tier} commuters</span></div>
             <div className="grid md:grid-cols-3 gap-4">
@@ -1061,7 +1061,7 @@ export function Home({ shared, go }) {
 
       {/* QUICK ACTIONS — own white band so the section alternates (zebra) from the grey page */}
       <section className="bg-surface border-y border-line">
-        <div className="mx-auto max-w-page px-6 py-10">
+        <div className="mx-auto max-w-page px-4 sm:px-6 py-10">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {[["cart", "Manage booking", "PNR or last name", "manage"], ["check", "Online check-in", "Opens 22h before", "checkin"], ["clock", "Flight status", "Track any TP", "manage"], ["bag", "Add bag", "Cheaper before airport", "extras"], ["plane", "Change flight", u.tier + " · no fee", "rebook"], ["star", "Help center", "Chat or call", "ai"]].map(([ic, t, s, r]) => (
               <button key={t} onClick={() => go(r)} className="text-left rounded-[14px] p-4 transition-colors hover:brightness-95" style={{ background: "rgba(242,255,219,1)", border: "1px solid rgba(199,242,31,1)" }}><span className="text-tap-greenDeep"><Icon name={ic} size={16} /></span><div className="text-[13px] font-bold mt-2">{t}</div><div className="text-[11px] text-ink-muted">{s}</div></button>
@@ -1071,7 +1071,7 @@ export function Home({ shared, go }) {
       </section>
 
       {/* DESTINATIONS — back on the grey page background */}
-      <div className="mx-auto max-w-page px-6 py-10">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-10">
         <DestGrid destinations={shared.destinations} go={go} />
       </div>
     </div>
