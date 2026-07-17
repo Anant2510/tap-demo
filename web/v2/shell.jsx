@@ -1,5 +1,5 @@
 // FlyTAP v2 — shell: top navigation + footer + page layout.
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Avatar, Btn, Icon, TierBadge, cx } from "./ui.jsx";
 import { miles, api, setCurrency, setLang, t } from "./lib.js";
 import { trip, onTripChange } from "./trip.js";
@@ -36,6 +36,11 @@ const SEARCH_DESTS = [
 // autocomplete, recent searches, a shortcut to the user's trips, and popular destinations.
 function SearchOverlay({ go, upcoming = [], onClose }) {
   const [q, setQ] = useState("");
+  const overlayInputRef = useRef(null);
+  // Focus the search field without the browser scrolling the (locked) page underneath — matches
+  // the dropdown fix: default focus-on-mount scroll can nudge the background before the fixed
+  // overlay paints. preventScroll keeps the viewport steady on first open.
+  useEffect(() => { const t = setTimeout(() => { try { overlayInputRef.current?.focus({ preventScroll: true }); } catch { overlayInputRef.current?.focus(); } }, 0); return () => clearTimeout(t); }, []);
   const [recent, setRecent] = useState([]);
   useEffect(() => {
     try { setRecent(JSON.parse(localStorage.getItem("tap.recentSearch") || "[]")); } catch { setRecent([]); }
@@ -64,7 +69,7 @@ function SearchOverlay({ go, upcoming = [], onClose }) {
       <div className="relative mx-auto mt-[8vh] w-[92%] max-w-[640px] bg-surface rounded-2xl shadow-pop border border-line overflow-hidden" onMouseDown={e => e.stopPropagation()}>
         <div className="flex items-center gap-3 px-4 py-3 border-b border-line">
           <Icon name="search" size={18} className="text-ink-muted shrink-0" />
-          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search destinations, e.g. Barcelona" className="flex-1 bg-transparent outline-none text-[15px] text-ink placeholder:text-ink-faint" />
+          <input ref={overlayInputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search destinations, e.g. Barcelona" className="flex-1 bg-transparent outline-none text-[15px] text-ink placeholder:text-ink-faint" />
           <button onClick={onClose} className="text-[11px] font-semibold text-ink-muted border border-line rounded px-2 py-1 hover:bg-surface-mute shrink-0">Esc</button>
         </div>
         <div className="max-h-[62vh] overflow-y-auto p-2">

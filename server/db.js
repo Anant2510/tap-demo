@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS flights (
 CREATE TABLE IF NOT EXISTS ancillaries (
   id INTEGER PRIMARY KEY, code TEXT UNIQUE, name TEXT, descr TEXT, price REAL, was REAL, auto INTEGER, icon TEXT
 );
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY, user_id INTEGER, pnr TEXT, event TEXT, channel TEXT,
+  recipient TEXT, status TEXT, provider_id TEXT, body TEXT, created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS airports (
   code TEXT PRIMARY KEY, city TEXT, country TEXT, region TEXT
 );

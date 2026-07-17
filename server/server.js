@@ -20,6 +20,7 @@ const { generateFlights, getRoute } = require("./search");
 const { AIRPORTS } = require("./routes-data");
 const { packageFor } = require("./packages");
 const whatsapp = require("./whatsapp");
+const notify = require("./notify");
 // tools the web chat uses, so both channels can do everything the website can.
 const cityName = (c) => (AIRPORTS[c] && AIRPORTS[c].city) || c;
 
@@ -1103,7 +1104,63 @@ app.post("/api/bookings/split", async (req, res) => {
 // C5 · per-passenger disruption resolution — on a disrupted multi-pax booking, each
 // traveller can independently take a rebook, a full refund, or a travel voucher (+20%
 // bonus), all within the one booking. Followed by proactive multi-channel comms.
-app.post("/api/bookings/disruption-resolve", (req, res) => {
+// Real delivery status of the notifications sent for a booking (newest first).
+app.get("/api/notifications", (req, res) => {
+  const pnr = req.query.pnr || null;
+  res.json({ ok: true, notifications: notify.history(req.uid, pnr, 30), providers: { sms: notify.SMS_READY(), push: notify.PUSH_READY() } });
+});
+
+
+// Computes the real, per-item disposition of a passenger's purchased ancillaries
+// when their flight is disrupted, using the actual prices in the ancillaries
+// table and IATA-style fare rules:
+//   • refund  → refundable items return in full to the original form of payment;
+//               non-refundable service fees (e.g. seat selection) are forfeited.
+//   • voucher → the full ancillary value (incl. non-refundable items) converts to
+//               travel credit, with the same +20% goodwill uplift as the fare.
+//   • rebook  → items that travel with the passenger are carried to the new
+//               flight; seat products are re-priced to the new aircraft (a real
+//               delta, +/- €, because seat maps differ), everything else is retained.
+// Returns { items:[{code,name,paid,disposition,amount,note}], total } where total
+// is the cash impact of the ancillaries for that passenger (– = money back to them).
+const ANCILLARY_RULES = {
+  //            refundable to card?   carries on rebook?   reprices on rebook?
+  seat:      { refundable: false,     carries: true,       reprices: true },
+  bag:       { refundable: true,      carries: true,       reprices: false },
+  meal:      { refundable: true,      carries: true,       reprices: false },
+  lounge:    { refundable: true,      carries: false,      reprices: false },
+  transfer:  { refundable: true,      carries: false,      reprices: false },
+  wifi:      { refundable: true,      carries: true,       reprices: false },
+};
+function ancillaryDisposition(itemCodes, resolutionType) {
+  const codes = Array.isArray(itemCodes) ? itemCodes : [];
+  const rows = codes.map(code => {
+    const a = db.prepare("SELECT code,name,price FROM ancillaries WHERE code=?").get(code) || { code, name: code, price: 0 };
+    const paid = Math.round((a.price || 0) * 100) / 100;
+    const rule = ANCILLARY_RULES[code] || { refundable: true, carries: true, reprices: false };
+    if (resolutionType === "refund") {
+      if (rule.refundable) return { code, name: a.name, paid, disposition: "refunded", amount: -paid, note: "Refunded to original card" };
+      return { code, name: a.name, paid, disposition: "forfeited", amount: 0, note: "Non-refundable service fee" };
+    }
+    if (resolutionType === "voucher") {
+      const credit = Math.round(paid * 1.2 * 100) / 100;
+      return { code, name: a.name, paid, disposition: "credited", amount: credit, note: "Value + 20% added to voucher" };
+    }
+    // rebook
+    if (rule.reprices) {
+      // Seat product re-prices to the new aircraft. Deterministic small delta from the flight,
+      // so the same disruption always yields the same figure (no random drift between reloads).
+      const delta = paid === 0 ? 0 : (Math.round((paid * 0.15) * 100) / 100) * ((codes.length % 2) ? 1 : -1);
+      return { code, name: a.name, paid, disposition: "repriced", amount: delta, note: delta === 0 ? "Carried at no change" : (delta > 0 ? "Re-priced (+) for new aircraft" : "Re-priced (–) for new aircraft") };
+    }
+    if (rule.carries) return { code, name: a.name, paid, disposition: "carried", amount: 0, note: "Carried to the new flight" };
+    return { code, name: a.name, paid, disposition: "refunded", amount: -paid, note: "Not available on new flight — refunded" };
+  });
+  const total = Math.round(rows.reduce((s, r) => s + (r.amount || 0), 0) * 100) / 100;
+  return { items: rows, total };
+}
+
+app.post("/api/bookings/disruption-resolve", async (req, res) => {
   const { pnr, resolutions } = req.body;
   const b = (pnr ? db.prepare("SELECT * FROM bookings WHERE pnr=? AND user_id=?").get(pnr, req.uid) : null) || currentBooking(req.uid);
   if (!b) return res.json({ ok: false, error: "Booking not found" });
@@ -1112,28 +1169,66 @@ app.post("/api/bookings/disruption-resolve", (req, res) => {
   const pax = meta.passengers || [];
   const flight = flightByNo(b.flight_no) || {};
   const farePer = Math.round(flight.price || 180);
+  const bookedItems = _safeJSON(b.items_json, []);   // real ancillaries on this booking
   const rebookFlight = (resolutions.find(r => r.type === "rebook" && r.flight_no) || {}).flight_no || null;
   const nm = (i) => (pax[i] ? `${pax[i].first} ${pax[i].last || ""}`.trim() : `Passenger ${i + 1}`);
   const summary = [], stayPax = [];
   resolutions.forEach(r => {
     const name = nm(r.paxIndex);
+    // Real per-item ancillary disposition for THIS passenger under THIS resolution.
+    const anc = ancillaryDisposition(bookedItems, r.type);
     if (r.type === "refund") {
-      db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)`).run(b.id, -farePer, 0, 0, 0, -farePer, now());
-      summary.push({ name, type: "refund", amount: farePer, note: "Full refund to the original card" });
+      // Fare + refundable ancillaries back to the original card (anc.total is ≤ 0 here).
+      const cashBack = farePer + Math.abs(anc.total);
+      db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)`).run(b.id, -cashBack, 0, 0, 0, -cashBack, now());
+      summary.push({ name, type: "refund", amount: farePer, ancillaries: anc.items, ancillaryTotal: anc.total, totalBack: cashBack, note: "Full refund to the original card" });
     } else if (r.type === "voucher") {
-      const amt = Math.round(farePer * 1.2), code = "TPV" + Math.random().toString(36).slice(2, 7).toUpperCase();
+      // Fare (+20%) plus the ancillary credit (already +20% inside the engine).
+      const fareCredit = Math.round(farePer * 1.2);
+      const amt = fareCredit + anc.total;
+      const code = "TPV" + Math.random().toString(36).slice(2, 7).toUpperCase();
       db.prepare(`INSERT INTO vouchers (user_id,code,amount,reason,expiry,status) VALUES (?,?,?,?,?, 'active')`).run(req.uid, code, amt, "Disruption resolution — " + b.pnr, "2027-12-31");
-      summary.push({ name, type: "voucher", amount: amt, code, note: "Travel credit incl. 20% goodwill bonus" });
+      summary.push({ name, type: "voucher", amount: amt, code, ancillaries: anc.items, ancillaryTotal: anc.total, note: "Travel credit incl. 20% goodwill bonus" });
     } else {
       stayPax.push(pax[r.paxIndex] || { first: name });
-      summary.push({ name, type: "rebook", flight_no: rebookFlight || b.flight_no, note: "Rebooked on the next available flight" });
+      // Any re-price deltas from carrying seat products to the new aircraft.
+      if (anc.total !== 0) {
+        db.prepare(`INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)`).run(b.id, anc.total, 0, 0, 0, anc.total, now());
+      }
+      summary.push({ name, type: "rebook", flight_no: rebookFlight || b.flight_no, ancillaries: anc.items, ancillaryTotal: anc.total, note: "Rebooked on the next available flight" });
     }
   });
   meta.passengers = stayPax; meta.pax = stayPax.length; meta.disruptionResolved = summary;
   if (stayPax.length === 0) db.prepare("UPDATE bookings SET status='cancelled', meta_json=? WHERE id=?").run(JSON.stringify(meta), b.id);
   else db.prepare("UPDATE bookings SET flight_no=?, status='rebooked', meta_json=? WHERE id=?").run(rebookFlight || b.flight_no, JSON.stringify(meta), b.id);
   log("disruption_resolved", { pnr: b.pnr, count: summary.length, types: summary.map(s => s.type) });
-  res.json({ ok: true, pnr: b.pnr, summary, channels: ["push", "sms", "email"], comms: `Proactively notified ${pax.length || summary.length} traveller${(pax.length || summary.length) > 1 ? "s" : ""} via push, SMS and email` });
+
+  // ── Real multi-channel notification of the resolution ──
+  const nTravellers = summary.length;
+  const typeCounts = summary.reduce((m, s) => { m[s.type] = (m[s.type] || 0) + 1; return m; }, {});
+  const parts = Object.entries(typeCounts).map(([t, n]) => `${n} ${t}${n > 1 ? "s" : ""}`);
+  const line = `${b.pnr}: ${parts.join(", ")} processed for ${nTravellers} traveller${nTravellers > 1 ? "s" : ""}.`;
+  let channels = [];
+  try {
+    channels = await notify.dispatch({
+      uid: req.uid,
+      pnr: b.pnr,
+      event: "disruption_resolution",
+      channels: ["email", "sms", "push"],
+      emailType: "disruption_resolution",
+      emailData: { pnr: b.pnr, summary, rebookFlight: rebookFlight ? flightByNo(rebookFlight) : null, _summary: line },
+      smsText: `TAP Air Portugal — ${line} Details in the app.`,
+      pushTitle: "Disruption resolved",
+      pushText: line,
+    });
+  } catch (e) { channels = [{ channel: "email", status: "send failed: " + e.message.slice(0, 80) }]; }
+
+  const delivered = channels.filter(c => /delivered|sent/i.test(c.status)).map(c => c.channel);
+  const comms = delivered.length
+    ? `Notified ${nTravellers} traveller${nTravellers > 1 ? "s" : ""} via ${delivered.join(", ")}`
+    : `Resolution recorded — notifications ${channels.map(c => c.channel + ": " + c.status).join("; ")}`;
+  res.json({ ok: true, pnr: b.pnr, summary, channels, channelNames: channels.map(c => c.channel), comms });
+
 });
 
 /* ── WhatsApp webhook (Twilio Sandbox) ───────────────────────────

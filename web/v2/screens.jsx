@@ -80,6 +80,7 @@ function AirportPicker({ value, onChange, airports = [], placeholder = "Select a
   const [q, setQ] = useState("");
   const [pos, setPos] = useState(null);
   const btnRef = useRef(null);
+  const inputRef = useRef(null);
   const sel = airports.find(a => a.code === value);
   const ql = q.trim().toLowerCase();
   const list = (ql
@@ -93,9 +94,14 @@ function AirportPicker({ value, onChange, airports = [], placeholder = "Select a
   useEffect(() => {
     if (!open) return;
     place();
+    // Focus the search box WITHOUT letting the browser scroll it into view. The panel is a
+    // position:fixed portal appended to <body>; the default focus-on-mount scroll (what the
+    // `autoFocus` attribute does) fired before the fixed coords were painted on the first open,
+    // which scrolled the page to the footer. preventScroll keeps the viewport exactly where it is.
+    const _ft = setTimeout(() => { try { inputRef.current?.focus({ preventScroll: true }); } catch { inputRef.current?.focus(); } }, 0);
     const on = () => place();
     window.addEventListener("scroll", on, true); window.addEventListener("resize", on);
-    return () => { window.removeEventListener("scroll", on, true); window.removeEventListener("resize", on); };
+    return () => { clearTimeout(_ft); window.removeEventListener("scroll", on, true); window.removeEventListener("resize", on); };
   }, [open]); // eslint-disable-line
   return (
     <div className="relative">
@@ -107,7 +113,7 @@ function AirportPicker({ value, onChange, airports = [], placeholder = "Select a
         <div className="fixed inset-0 z-[60]" onClick={() => { setOpen(false); setQ(""); }} />
         <div className="fixed z-[61] bg-white rounded-xl border border-line shadow-pop overflow-hidden" style={{ left: pos.left, top: pos.top, width: "min(288px, calc(100vw - 24px))" }}>
           <div className="p-2 border-b border-line">
-            <div className="relative"><Icon name="search" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" /><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search city, airport or country" className="w-full bg-surface border border-line rounded-lg pl-8 pr-3 py-2 text-[13px] outline-none focus:border-tap-green" /></div>
+            <div className="relative"><Icon name="search" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" /><input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search city, airport or country" className="w-full bg-surface border border-line rounded-lg pl-8 pr-3 py-2 text-[13px] outline-none focus:border-tap-green" /></div>
           </div>
           <div className="max-h-64 overflow-y-auto v2-track">
             {list.length === 0 && <div className="px-3 py-4 text-[12px] text-ink-faint text-center">No airports match "{q}"</div>}
@@ -118,6 +124,83 @@ function AirportPicker({ value, onChange, airports = [], placeholder = "Select a
                 {a.code === value && <Icon name="check" size={14} className="text-tap-green shrink-0" />}
               </button>
             ))}
+          </div>
+        </div>
+      </>, document.body)}
+    </div>
+  );
+}
+// DatePicker — a calendar dropdown that matches AirportPicker exactly: a position:fixed portal
+// anchored BELOW the field (never the native OS popup that opens upward), with the same design
+// tokens (rounded-xl, border-line, shadow-pop) so the date field feels like part of the TAP
+// search module rather than a system component. value/onChange use ISO "YYYY-MM-DD" strings.
+function DatePicker({ value, onChange, min, placeholder = "Select date", buttonClassName }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const parse = (s) => (s ? new Date(s + "T00:00:00") : null);
+  const [view, setView] = useState(() => { const d = parse(value) || new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const btnRef = useRef(null);
+  const sel = parse(value);
+  const minD = parse(min);
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const sameDay = (a, b) => a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const fmtField = (d) => d ? `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}` : "";
+  const place = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setPos({ left: r.left, top: r.bottom + 6, width: r.width }); };
+  const toggle = () => { if (!open) { const d = sel || new Date(); setView({ y: d.getFullYear(), m: d.getMonth() }); place(); } setOpen(o => !o); };
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const on = () => place();
+    window.addEventListener("scroll", on, true); window.addEventListener("resize", on);
+    return () => { window.removeEventListener("scroll", on, true); window.removeEventListener("resize", on); };
+  }, [open]); // eslint-disable-line
+  // Build the 6×7 grid of days for the current view month, including trailing/leading days.
+  const grid = (() => {
+    const first = new Date(view.y, view.m, 1);
+    const start = new Date(first); start.setDate(1 - first.getDay());
+    return Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
+  })();
+  const step = (delta) => setView(v => { const d = new Date(v.y, v.m + delta, 1); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const disabled = (d) => minD && d < minD && !sameDay(d, minD);
+  const choose = (d) => { onChange(iso(d)); setOpen(false); };
+  return (
+    <div className="relative">
+      <button ref={btnRef} type="button" onClick={toggle} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[15px] inline-flex items-center justify-between"}>
+        {sel ? <span className="truncate min-w-0 flex-1 font-bold">{fmtField(sel)}</span> : <span className="text-ink-faint truncate min-w-0 flex-1">{placeholder}</span>}
+        <Icon name="clock" size={14} className="text-ink-muted ml-2 shrink-0" />
+      </button>
+      {open && pos && createPortal(<>
+        <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+        <div className="fixed z-[61] bg-white rounded-xl border border-line shadow-pop overflow-hidden" style={{ left: pos.left, top: pos.top, width: "min(300px, calc(100vw - 24px))" }}>
+          <div className="flex items-center justify-between px-3.5 pt-3.5 pb-2">
+            <div className="text-[14px] font-bold text-ink">{MONTHS[view.m]} {view.y}</div>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => step(-1)} className="w-7 h-7 rounded-lg hover:bg-surface-mute inline-flex items-center justify-center text-ink-muted" aria-label="Previous month"><Icon name="chevron-left" size={16} /></button>
+              <button type="button" onClick={() => step(1)} className="w-7 h-7 rounded-lg hover:bg-surface-mute inline-flex items-center justify-center text-ink-muted" aria-label="Next month"><Icon name="chevron-right" size={16} /></button>
+            </div>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 px-3 pb-1">
+            {DOW.map(d => <div key={d} className="text-[11px] font-semibold text-ink-faint text-center py-1">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 px-3 pb-3">
+            {grid.map((d, i) => {
+              const inMonth = d.getMonth() === view.m;
+              const isSel = sameDay(d, sel);
+              const off = disabled(d);
+              return (
+                <button key={i} type="button" disabled={off} onClick={() => choose(d)}
+                  className={cx("h-9 rounded-lg text-[13px] font-semibold inline-flex items-center justify-center transition-colors",
+                    isSel ? "bg-tap-green text-white" : off ? "text-ink-faint/40 cursor-not-allowed" : inMonth ? "text-ink hover:bg-surface-mute" : "text-ink-faint hover:bg-surface-mute")}>
+                  {d.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-t border-line">
+            <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="text-[13px] font-semibold text-tap-greenDeep hover:underline">Clear</button>
+            <button type="button" onClick={() => { const t = new Date(); if (!disabled(t)) choose(t); }} className="text-[13px] font-semibold text-tap-greenDeep hover:underline">Today</button>
           </div>
         </div>
       </>, document.body)}
@@ -166,8 +249,8 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
       <div className="grid lg:grid-cols-12 gap-3">
         <Field label="From" className="lg:col-span-3"><AirportPicker value={from} onChange={setFrom} airports={airports} placeholder="Origin" /></Field>
         <Field label="To" className="lg:col-span-3"><AirportPicker value={to} onChange={setTo} airports={airports} placeholder="Where to?" /></Field>
-        <Field label="Depart" className="lg:col-span-2"><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
-        {type === "round" && <Field label="Return" className="lg:col-span-2"><Input type="date" value={ret} onChange={e => setRet(e.target.value)} /></Field>}
+        <Field label="Depart" className="lg:col-span-2"><DatePicker value={date} onChange={setDate} placeholder="Select date" /></Field>
+        {type === "round" && <Field label="Return" className="lg:col-span-2"><DatePicker value={ret} onChange={setRet} min={date} placeholder="Select date" /></Field>}
         <Field label="Travellers" className="lg:col-span-2">
           <PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} />
         </Field>
@@ -191,7 +274,7 @@ function SearchWidget({ airports = [], onSearch, defaults = {} }) {
             <div key={i} className="grid lg:grid-cols-12 gap-3">
               <Field label={`Flight ${i + 2} · from`} className="lg:col-span-3"><AirportPicker value={l.from || to} onChange={v => setXLeg(i, { from: v })} airports={airports} placeholder="Origin" /></Field>
               <Field label={`Flight ${i + 2} · to`} className="lg:col-span-3"><AirportPicker value={l.to} onChange={v => setXLeg(i, { to: v })} airports={airports} placeholder="Where to?" /></Field>
-              <Field label={`Flight ${i + 2} · date`} className="lg:col-span-2"><Input type="date" min={i === 0 ? date : (xLegs[i - 1]?.date || date)} value={l.date} onChange={e => setXLeg(i, { date: e.target.value })} /></Field>
+              <Field label={`Flight ${i + 2} · date`} className="lg:col-span-2"><DatePicker min={i === 0 ? date : (xLegs[i - 1]?.date || date)} value={l.date} onChange={v => setXLeg(i, { date: v })} placeholder="Select date" /></Field>
               <div className="lg:col-span-4 flex items-end gap-3 pb-1">
                 {xLegs.length > 1 && <button onClick={() => dropLeg(i)} className="text-[12px] font-semibold text-ink-muted hover:text-tap-red transition-colors">Remove</button>}
                 {i === xLegs.length - 1 && xLegs.length < 4 && <button onClick={addLeg} className="text-[12px] font-semibold text-tap-greenDeep hover:underline">+ Add another flight</button>}
@@ -595,7 +678,10 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
     const d = date ? new Date(date + "T00:00:00") : null, r = ret ? new Date(ret + "T00:00:00") : null;
     if (!d) return "Select dates";
     const dd = d.getDate(), dm = MON[d.getMonth()];
-    if (type === "oneway" || !r) return `${dd} ${dm}`;
+    // Only a Round Trip shows a departure–return range. Single Trip and Multi-City show just the
+    // departure date (for Multi-City this is Flight 1's date; later legs render their own dates in
+    // the per-leg rows below). A stale `ret` from a previous round-trip selection must not leak in.
+    if (type !== "round" || !r) return `${dd} ${dm}`;
     const rd = r.getDate(), rm = MON[r.getMonth()];
     return dm === rm ? `${dd}–${rd} ${dm}` : `${dd} ${dm} – ${rd} ${rm}`;
   };
@@ -641,10 +727,9 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             {/* #14 dates — compact range + calendar icon (dynamic, still selectable) */}
             <div className="p-3">
               <div className={lbl}>{type === "round" ? "Depart · Return" : type === "multi" ? "Flight 1 · date" : "Depart"}</div>
-              <div className="flex items-center gap-2 mt-1.5"><Icon name="clock" size={14} className="text-ink-muted shrink-0" /><span className="text-[15px] font-bold">{compactRange()}</span></div>
-              <div className="flex items-center gap-1.5 mt-1">
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-[10px] text-ink-faint outline-none w-[94px]" />
-                {type === "round" && <><span className="text-ink-faint text-[10px]">→</span><input type="date" value={ret} onChange={e => setRet(e.target.value)} className="bg-transparent text-[10px] text-ink-faint outline-none w-[94px]" /></>}
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <DatePicker value={date} onChange={setDate} placeholder="Add date" buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} />
+                {type === "round" && <><span className="text-ink-faint text-[13px] shrink-0">→</span><DatePicker value={ret} onChange={setRet} min={date} placeholder="Add date" buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></>}
               </div>
             </div>
             {/* #15 passenger — traveler icon before count */}
@@ -670,7 +755,7 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
                   <div className={cx("rounded-xl border border-line bg-surface-soft p-3", "lg:col-span-3")}>
                     <div className={lbl}>Flight {i + 2} · date</div>
                     {/* a leg can't depart before the leg before it */}
-                    <input type="date" min={i === 0 ? date : (xLegs[i - 1]?.date || date)} value={l.date} onChange={e => setXLeg(i, { date: e.target.value })} className={cx(bare, "mt-1.5")} />
+                    <div className="mt-1.5"><DatePicker min={i === 0 ? date : (xLegs[i - 1]?.date || date)} value={l.date} onChange={v => setXLeg(i, { date: v })} placeholder="Add date" buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div>
                   </div>
                   <div className="lg:col-span-3 flex items-center gap-3">
                     {xLegs.length > 1 && <button onClick={() => dropLeg(i)} className="text-[12px] font-semibold text-ink-muted hover:text-tap-red transition-colors">Remove</button>}

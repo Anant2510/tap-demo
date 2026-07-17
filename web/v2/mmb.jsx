@@ -776,25 +776,35 @@ export function DisruptionCenter({ shared, go }) {
         <Card className="p-5 mt-6 v2-in">
           <div className="text-[13px] font-bold mb-3">Per-passenger resolution</div>
           <div className="space-y-2.5">
-            {done.summary.map((s, i) => (
-              <div key={i} className="flex items-start justify-between gap-3 border border-line rounded-xl px-3.5 py-3">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <span className={cx("w-8 h-8 rounded-full inline-flex items-center justify-center shrink-0", s.type === "refund" ? "bg-[#fff4d6] text-[#9a6b00]" : s.type === "voucher" ? "bg-lime-tint text-tap-greenDeep" : "bg-surface-mute text-ink")}><Icon name={ICON[s.type]} size={15} /></span>
-                  <div className="min-w-0"><div className="text-[13px] font-semibold">{s.name}</div><div className="text-[11px] text-ink-faint">{s.note}{s.code ? ` · ${s.code}` : ""}{s.flight_no ? ` · ${s.flight_no}` : ""}</div></div>
+            {done.summary.map((s, i) => {
+              // Per-item ancillary disposition comes straight from the server pricing engine
+              // (real prices + fare rules): each item shows how it was handled and its cash impact.
+              const anc = s.ancillaries || [];
+              return (
+              <div key={i} className="border border-line rounded-xl px-3.5 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span className={cx("w-8 h-8 rounded-full inline-flex items-center justify-center shrink-0", s.type === "refund" ? "bg-[#fff4d6] text-[#8C590D]" : s.type === "voucher" ? "bg-lime-tint text-tap-greenDeep" : "bg-surface-mute text-ink")}><Icon name={s.type === "refund" ? "card" : s.type === "voucher" ? "star" : "plane"} size={14} /></span>
+                    <div className="min-w-0"><div className="text-[13px] font-semibold">{s.name}</div><div className="text-[11px] text-ink-faint">{s.note}{s.code ? " · " + s.code : ""}</div></div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{s.type}</div>
+                    {s.amount ? <div className="text-[14px] font-black v2-num">{s.type === "refund" ? "−" : "+"}{eur2(s.type === "refund" ? (s.totalBack || s.amount) : s.amount)}</div> : <div className="text-[12px] text-ink-muted">Carried</div>}
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">{s.type}</div>
-                  {s.amount ? <div className="text-[14px] font-black v2-num">{s.type === "refund" ? "−" : "+"}{eur2(s.amount)}</div> : <div className="text-[12px] font-semibold text-tap-greenDeep">Rebooked</div>}
-                </div>
+                {anc.length > 0 && <div className="mt-2.5 pt-2.5 border-t border-line space-y-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint mb-1">Extras</div>
+                  {anc.map((a, ai) => <div key={ai} className="flex items-center justify-between text-[11px]"><span className="text-ink-muted flex items-center gap-1.5"><Icon name="check" size={10} className={cx(a.disposition === "forfeited" ? "text-ink-faint" : "text-tap-green")} />{a.name}</span><span className={cx("font-semibold shrink-0", a.disposition === "forfeited" ? "text-ink-faint" : "text-ink")}>{a.disposition}{a.amount ? " · " + (a.amount < 0 ? "−" : "+") + eur2(Math.abs(a.amount)) : ""}</span></div>)}
+                </div>}
               </div>
-            ))}
+            );})}
           </div>
         </Card>
         <Card className="p-5 mt-4">
           <div className="flex items-center gap-2"><Icon name="send" size={14} className="text-tap-green" /><div className="text-[13px] font-bold">Proactive notifications sent</div></div>
           <div className="text-[12px] text-ink-muted mt-1">{done.comms}.</div>
           <div className="flex flex-wrap gap-2 mt-3">
-            {(done.channels || []).map(c => <span key={c} className="inline-flex items-center gap-1.5 rounded-full bg-lime-tint text-tap-greenDeep px-3 py-1 text-[11px] font-bold uppercase tracking-wide"><Icon name="check" size={11} /> {c}</span>)}
+            {(done.channels || []).map((c, ci) => { const ch = typeof c === "string" ? { channel: c, status: "sent" } : c; const okd = /delivered|sent/i.test(ch.status); return <span key={ci} className={cx("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide", okd ? "bg-lime-tint text-tap-greenDeep" : "bg-surface-mute text-ink-muted")} title={ch.status}><Icon name={okd ? "check" : "clock"} size={11} /> {ch.channel}{okd ? "" : " · " + (/queued/i.test(ch.status) ? "queued" : "pending")}</span>; })}
           </div>
         </Card>
         <div className="flex gap-3 mt-5"><Btn onClick={() => go("manage")}>Back to booking</Btn><Btn variant="outline" onClick={() => go("trips")}>My trips</Btn></div>

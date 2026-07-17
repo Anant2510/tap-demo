@@ -169,6 +169,39 @@ const TEMPLATES = {
       cta: { label: "Open boarding pass" },
     }),
   }),
+  disruption_resolution: ({ pnr, summary = [], rebookFlight }) => {
+    const badge = { refund: ["#8C590D", "#FFF4D6", "Refund"], voucher: ["#2E7D33", "#EBF7ED", "Voucher"], rebook: ["#1A1F29", "#EEF1F4", "Rebook"] };
+    const money = (n) => `\u20ac${Number(n || 0).toFixed(2)}`;
+    const paxBlocks = summary.map(s => {
+      const [fg, bg, lbl] = badge[s.type] || ["#333", "#eee", s.type];
+      const ancRows = (s.ancillaries || []).map(a =>
+        `<tr><td style="padding:3px 0;font-size:12px;color:#555">${a.name}</td>` +
+        `<td style="padding:3px 0;font-size:12px;text-align:right;color:#555">${a.disposition}${a.amount ? " \u00b7 " + (a.amount < 0 ? "\u2212" : "+") + money(Math.abs(a.amount)) : ""}</td></tr>`
+      ).join("");
+      const headline = s.type === "refund" ? `Refunded ${money(s.totalBack || s.amount)} to the original card`
+        : s.type === "voucher" ? `Travel voucher ${money(s.amount)}${s.code ? " \u00b7 code " + s.code : ""}`
+        : `Rebooked${rebookFlight ? " on " + rebookFlight.flight_no : ""}${s.ancillaryTotal ? " \u00b7 fare adj " + (s.ancillaryTotal < 0 ? "\u2212" : "+") + money(Math.abs(s.ancillaryTotal)) : ""}`;
+      return `<div style="border:1px solid #E8E8E5;border-radius:12px;padding:14px 16px;margin:10px 0">` +
+        `<div style="display:flex;justify-content:space-between;align-items:center">` +
+        `<b style="font-size:14px">${s.name}</b>` +
+        `<span style="background:${bg};color:${fg};font-size:11px;font-weight:700;border-radius:999px;padding:3px 10px">${lbl}</span>` +
+        `</div>` +
+        `<div style="font-size:13px;color:#1A1F29;margin-top:4px">${headline}</div>` +
+        (ancRows ? `<table style="width:100%;margin-top:8px;border-top:1px solid #F0F0EE">${ancRows}</table>` : "") +
+        `</div>`;
+    }).join("");
+    return {
+      subject: `${pnr}: your disruption resolution is confirmed`,
+      html: wrap({
+        title: "Your resolution is confirmed",
+        accent: GREEN,
+        preheader: "Each traveller has been serviced individually.",
+        bodyHtml: `Here's exactly what we've done for each traveller on <b>${pnr}</b>, including how your extras were handled:${paxBlocks}` +
+          `<div style="background:#F7FBF7;border:1px solid ${GREEN}33;border-radius:10px;padding:12px 14px;font-size:13px;margin-top:6px">You'll also receive this update by SMS and push. No further action is needed.</div>`,
+        cta: { label: "View in the app" },
+      }),
+    };
+  },
   hold_confirmation: ({ f, total, expires, duration, fee }) => {
     const label = duration === "7d" ? "7 days" : duration === "48h" ? "48 hours" : "24 hours";
     const deductible = duration === "7d" ? "" : " — fully deductible from your final fare";
@@ -248,7 +281,7 @@ async function sendEmail(type, data) {
   const evRow = db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES (?,?,?,?)")
     .run("email_" + type, JSON.stringify({ to, subject, status }), now(), currentApp());
   cdpForward("email_" + type, { to, subject, status, channel: "Email" }, Number(evRow.lastInsertRowid));
-  return { id: Number(r.lastInsertRowid), to, subject, status };
+  return { id: Number(r.lastInsertRowid), to, subject, status, providerId };
 }
 
 module.exports = { sendEmail, SMTP_READY };
