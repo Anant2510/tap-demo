@@ -190,8 +190,26 @@ export function ManageBooking({ shared, go }) {
             const paxN = meta.pax || (meta.passengers || []).length || 1;
             const paxNames = (meta.passengers || []).map(p => [p.title, p.first, p.last].filter(Boolean).join(" ").trim()).filter(Boolean);
             const inb = b.inboundFlight;
+            const irops = /^(cancelled|delayed)$/i.test(f.status || "");   // live disruption on this flight
             return (
               <Card key={b.pnr || idx} className="p-5 v2-in">
+                {irops && (
+                  <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl px-3 py-2.5 mb-3" style={{ background: "#fff4d6", border: "1px solid #F4B740" }}>
+                    <div className="min-w-[200px]">
+                      <div className="text-[12px] font-bold text-[#8C590D] uppercase tracking-wide">
+                        {/^cancelled$/i.test(f.status) ? "Flight cancelled" : "Flight delayed"}
+                      </div>
+                      <div className="text-[12px] text-ink-muted mt-0.5">
+                        {paxN > 1
+                          ? `${paxN} travellers on this booking — each can choose a refund, voucher or rebooking.`
+                          : "Choose a refund, travel voucher or a rebooking."}
+                      </div>
+                    </div>
+                    <Btn size="sm" variant="primary" className="shrink-0" onClick={() => go(paxN > 1 ? "disruption" : "rebook", { pnr: b.pnr })}>
+                      {paxN > 1 ? "Resolve for your group" : "Rebook & move my extras"} <Icon name="arrow" size={13} />
+                    </Btn>
+                  </div>
+                )}
                 <div className="flex items-start gap-3 flex-wrap">
                   <span className="w-6 h-6 rounded-md bg-lime text-ink inline-flex items-center justify-center shrink-0 mt-0.5"><Icon name="check" size={13} /></span>
                   <div className="flex-1 min-w-[220px]">
@@ -895,18 +913,31 @@ export function DisruptionCenter({ shared, go }) {
   );
 }
 
-export function Rebook({ shared, go }) {
+export function Rebook({ shared, params, go }) {
   const [data, setData] = useState({ recovery: null, ai: null, loading: true, err: null });
   const [active, setActive] = useState(null);
   const [sel, setSel] = useState(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
+  const wantPnr = params?.pnr || null;
   useEffect(() => {
-    api.get("/bookings").then(rows => setActive(pickActive(rows))).catch(() => {});
-    api.post("/disrupt", {})
+    // Open the disruption for the booking this screen was launched from (My Trip passes ?pnr=).
+    // Without pinning, every trip's "Update flight" button showed whichever booking happened to be
+    // disrupted, which is confusing as soon as more than one trip is affected. Falling back to the
+    // unpinned call keeps the "am I affected at all?" behaviour when no PNR is supplied.
+    api.get("/bookings")
+      .then(rows => {
+        const list = Array.isArray(rows) ? rows : (rows?.bookings || rows?.rows || []);
+        const hit = wantPnr ? list.find(b => b.pnr === wantPnr) : null;
+        const b = hit || pickActive(rows);
+        setActive(b);
+        return b && hit ? { flight_no: b.flight_no, flight_date: b.flight_date } : {};
+      })
+      .catch(() => ({}))
+      .then(body => api.post("/disrupt", body || {}))
       .then(r => setData({ recovery: r.recovery, ai: r.ai, loading: false, err: null }))
       .catch(e => setData({ recovery: null, ai: null, loading: false, err: e?.message || "Couldn't load disruption options" }));
-  }, []);
+  }, [wantPnr]);
   const rec = data.recovery;
   const curFlight = active?.flight_no;
   const options = rec?.options || [];
@@ -990,7 +1021,7 @@ export function Rebook({ shared, go }) {
                     <Card className={cx("p-4 transition-colors", on ? "ring-2 ring-tap-green" : "hover:border-tap-green/40")}>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green bg-tap-green" : "border-line-strong")}>{on && <span className="w-1.5 h-1.5 bg-white rounded-full" />}</span>
-                        <img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "15px", width: "auto" }} /><span className="text-[12px] font-semibold v2-num">{o.id}</span>
+                        <img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "16px", width: "auto" }} /><span className="text-[12px] font-semibold v2-num">{o.id}</span>
                         <span className="text-[11px] text-ink-muted">· {o.detail || o.label}</span>
                         {o.tag && <span className={cx("text-[9px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5", o.tag === "COMP HOTEL" ? "bg-[#fff4d6] text-[#8C590D]" : o.tag === "SAME DAY" ? "bg-ink text-white" : "bg-tap-greenDeep text-white")}>{o.tag}</span>}
                         <span className={cx("ml-auto text-[13px] font-bold", (o.fareDelta || 0) < 0 ? "text-tap-greenDeep" : "text-ink")}>{(o.fareDelta || 0) < 0 ? "−€" + Math.abs(o.fareDelta) : "+€" + (o.fareDelta || 0)}</span>

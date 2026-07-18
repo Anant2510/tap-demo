@@ -817,7 +817,7 @@ function buildRecoveryDet(f, u, action, alts) {
     message: `Your aircraft is arriving late, so ${f.flight_no} (${routeStr}) now departs ${f.new_dep} and lands ${f.new_arr}. Here are options tailored to you — no queue needed.`,
     options: [
       { id: f.flight_no, label: `Keep ${f.flight_no} · lands ${f.new_arr}`, detail: `We'll fast-track you on arrival${u.tier ? " · " + u.tier : ""}.` },
-      ...alts.map(a => ({ id: a.flight_no, label: `Move to ${a.flight_no} · departs ${a.dep}`, detail: a.reasons.join(" · ") })),
+      ...alts.map((a, i) => ({ id: a.flight_no, label: `Move to ${a.flight_no} · departs ${a.dep}`, detail: a.reasons.join(" · "), dep: a.dep, arr: a.arr, price: a.price, gapMin: a.gapMin, tag: rebookTag(a, i), fareDelta: Math.round((a.price || 0) - (f.price || 0)) - (a.gapMin > 1200 ? 44 : 0), note: a.gapMin > 1200 ? "Overnight — hotel & meals covered" : (a.gapMin <= 0 ? "Departs earlier than the delay" : a.gapMin <= 240 ? `+${a.gapMin} min` : `+${Math.round(a.gapMin / 60)} h`) })),
     ],
     compensation: `${u.tier || "Gold"} + EU261: lounge access now, meal voucher added to your wallet automatically.`,
     alts,
@@ -937,13 +937,23 @@ app.post("/api/disrupt", async (req, res) => {
   // experiences and resolves it here — but can no longer trigger one themselves. The email /
   // WhatsApp go out once, at injection time (the ops endpoint), not on every page view.
   const u = db.prepare("SELECT first_name, tier, home_airport FROM users WHERE id=?").get(req.uid) || {};
-  const flight_no = req.body.flight_no || currentBooking(req.uid)?.flight_no
+  // When the caller does not pin a specific flight (the Rebook / disruption screens simply ask
+  // "am I affected?"), scan the traveller's upcoming bookings for one that is ACTUALLY disrupted
+  // rather than only inspecting the very next departure. Reporting "all clear" while a later
+  // flight sits cancelled is wrong for the passenger, and it made the rebook + reassociate flow
+  // unreachable whenever the disrupted trip was not the soonest one.
+  const pinned = req.body.flight_no ? null : (db.prepare(`
+    SELECT b.flight_no AS flight_no, b.flight_date AS flight_date
+      FROM bookings b JOIN flights f ON f.flight_no = b.flight_no AND f.flight_date = b.flight_date
+     WHERE b.user_id = ? AND b.status IN ('confirmed','rebooked') AND f.status IN ('delayed','cancelled')
+     ORDER BY b.flight_date LIMIT 1`).get(req.uid) || null);
+  const flight_no = req.body.flight_no || pinned?.flight_no || currentBooking(req.uid)?.flight_no
     || db.prepare("SELECT flight_no FROM travel_history WHERE user_id=? AND route LIKE ? ORDER BY trip_date DESC LIMIT 1").get(req.uid, (u.home_airport || "OPO") + "→%")?.flight_no
     || null;
   // A flight number recurs across dates — pin to the instance the persona actually booked so an
   // admin disruption on that date is what gets reported (not a stale same-number row).
   const bk = flight_no ? db.prepare("SELECT flight_date FROM bookings WHERE user_id=? AND flight_no=? ORDER BY id DESC LIMIT 1").get(req.uid, flight_no) : null;
-  const flight_date = req.body.flight_date || bk?.flight_date || null;
+  const flight_date = req.body.flight_date || pinned?.flight_date || bk?.flight_date || null;
   const f = flight_no ? ((flight_date && db.prepare("SELECT * FROM flights WHERE flight_no=? AND flight_date=?").get(flight_no, flight_date)) || flightByNo(flight_no)) : null;
   if (!f || (f.status !== "delayed" && f.status !== "cancelled")) {
     return res.json({ recovery: null, noDisruption: true, flight_no: flight_no || null });

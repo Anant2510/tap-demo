@@ -989,4 +989,95 @@ function localProfile(personaId) {
   } catch (e) { console.warn("[seed] ensureDanielUpcoming skipped:", e.message); }
 })();
 
+/* Group booking with a LIVE disruption, so the mixed / per-passenger resolution flow is actually
+   reachable in the demo. That flow has two hard gates: DisruptionCenter only surfaces a booking
+   whose meta.passengers holds more than one traveller, and /api/disrupt only returns recovery
+   options when the flight itself is delayed or cancelled. The stock seed set has neither (every
+   booking is single-pax, no flight is disrupted), so the whole per-passenger capability was built
+   but invisible. This seeds one 3-traveller booking on a cancelled flight, carrying real
+   ancillaries so the refund/voucher/rebook dispositions have something to price.
+   Idempotent: creates the booking once, then re-arms the cancellation on each boot for as long as
+   the booking is still unresolved (so a VM restart always leaves the demo ready). */
+(function ensureDanielGroupDisruption() {
+  try {
+    const u = db.prepare("SELECT id, member_no FROM users WHERE id=1").get();
+    if (!u || u.member_no !== "PT-990001") return;      // only when Daniel occupies the live record
+    const PNR = "TPDAN07", FNO = "TP1949";
+    const GROUP = [
+      { first: "Daniel", last: "Ferreira", type: "adult" },
+      { first: "Marta", last: "Ferreira", type: "adult" },
+      { first: "Tomas", last: "Ferreira", type: "adult" },
+    ];
+    const row = db.prepare("SELECT id, status, flight_date, meta_json FROM bookings WHERE pnr=? AND user_id=1").get(PNR);
+    if (row) {
+      // Already seeded. This is a DEMO FIXTURE, so re-arm it on every boot: a completed mixed
+      // resolution removes the refunded/vouchered travellers from the PNR (correct behaviour),
+      // which would otherwise leave the flow un-demoable until the database was reset by hand.
+      let m = {}; try { m = JSON.parse(row.meta_json || "{}") || {}; } catch { }
+      const spent = row.status !== "confirmed" || ((m.passengers || []).length !== GROUP.length);
+      m.passengers = GROUP; m.pax = GROUP.length; delete m.disruptionResolved;
+      db.prepare("UPDATE bookings SET status='confirmed', flight_no=?, meta_json=? WHERE id=?")
+        .run(FNO, JSON.stringify(m), row.id);
+      db.prepare("UPDATE flights SET status='cancelled' WHERE flight_no=? AND flight_date=?").run(FNO, row.flight_date);
+      if (spent) console.log("[seed] re-armed " + PNR + " group disruption (mixed-resolution demo ready again)");
+      return;
+    }
+    const bdate = isoAdd(TODAY, 2);
+    const meta = {
+      fare: "Plus", cabin: "Economy", origin: "LIS", dest: "CDG",
+      dep: "07:20", arr: "10:55", aircraft: "A320neo", pax: 3,
+      passengers: GROUP,
+    };
+    const items = ["seat", "bag", "meal"];
+    if (!db.prepare("SELECT 1 FROM flights WHERE flight_no=? AND flight_date=?").get(FNO, bdate)) {
+      db.prepare("INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+        .run(FNO, "LIS", "CDG", "07:20", "10:55", "2h35", "A320neo", 189, 6, bdate, 0, "cancelled");
+    } else {
+      db.prepare("UPDATE flights SET status='cancelled' WHERE flight_no=? AND flight_date=?").run(FNO, bdate);
+    }
+    const r = db.prepare("INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,meta_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(PNR, 1, FNO, bdate, "14A", "confirmed", 0, JSON.stringify(items), JSON.stringify(meta), TODAY + " 08:30:00");
+    db.prepare("INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)")
+      .run(Number(r.lastInsertRowid), 567, 0, 0, 0, 567, TODAY + " 08:30:00");
+    console.log("[seed] group booking " + PNR + " (3 travellers, " + FNO + " cancelled) ready for mixed-resolution demo");
+  } catch (e) { console.warn("[seed] ensureDanielGroupDisruption skipped:", e.message); }
+})();
+
+/* Second disruption fixture: a SOLO traveller on a DELAYED flight. The group fixture above covers
+   the per-passenger (mixed refund / voucher / rebook) flow; this one covers the single-traveller
+   "Rebook flight & reassociate extras" screen, and exercises the delay branch of the recovery
+   engine rather than the cancellation branch. Carries a seat + bag so the reassociation panel has
+   real ancillaries to transfer. Same self-re-arming behaviour as the group fixture. */
+(function ensureDanielSoloDisruption() {
+  try {
+    const u = db.prepare("SELECT id, member_no FROM users WHERE id=1").get();
+    if (!u || u.member_no !== "PT-990001") return;
+    const PNR = "TPDAN08", FNO = "TP1953";
+    const row = db.prepare("SELECT id, status, flight_date FROM bookings WHERE pnr=? AND user_id=1").get(PNR);
+    if (row) {
+      if (row.status !== "confirmed") db.prepare("UPDATE bookings SET status='confirmed', flight_no=? WHERE id=?").run(FNO, row.id);
+      db.prepare("UPDATE flights SET status='delayed', new_dep='16:45', new_arr='19:30' WHERE flight_no=? AND flight_date=?")
+        .run(FNO, row.flight_date);
+      return;
+    }
+    const bdate = isoAdd(TODAY, 4);
+    const meta = {
+      fare: "Classic", cabin: "Economy", origin: "OPO", dest: "AMS",
+      dep: "13:15", arr: "16:00", aircraft: "A320neo", pax: 1,
+      passengers: [{ first: "Daniel", last: "Ferreira", type: "adult" }],
+    };
+    if (!db.prepare("SELECT 1 FROM flights WHERE flight_no=? AND flight_date=?").get(FNO, bdate)) {
+      db.prepare("INSERT INTO flights (flight_no,origin,dest,dep,arr,duration,aircraft,price,seats_left,flight_date,recommended,status,new_dep,new_arr) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .run(FNO, "OPO", "AMS", "13:15", "16:00", "2h45", "A320neo", 164, 8, bdate, 0, "delayed", "16:45", "19:30");
+    } else {
+      db.prepare("UPDATE flights SET status='delayed', new_dep='16:45', new_arr='19:30' WHERE flight_no=? AND flight_date=?").run(FNO, bdate);
+    }
+    const r = db.prepare("INSERT INTO bookings (pnr,user_id,flight_no,flight_date,seat,status,checked_in,items_json,meta_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(PNR, 1, FNO, bdate, "12C", "confirmed", 0, JSON.stringify(["seat", "bag"]), JSON.stringify(meta), TODAY + " 08:30:00");
+    db.prepare("INSERT INTO payments (booking_id,total,voucher_amt,miles_used,miles_amt,card_amt,created_at) VALUES (?,?,?,?,?,?,?)")
+      .run(Number(r.lastInsertRowid), 164, 0, 0, 0, 164, TODAY + " 08:30:00");
+    console.log("[seed] solo booking " + PNR + " (" + FNO + " delayed) ready for rebook + reassociate demo");
+  } catch (e) { console.warn("[seed] ensureDanielSoloDisruption skipped:", e.message); }
+})();
+
 module.exports = { db, now, TODAY, searchToday, currentBooking, DB_PATH, seedSearches, seedBookings, seedUser, seedSharedCatalogs, KNOWN_USERS, PERSONAS, DEFAULT_PERSONA, getDataSource, setDataSource, applyProfile, localProfile };

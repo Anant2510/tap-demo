@@ -99,14 +99,17 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
   trip.extras.forEach(e => { catTotals[e.cat] = (catTotals[e.cat] || 0) + (e.price || 0); });
   const gnights = (() => { try { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); return d > 0 ? d : 8; } catch { return 8; } })();
   const GTag = { Hotels: `${gnights} nights`, Flights: `${trip.pax} pax` };
-  const GRow = ({ icon, label, sub, tag, amt, green, muted, last }) => (
+  const GRow = ({ icon, label, sub, tag, amt, green, muted, last, qty }) => (
     <div className="flex items-center gap-3" style={{ minHeight: "72px", padding: "12px 0", borderBottom: last ? "none" : "1px solid #E8E8E5" }}>
       <span className="inline-flex items-center justify-center shrink-0 rounded-[10px] bg-surface-mute" style={{ width: "36px", height: "36px" }}><Icon name={icon} size={18} className={muted ? "text-ink-faint" : green ? "text-tap-greenDeep" : "text-ink-muted"} /></span>
       <div className="flex-1 min-w-0">
         <div className={cx("font-semibold text-[15px] flex items-center gap-1.5 truncate", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{label}{tag ? <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface-mute text-ink-muted shrink-0">{tag}</span> : null}</div>
         {sub ? <div className="text-[12px] text-ink-faint mt-0.5 truncate">{sub}</div> : null}
       </div>
-      <span className={cx("font-semibold v2-num text-[14px] shrink-0", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{amt < 0 ? "−" : ""}{eur2(Math.abs(amt))}</span>
+      <span className="shrink-0 text-right">
+        <span className={cx("block font-semibold v2-num text-[14px]", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{amt < 0 ? "\u2212" : ""}{eur2(Math.abs(amt))}</span>
+        {qty ? <span className="block text-[11px] text-ink-faint mt-0.5 whitespace-nowrap">{qty}</span> : null}
+      </span>
     </div>
   );
   return (
@@ -120,13 +123,25 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
             <div>
               {(() => {
                 const gsub = CAT_SUB(trip.pax, gnights);
+                const paxLbl = `${trip.pax} traveller${trip.pax > 1 ? "s" : ""}`;
+                const fNos = [trip.outbound?.flight?.flight_no, trip.inbound?.flight?.flight_no].filter(Boolean).join(" / ");
+                // One row per PRODUCT (not per category): the traveller sees the actual items they
+                // bought - each with its own name, metadata and quantity - rather than a rolled-up
+                // "Hotels / Insurance" bucket that hides what is in the basket.
                 const rows = [
-                  { icon: "plane", label: "Flights", tag: GTag.Flights, sub: `${trip.origin}–${trip.dest} · ${trip.outbound?.fare || "Classic"}`, amt: t.flights },
-                  ...CAT_ORDER.filter(c => catTotals[c]).map(c => ({ icon: CAT_ICON[c] || "cart", label: c, tag: GTag[c], sub: gsub[c] || "", amt: catTotals[c] })),
+                  { icon: "plane", label: `Flights · ${trip.origin}–${trip.dest}`, sub: [fNos, trip.outbound?.fare || "Classic", paxLbl].filter(Boolean).join(" · "), amt: t.flights, qty: paxLbl },
+                  ...trip.extras.map((e, n) => ({
+                    key: e.code || ("x" + n),
+                    icon: CAT_ICON[e.cat] || "cart",
+                    label: e.name,
+                    sub: gsub[e.cat] || e.cat || "",
+                    amt: e.price || 0,
+                    qty: CAT_QTY[e.cat] ? `× ${trip.pax}` : (e.cat === "Hotels" ? `${gnights} night${gnights !== 1 ? "s" : ""}` : ""),
+                  })),
                   { icon: "doc", label: "Taxes & fees", sub: "Airport & carrier charges", amt: t.taxes, muted: true },
                   ...(t.bundle > 0 ? [{ icon: "spark", label: "Bundle savings", sub: "Multi-item discount applied", amt: -t.bundle, green: true }] : []),
                 ];
-                return rows.map((r, i) => <GRow key={r.label} {...r} last={i === rows.length - 1} />);
+                return rows.map((r, i) => { const { key: rk, ...rest } = r; return <GRow key={rk || r.label} {...rest} last={i === rows.length - 1} />; });
               })()}
             </div>
           ) : (
@@ -269,7 +284,7 @@ const SEAT_CABINS = {
       { code: "legroom", name: "Extra legroom", price: 18, sub: "Exit rows · +10cm pitch", note: "Stretch out" },
       { code: "win", name: "Window+", price: 68, sub: "Window + free middle + legroom", note: "Premium experience" },
     ],
-    legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window"], ["bg-tap-green/50", "Extra legroom"], ["bg-surface-mute", "Taken"]],
+    legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window"], ["bg-tap-green/50", "Extra legroom"], ["bg-lime-tint ring-1 ring-tap-green/50", "Kept free"], ["bg-surface-mute", "Taken"]],
     upsell: true,
   },
   Premium: {
@@ -285,7 +300,7 @@ const SEAT_CABINS = {
       { code: "solo", name: "Solo · no neighbour", price: 40, sub: "Block the seat beside you", note: "Space to work & rest" },
       { code: "front", name: "Front row · priority", price: 25, sub: "First off the aircraft", note: "Priority deplane" },
     ],
-    legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window"], ["bg-tap-green/50", "Bulkhead"], ["bg-surface-mute", "Taken"]],
+    legend: [["bg-surface border border-line", "Pick"], ["bg-lime", "Selected"], ["bg-[#E8C75A]/60", "Window"], ["bg-tap-green/50", "Bulkhead"], ["bg-lime-tint ring-1 ring-tap-green/50", "Kept free"], ["bg-surface-mute", "Taken"]],
     upsell: false,
   },
   Business: {
@@ -308,28 +323,92 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, initialType, onClo
   const cfg = SEAT_CABINS[cabin] || SEAT_CABINS.Economy;
   const rowsArr = Array.from({ length: cfg.rows }, (_, i) => cfg.startRow + i);
   const takenSet = new Set(cfg.taken), winSet = new Set(cfg.window || []), legSet = new Set(cfg.legroom || []);
-  const firstFree = (() => { const out = []; for (const row of rowsArr) for (let b = 0; b < cfg.blocks.length; b++) for (const c of cfg.blocks[b]) { const id = row + c + "-" + b; if (!takenSet.has(id)) { out.push(id); if (out.length >= Math.max(1, pax)) return out; } } return out; })();
   const [type, setType] = useState(() => (initialType && cfg.types.some(t => t.code === initialType)) ? initialType : cfg.types[0].code);
-  const [picks, setPicks] = useState(() => firstFree.slice(0, Math.max(1, pax)));
+  const seatLabel = (id) => id.split("-")[0];
+  const seatRow = (id) => parseInt(id, 10);
+  const blockOf = (id) => parseInt(id.split("-")[1], 10);
+  const letterOf = (id) => id.split("-")[0].replace(/^\d+/, "");
+  // Derive window / aisle / middle from the cabin's own block layout, so the rules below work for
+  // every cabin (3-3 Economy, 2-2 Premium, 1-1 Business) without hard-coded seat letters.
+  const roleOf = (id) => {
+    const b = blockOf(id), blk = cfg.blocks[b] || [], i = blk.indexOf(letterOf(id)), last = blk.length - 1;
+    if (blk.length === 1) return "window";
+    if ((b === 0 && i === 0) || (b === cfg.blocks.length - 1 && i === last)) return "window";
+    if (i === 0 || i === last) return "aisle";
+    return "middle";
+  };
+  const neighboursOf = (id) => {
+    const b = blockOf(id), blk = cfg.blocks[b] || [], i = blk.indexOf(letterOf(id)), row = seatRow(id);
+    return [blk[i - 1], blk[i + 1]].filter(Boolean).map(c => row + c + "-" + b);
+  };
+  const pairOf = (id) => {
+    const b = blockOf(id), row = seatRow(id), ids = (cfg.blocks[b] || []).map(c => row + c + "-" + b);
+    return [ids.find(x => roleOf(x) === "window"), ids.find(x => roleOf(x) === "aisle")].filter(Boolean);
+  };
+  // Each seat product drives its own seat-map behaviour: which seats may be picked, whether a
+  // neighbouring seat is held free, and whether seats are booked as a pair.
+  const RULES = {
+    std: { hint: "Pick any available seat." },
+    legroom: { ok: (id) => legSet.has(id) || cfg.fee(seatRow(id)).price > 0, hint: "Extra-legroom rows only \u2014 other rows are unavailable for this product." },
+    win: { ok: (id) => roleOf(id) === "window", holds: true, hint: "Window seats only \u2014 the seat beside you is kept free." },
+    front: { ok: (id) => seatRow(id) === cfg.startRow, hint: "Front row only \u2014 first off the aircraft." },
+    nsf: { holds: true, hint: "Pick your seat \u2014 the seat next to you is blocked so nobody can book it." },
+    solo: { holds: true, hint: "Pick your seat \u2014 the seat beside you is blocked." },
+    couple: { ok: (id) => roleOf(id) !== "middle", pairs: true, hint: "Window + aisle are booked together \u2014 the middle seat between you stays free." },
+  };
+  const ruleFor = (t) => RULES[t] || RULES.std;
+  const okUnder = (t) => (id) => !takenSet.has(id) && (!ruleFor(t).ok || ruleFor(t).ok(id));
+  const selectable = okUnder(type);
+  const firstFreeUnder = (t, n) => {
+    const ok = okUnder(t), out = [];
+    for (const row of rowsArr) for (let b = 0; b < cfg.blocks.length; b++) for (const c of cfg.blocks[b]) {
+      const id = row + c + "-" + b;
+      if (ok(id)) { out.push(id); if (out.length >= n) return out; }
+    }
+    return out;
+  };
+  const wanted = (t) => ruleFor(t).pairs ? 2 * Math.max(1, pax) : Math.max(1, pax);
+  const [picks, setPicks] = useState(() => firstFreeUnder(type, wanted(type)));
+  // Switching product re-validates the current seats: anything the new product cannot use is
+  // dropped, and if nothing survives we seed a valid selection so the map is never left empty.
+  useEffect(() => {
+    const ok = okUnder(type);
+    setPicks((cur) => { const kept = cur.filter(ok); return kept.length ? kept : firstFreeUnder(type, wanted(type)); });
+  }, [type]);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  const seatLabel = (id) => id.split("-")[0];
-  const seatRow = (id) => parseInt(id, 10);
+  // Seats the chosen product keeps empty beside you (Next Seat Free / Solo / Window+).
+  const heldSet = (() => {
+    if (!ruleFor(type).holds) return new Set();
+    const h = new Set();
+    picks.forEach(id => neighboursOf(id).forEach(n => { if (!picks.includes(n) && !takenSet.has(n)) h.add(n); }));
+    return h;
+  })();
   const feeInfo = (id) => cfg.fee(seatRow(id));
   const feeOf = (id) => feeInfo(id).price;
   const toggle = (id) => {
-    if (takenSet.has(id)) return;
-    setPicks((cur) => cur.includes(id) ? cur.filter(s => s !== id) : (cur.length >= pax ? [...cur.slice(1), id] : [...cur, id]));
+    if (!selectable(id) || heldSet.has(id)) return;
+    const r = ruleFor(type);
+    const group = r.pairs ? pairOf(id).filter(selectable) : [id];
+    if (!group.length) return;
+    setPicks((cur) => {
+      if (group.every(g => cur.includes(g))) return cur.filter(s => !group.includes(s));
+      const merged = [...cur.filter(s => !group.includes(s)), ...group];
+      const cap = wanted(type);
+      return merged.length > cap ? merged.slice(merged.length - cap) : merged;
+    });
   };
-  const typeFee = (cfg.types.find(t => t.code === type)?.price || 0) * Math.max(1, picks.length);   // seat-type price per traveller
+  const typeFee = (cfg.types.find(t => t.code === type)?.price || 0) * Math.max(1, pax);   // per traveller, not per seat
   const total = picks.reduce((s, id) => s + feeOf(id), 0) + typeFee;
   const label = picks.map(seatLabel).join(", ");
   const seatClass = (id) => {
     if (picks.includes(id)) return "bg-lime text-ink ring-2 ring-tap-green";
     if (takenSet.has(id)) return "bg-surface-mute text-ink-faint cursor-not-allowed";
+    if (heldSet.has(id)) return "bg-lime-tint text-tap-greenDeep ring-1 ring-tap-green/50 cursor-not-allowed";
+    if (!selectable(id)) return "bg-surface-mute/40 text-ink-faint/50 cursor-not-allowed";
     if (winSet.has(id)) return "bg-[#E8C75A]/60 text-ink";
     if (legSet.has(id)) return "bg-tap-green/50 text-white";
     return "bg-surface border border-line hover:border-tap-green text-ink";
@@ -360,6 +439,12 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, initialType, onClo
               </button>
             );
           })}
+        </div>
+
+        {/* the rule the selected product applies to the cabin map */}
+        <div className="mt-3 flex items-start gap-2 rounded-xl px-3 py-2" style={{ background: "rgba(242,255,219,1)", border: "1px solid rgba(158,253,56,0.5)" }}>
+          <Icon name="check" size={14} className="text-tap-greenDeep shrink-0 mt-0.5" />
+          <span className="text-[12px] font-semibold text-tap-greenDeep">{cfg.types.find(t => t.code === type)?.name}: <span className="font-normal text-ink-muted">{ruleFor(type).hint}</span></span>
         </div>
 
         <div className="grid lg:grid-cols-[1fr_320px] gap-5 mt-5 items-start">
@@ -589,16 +674,27 @@ function CartView({ go, mode = "cart", shared }) {
     save(); r(); setSeatMapOpen(false);
   };
 
+  // A seat picked in the Full Cabin View should only ever carry the ROW surcharge (exit row etc.).
+  // The seat-TYPE price belongs to its own extra. Recomputing it here means switching type - above
+  // all, switching back to Standard / Included - can never leave a stale type fee attached to the
+  // seat assignment, which is what made an "Included" seat still show up as a paid ancillary.
+  const seatMapRowFee = (sm) => {
+    if (!sm) return 0;
+    const cfg = SEAT_CABINS[cab] || SEAT_CABINS.Economy;
+    return String(sm.name).replace(/^[^\u00b7]*\u00b7\s*/, "").split(",")
+      .map(x => parseInt(String(x).trim(), 10)).filter(n => !isNaN(n))
+      .reduce((acc, row) => acc + ((cfg.fee(row) || {}).price || 0), 0);
+  };
   const SeatType = ({ code, name, sub, price }) => {
     const on = code === "std" ? !seat : hasExtra(code);
-    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); r(); }} className={cx("flex-1 min-w-[200px] shrink-0 text-left rounded-xl p-3", on ? "border-2" : "border border-line")} style={on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : undefined}>
-      <div className="rounded-xl border border-line bg-surface p-3 mb-3 flex justify-center gap-1.5">{[0, 1, 2, 3, 4].map(i => { const yours = on && i === 2; const free = on && code !== "std" && i === 3; return <span key={i} className={cx("w-6 h-6 rounded", yours ? "bg-lime" : free ? "bg-lime/40" : "bg-surface-mute")} />; })}</div>
+    return <button onClick={() => { if (seat) toggleExtra(seat); if (code !== "std") toggleExtra({ code, name, price, cat: "Seats & baggage" }); const sm = trip.extras.find(e => e.code === "seat-map"); if (sm) { const rowFee = seatMapRowFee(sm); if (sm.price !== rowFee) { toggleExtra(sm); toggleExtra({ ...sm, price: rowFee }); } } save(); r(); }} className={cx("shrink-0 snap-start text-left flex flex-col overflow-hidden", on ? "border-2" : "border")} style={{ width: "272px", height: "151px", borderRadius: "12px", padding: "14px", gap: "10px", boxSizing: "border-box", ...(on ? { background: "rgba(242,255,219,1)", borderColor: "rgba(158,253,56,1)" } : { borderColor: "rgba(232, 232, 229, 1)", borderStyle: "solid", borderWidth: "1px" }) }}>
+      <div className="rounded-xl border border-line bg-surface p-3 flex justify-center gap-1.5 shrink-0">{[0, 1, 2, 3, 4].map(i => { const yours = on && i === 2; const free = on && code !== "std" && i === 3; return <span key={i} className={cx("w-6 h-6 rounded", yours ? "bg-lime" : free ? "bg-lime/40" : "bg-surface-mute")} />; })}</div>
       <div className="flex items-center gap-2">
         <span className={cx("w-4 h-4 rounded-full border-2 inline-flex items-center justify-center shrink-0", on ? "border-tap-green" : "border-line-strong")}>{on && <span className="w-2 h-2 rounded-full bg-tap-green" />}</span>
         <span className="text-[13px] font-semibold flex-1">{name}</span>
         {price ? <span className="text-[13px] font-bold v2-num">{eur2(price)}</span> : <span className="text-[13px] font-semibold text-[rgba(10,10,10,1)]">Included</span>}
       </div>
-      <div className="text-[11px] text-ink-faint mt-1 pl-6">{sub}</div>
+      <div className="text-[11px] text-ink-faint pl-6 leading-snug">{sub}</div>
     </button>;
   };
   const Bag = ({ code, name, sub, price, locked }) => { const on = locked || hasExtra(code); const toggle = () => { if (!locked) add(code, name, price, "Seats & baggage"); }; return (
@@ -707,31 +803,31 @@ function CartView({ go, mode = "cart", shared }) {
           <div className="space-y-5">
             <Module n="01" icon="seat" kicker="Seats & baggage" title="Seats & baggage" sub="Pick where you sit and what you bring.">
               <div className="flex items-center justify-between mb-2"><Eyebrow>Choose your seat type · per passenger · both flights</Eyebrow><button onClick={() => setSeatMapOpen(true)} className="text-[12px] font-semibold text-tap-greenDeep shrink-0 hover:underline">Full Cabin View</button></div>
-              <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} />{SEAT_TYPE_OPTS.map(o => <SeatType key={o.code} code={o.code} name={o.name} sub={o.sub} price={o.price} />)}</div>
+              <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x scroll-smooth"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} />{SEAT_TYPE_OPTS.map(o => <SeatType key={o.code} code={o.code} name={o.name} sub={o.sub} price={o.price} />)}</div>
               <Eyebrow className="mt-4 mb-2">Baggage · what's included with {fareLabel} fare</Eyebrow>
               <div className="space-y-2"><Bag name="Carry-on bag · 8kg" sub="1 piece per traveller · 55×40×20 cm" locked />{fareBags >= 1 ? <Bag name={fareBags === 2 ? "2× Checked bags · 23kg" : "Checked bag · 23kg"} sub={`${fareBags} piece${fareBags > 1 ? "s" : ""} per traveller · included with ${fareLabel} fare`} locked /> : <Bag code="bag-checked" name="Checked bag · 23kg" sub={`Not included in ${fareLabel} · add one`} price={30} />}<Bag code="bag-extra" name={fareBags >= 1 ? "Extra checked bag · 23kg" : "Second checked bag · 23kg"} sub="Add another bag · saves €15 vs airport" price={55} /></div>
             </Module>
 
-            <Card className="p-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="shrink-0 w-9 h-9 rounded-lg bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center"><Icon name="leaf" size={18} /></span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap"><span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">02 · Carbon offset</span><span className="text-[14px] font-bold v2-num">{eur2(10)}</span><span className="text-[12px] text-ink-muted">{carbonOn ? "Auto-checked · uncheck if you wish" : "Optional · offset this trip's CO₂"}</span></div>
-                  </div>
+            {/* Carbon offset — ONE unified card (no internal divider): icon, title, price, note,
+                auto-added state, opt-out badge and climate notice all share a single container. */}
+            <div className="mx-auto flex items-center gap-3" style={{ width: "100%", maxWidth: "848px", minHeight: "87px", borderRadius: "18px", border: "1px solid rgba(232, 232, 229, 1)", background: "#FFFFFF", boxShadow: "0px 4px 16px 0px rgba(0, 0, 0, 0.06)", padding: "12px 18px", boxSizing: "border-box" }}>
+              <span className="shrink-0 w-9 h-9 rounded-lg bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center"><Icon name="leaf" size={18} /></span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">02 · Carbon offset</span>
+                  <span className="text-[14px] font-bold v2-num">{eur2(10)}</span>
+                  <span className="text-[12px] text-ink-muted">{carbonOn ? "Auto-checked · uncheck if you wish" : "Optional · offset this trip's CO₂"}</span>
                 </div>
-                <div className="text-right shrink-0">
-                  {carbonOn && <><button onClick={() => { setCarbonOn(false); if (hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }} className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00] hover:brightness-95">Opt-out</button>
-                  <div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></>}
+                <div className="flex items-center gap-2 mt-1.5 cursor-pointer w-fit" onClick={() => { const next = !carbonOn; setCarbonOn(next); if (next !== hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }}>
+                  <span className="w-5 h-5 rounded-md inline-flex items-center justify-center shrink-0" style={carbonOn ? { background: "rgba(10,10,10,1)", border: "1px solid rgba(232,232,229,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>{carbonOn && <Icon name="check" size={12} className="stroke-[3] text-[rgba(158,253,56,1)]" />}</span>
+                  <span className="text-[13px] font-semibold">{carbonOn ? "Auto-added" : "Offset this trip's emissions"}</span>
                 </div>
               </div>
-              <div className="h-px bg-line -mx-4 my-3" />
-              <div className="flex items-center gap-3 cursor-pointer" onClick={() => { const next = !carbonOn; setCarbonOn(next); if (next !== hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }}>
-                <span className="w-5 h-5 rounded-md inline-flex items-center justify-center shrink-0" style={carbonOn ? { background: "rgba(10,10,10,1)", border: "1px solid rgba(232,232,229,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>{carbonOn && <Icon name="check" size={12} className="stroke-[3] text-[rgba(158,253,56,1)]" />}</span>
-                <div className="text-[13px] font-semibold">{carbonOn ? "Auto-added" : "Offset this trip's emissions"}</div>
-                <div className="text-[13px] font-bold v2-num ml-auto">{eur2(10)}</div>
+              <div className="text-right shrink-0">
+                {carbonOn && <><button onClick={() => { setCarbonOn(false); if (hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }} className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00] hover:brightness-95">Opt-out</button>
+                <div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></>}
               </div>
-            </Card>
+            </div>
 
             <Module n="03" icon="home" kicker="Hotels" title={`Stay in ${destCity}`} badge={catBadge("Hotels")} sub={`Recommended hotels in ${destCity} for your dates.`} right={<button onClick={() => setAllHotels(v => !v)} className="text-[12px] font-semibold text-tap-greenDeep">{allHotels ? "Show less ↑" : "View all hotels →"}</button>}>
               <div className="space-y-2">
@@ -831,6 +927,22 @@ export function Basket({ shared, go }) {
   const obf = ob?.flight || {}, ibf = ib?.flight || {};
   const xCity = (shared?.airports?.find(a => a.code === trip.dest)?.city) || "your destination";   // F8/F9 — destination-aware cross-sell
   const xCode = trip.dest || "airport";
+  // These "not added yet" prompts must reflect what the basket actually holds. The same product
+  // can be added from more than one module under a different code - a day-trip from the
+  // Experiences rail is xp-<city>-N while the cross-sell rail uses xsell-<city>-tour, and a
+  // transfer can arrive as "transfer" or "stopover-transfer". Matching a single SKU meant the
+  // prompt kept saying "no day-trip added yet" while the trip was sitting in the basket right
+  // above it, so match on intent instead.
+  const xSlug = slugCity(xCity);
+  const hasDayTrip = (trip.extras || []).some(e => {
+    const code = String(e.code || ""), name = String(e.name || "");
+    return code === `xsell-${xSlug}-tour`
+      || (code.startsWith(`xp-${xSlug}-`) && /day[\s-]?trip|excursion|full[\s-]?day|highlights/i.test(name));
+  });
+  const hasTransferItem = (trip.extras || []).some(e => {
+    const code = String(e.code || ""), name = String(e.name || "");
+    return code === "xsell-xfer-return" || code === "transfer" || code === "stopover-transfer" || /transfer/i.test(name);
+  });
   const nights = (() => { try { if (trip.date && trip.ret) { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); if (d > 0) return d; } } catch { } return 8; })();
   const itemCount = trip.extras.length + 1;
   const clear = () => { clearBasket(); api.post("/basket/clear", { flight_no: trip.outbound?.flight?.flight_no }).catch(() => {}); r(); };
@@ -900,23 +1012,45 @@ export function Basket({ shared, go }) {
     }
   };
 
+  // Itinerary-style journey timeline (replaces the boxed data row): flight meta above, large
+  // departure/arrival times with their cities at each end, and a route line between them carrying
+  // the duration and stop count.
+  // Fare inclusions shown in the card footer, derived from the booked fare brand rather than
+  // hard-coded, so a Classic basket never advertises a checked bag it does not have.
+  const fareInclusions = (() => {
+    const fare = ob?.fare || "Classic";
+    const bags = /exec|business/i.test(fare) ? 2 : /plus|premium|flex/i.test(fare) ? 1 : 0;
+    return [
+      "1× carry-on (8kg)",
+      bags ? bags + "× checked bag (23kg)" : "Checked bag not included",
+      "Seat selection",
+      /flex|exec/i.test(fare) ? "Free changes" : "Changes for fee",
+    ];
+  })();
   const Leg = ({ label, f, date }) => (
-    <div className="py-3">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-ink-faint mb-2">{label} · {fmtDate(date)}</div>
-      {/* v33 My Trip Cart #1/#6 — Figma journey row: one horizontal summary (route · time · flight no)
-          with vertical dividers between the grouped metadata, not a three-column airport card. */}
-      <div className="flex items-center flex-wrap rounded-xl border overflow-hidden" style={{ borderColor: "#E0E3E8" }}>
-        <div className="px-4 py-3 flex items-center gap-2">
-          <span className="text-[16px] font-bold v2-num">{f.origin}</span>
-          <Icon name="arrow" size={13} className="text-tap-greenDeep" />
-          <span className="text-[16px] font-bold v2-num">{f.dest}</span>
+    <div className="py-4">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-ink">{label} · {fmtDate(date)}</div>
+        <div className="text-[11px] text-ink-faint v2-num">{f.flight_no}{f.aircraft ? " \u00b7 " + f.aircraft : ""}</div>
+      </div>
+      <div className="flex items-center gap-3 sm:gap-5">
+        <div className="shrink-0">
+          <div className="text-[24px] font-bold v2-num leading-none">{f.dep || "\u2014"}</div>
+          <div className="text-[11px] text-ink-muted mt-1 whitespace-nowrap">{f.origin}{cityOf(f.origin) && cityOf(f.origin) !== f.origin ? " · " + cityOf(f.origin) : ""}</div>
         </div>
-        <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
-        <div className="px-4 py-3 text-[13px] font-semibold v2-num">{f.dep || "—"}{f.arr ? ` – ${f.arr}` : ""}</div>
-        <div className="w-px self-stretch" style={{ background: "#E0E3E8" }} />
-        <div className="px-4 py-3 text-[12px] font-semibold text-ink-muted v2-num">{f.flight_no}</div>
-        <div className="flex-1" />
-        <div className="px-4 py-3 text-[11px] text-ink-faint whitespace-nowrap">{f.duration || ""}{f.aircraft ? ` · ${f.aircraft}` : ""}</div>
+        <div className="flex-1 min-w-[70px]">
+          <div className="text-[11px] text-ink-faint text-center mb-1">{f.duration || ""}</div>
+          <div className="flex items-center">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "#0A0A0A" }} />
+            <span className="flex-1 h-px" style={{ background: "#E0E3E8" }} />
+            <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-surface" style={{ border: "1px solid #0A0A0A" }} />
+          </div>
+          <div className="text-[11px] text-ink-faint text-center mt-1 whitespace-nowrap">Nonstop · Direct</div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[24px] font-bold v2-num leading-none">{f.arr || "\u2014"}</div>
+          <div className="text-[11px] text-ink-muted mt-1 whitespace-nowrap">{f.dest}{cityOf(f.dest) && cityOf(f.dest) !== f.dest ? " · " + cityOf(f.dest) : ""}</div>
+        </div>
       </div>
     </div>
   );
@@ -1011,8 +1145,13 @@ export function Basket({ shared, go }) {
             <div>
               <div className="flex items-center gap-2 mb-2"><h2 className="text-[18px] font-semibold">Your flights</h2></div>
               <Card className="overflow-hidden" style={{ borderRadius: "18px" }}>
-                <div className="flex items-center justify-between flex-wrap gap-2 px-5 border-b border-line" style={{ background: "#F2F2EE", paddingTop: "12px", paddingBottom: "12px" }}>
-                  <div className="flex items-center gap-2 text-[12px]"><Icon name="lock" size={12} className="text-ink-muted" /><span className="font-bold uppercase tracking-wide text-[10px] text-ink">Pinned</span><span className="text-ink-muted">— your core flight stays in the cart · {ob?.fare || "Classic"} · Economy</span></div>
+                <div className="flex items-center justify-between flex-wrap gap-3 px-5 border-b border-line" style={{ background: "#FAFAF7", paddingTop: "12px", paddingBottom: "12px" }}>
+                  <div className="flex items-center gap-3 flex-wrap min-w-0">
+                    <img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "18px", width: "auto" }} />
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink-muted"><Icon name="lock" size={11} />{ob?.fare || "Classic"} · {trip.cabin || "Economy"}</span>
+                    {trip.stopover?.viaLisbon && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-tap-greenDeep"><Icon name="clock" size={11} />Stopover included</span>}
+                  </div>
+                  <button onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type, pax: trip.pax, cabin: trip.cabin })} className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-ink-muted hover:text-tap-greenDeep"><Icon name="search" size={12} />Change flight</button>
                 </div>
                 <div className="px-5 pt-1 pb-2">
                   {trip.stopover?.viaLisbon ? (() => {
@@ -1025,14 +1164,20 @@ export function Basket({ shared, go }) {
                   })() : <Leg label={trip.type === "multi" ? "Flight 1" : "Outbound"} f={obf} date={trip.date} />}
                   {ib && <><Divider className="my-1" /><Leg label={trip.type === "multi" ? "Flight 2" : "Inbound"} f={ibf} date={trip.ret} /></>}
                 </div>
-                <div className="border-t border-line flex items-center justify-between flex-wrap gap-3" style={{ background: "#FAFAF7", padding: "14px 20px" }}>
-                  {/* v33 My Trip Cart #7/#8 — Figma footer groups ACTIONS (not entitlement chips). #9 bg #FAFAF7, #10 padding 14/20. */}
-                  <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] font-semibold text-tap-greenDeep">
-                    <button onClick={() => go("results", { origin: trip.origin, dest: trip.dest, date: trip.date, ret: trip.ret, type: trip.type, pax: trip.pax, cabin: trip.cabin })} className="hover:underline">Change flight</button>
-                    <button onClick={() => go("cart")} className="hover:underline">Seat selection</button>
-                    <button onClick={() => go("cart")} className="hover:underline">Add baggage</button>
+                {/* footer: fare inclusions (left) + flights subtotal and quick actions (right) */}
+                <div className="border-t border-line flex items-start justify-between flex-wrap gap-3" style={{ background: "#FAFAF7", padding: "14px 20px" }}>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] font-semibold text-ink-muted min-w-0">
+                    {fareInclusions.map(t => <span key={t} className="inline-flex items-center gap-1 whitespace-nowrap"><span className="text-tap-greenDeep">✓</span>{t}</span>)}
                   </div>
-                  <span className="text-right"><span className="block text-[10px] uppercase tracking-wide text-ink-faint">Flights subtotal</span><span className="block text-[22px] font-bold v2-num leading-none mt-0.5" style={{ color: "#0A0A0A" }}>{eur2((ob?.price || 0) + (ib?.price || 0))}</span><span className="block text-[11px] text-ink-faint v2-num mt-1">{eur2(((ob?.price || 0) + (ib?.price || 0)) / Math.max(1, trip.pax || 1))} per traveller</span></span>
+                  <div className="text-right shrink-0">
+                    <span className="block text-[10px] uppercase tracking-wide text-ink-faint">Flights subtotal</span>
+                    <span className="block text-[22px] font-bold v2-num leading-none mt-0.5" style={{ color: "#0A0A0A" }}>{eur2((ob?.price || 0) + (ib?.price || 0))}</span>
+                    <span className="block text-[11px] text-ink-faint v2-num mt-1">{eur2(((ob?.price || 0) + (ib?.price || 0)) / Math.max(1, trip.pax || 1))} per traveller</span>
+                    <span className="flex justify-end gap-3 mt-2 text-[12px] font-semibold text-tap-greenDeep">
+                      <button onClick={() => go("cart")} className="hover:underline">Seat selection</button>
+                      <button onClick={() => go("cart")} className="hover:underline">Add baggage</button>
+                    </span>
+                  </div>
                 </div>
               </Card>
             </div>
@@ -1079,15 +1224,15 @@ export function Basket({ shared, go }) {
             })}
 
             {/* UI-09 — empty-state prompts for high-value extras not yet in the cart */}
-            {(!hasExtra("xsell-xfer-return") || !hasExtra(`xsell-${slugCity(xCity)}-tour`)) && (
+            {(!hasTransferItem || !hasDayTrip) && (
               <div className="grid sm:grid-cols-2 gap-4">
-                {!hasExtra("xsell-xfer-return") && (
+                {!hasTransferItem && (
                   <div className="flex items-center justify-between gap-3 p-4" style={{ borderRadius: "18px", border: "1.5px dashed #DCDCD8" }}>
                     <div className="flex items-center gap-2.5 min-w-0"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="swap" size={15} className="text-ink-faint" /></span><div className="min-w-0"><div className="text-[13px] font-bold">No return transfer added yet</div><div className="text-[11px] text-ink-faint">Private door-to-airport ride from €25</div></div></div>
                     <span className="text-[12px] font-semibold text-tap-greenDeep shrink-0">Add →</span>
                   </div>
                 )}
-                {!hasExtra(`xsell-${slugCity(xCity)}-tour`) && (
+                {!hasDayTrip && (
                   <div className="flex items-center justify-between gap-3 p-4" style={{ borderRadius: "18px", border: "1.5px dashed #DCDCD8" }}>
                     <div className="flex items-center gap-2.5 min-w-0"><span className="w-9 h-9 rounded-lg bg-surface-mute inline-flex items-center justify-center shrink-0"><Icon name="globe" size={15} className="text-ink-faint" /></span><div className="min-w-0"><div className="text-[13px] font-bold">No {xCity} day-trip added yet</div><div className="text-[11px] text-ink-faint">Guided highlights tour from €89</div></div></div>
                     <span className="text-[12px] font-semibold text-tap-greenDeep shrink-0">Add →</span>

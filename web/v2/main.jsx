@@ -13,7 +13,16 @@ import { AdminConsole } from "./admin.jsx";
 function parseHash() {
   const h = (window.location.hash || "#/home").replace(/^#\/?/, "");
   const [path, qs] = h.split("?");
-  const params = Object.fromEntries(new URLSearchParams(qs || ""));
+  // Params travel through the URL as strings. Structured values (notably the multi-city `legs`
+  // array) are written out as JSON by go(), so decode anything that looks like JSON back into a
+  // real object/array. Without this, `legs` arrived as "[object Object],[object Object]" and the
+  // results page silently fell back to a single origin→dest search.
+  const params = Object.fromEntries([...new URLSearchParams(qs || "")].map(([k, v]) => {
+    if (typeof v === "string" && (v[0] === "[" || v[0] === "{")) {
+      try { return [k, JSON.parse(v)]; } catch { }
+    }
+    return [k, v];
+  }));
   return { route: path || "home", params };
 }
 
@@ -47,7 +56,7 @@ function App() {
         if (!already) { saveTripToBasket(); resetTrip(); }
       }
     } catch { }
-    const qs = p ? "?" + new URLSearchParams(Object.fromEntries(Object.entries(p).filter(([, v]) => v != null && v !== ""))).toString() : "";
+    const qs = p ? "?" + new URLSearchParams(Object.fromEntries(Object.entries(p).filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v]))).toString() : "";
     window.location.hash = `#/${r}${qs}`;
   }, []);
 

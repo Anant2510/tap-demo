@@ -49,6 +49,42 @@ function deriveFares(price, cabinPrices) {
 }
 const depMins = (hhmm) => { const [h, m] = (hhmm || "0:0").split(":").map(Number); return h * 60 + (m || 0); };
 const durMins = (s) => { if (!s) return 999; const h = /(\d+)h/.exec(s), m = /h?(\d+)m/.exec(s); return (h ? +h[1] * 60 : 0) + (m ? +m[1] : (s.endsWith("m") ? +s.replace(/\D/g, "") : 0)); };
+// Best-pairing engine (#Best Pairing): score an inbound flight as a return paired with the already-
+// chosen outbound. Lower score = better. Genuinely weighs total round-trip cost, total air time,
+// fare-brand compatibility (same brand books cleaner and unlocks the bundle discount), schedule
+// convenience (a civilised return departure, not a red-eye), connection/operating quality (direct
+// TAP mainline over a partner-operated codeshare), and loyalty (tier holders get priority/benefits
+// that make a paired mainline flight more valuable). Returns { score, reasons, bundle } so the
+// winning card can explain itself rather than just being highlighted.
+function pairingScore(inb, ob, tier, prevFare) {
+  if (!inb || !ob) return { score: Infinity, reasons: [], bundle: 0 };
+  const obFare = prevFare || ob.fare || "Classic";
+  const inbBrand = (inb._fares || []).find(x => x.key === obFare);
+  const sameBrand = !!inbBrand;
+  const inbPrice = inbBrand ? inbBrand.price : (inb.price || 0);
+  const obPrice = ob.price || 0;
+  const bundle = sameBrand ? 15 : 0;
+  const totalCost = obPrice + inbPrice - bundle;
+  const totalDur = durMins((ob.flight && ob.flight.duration) || ob.duration) + durMins(inb.duration);
+  const depHr = depMins(inb.dep) / 60;
+  const partner = !!(inb._m && inb._m.partner);
+  const tierBoost = /gold|platinum|silver/i.test(tier || "") ? 1 : 0;
+  let score = totalCost;
+  score += totalDur * 0.15;
+  if (!sameBrand) score += 40;
+  if (partner) score += 25;
+  if (depHr < 6) score += 30;
+  else if (depHr > 21) score += 15;
+  else if (depHr >= 8 && depHr <= 19) score -= 8;
+  if (tierBoost && !partner) score -= 6;
+  const reasons = [];
+  reasons.push(sameBrand ? ("Same " + obFare + " fare on both legs — books clean") : "Fare-flexible return");
+  if (bundle) reasons.push("bundle −" + bundle + " off");
+  if (!partner) reasons.push("direct TAP mainline");
+  if (depHr >= 8 && depHr <= 19) reasons.push("convenient daytime return");
+  if (tierBoost) reasons.push(tier + " priority both ways");
+  return { score, reasons, bundle, totalCost };
+}
 function meta(f) {
   const partner = /^TP6/.test(f.flight_no);
   const stops = partner ? 1 : 0;
@@ -93,6 +129,7 @@ export function Results({ shared, params, go }) {
   // Pay-with-Miles: when the toggle is on, price each fare as "miles you have + € remaining".
   const payMilesOn = params.payMiles === true || params.payMiles === "true";
   const userMiles = +(shared?.profile?.user?.miles) || 0;
+  const tier = shared?.profile?.user?.tier || "";
   const milesFor = (euros) => {
     const worth = userMiles * MILES_RATE;                       // value of the member's balance
     if (worth >= euros) return { miles: Math.round(euros / MILES_RATE), cash: 0, full: true };
@@ -209,12 +246,19 @@ export function Results({ shared, params, go }) {
       // A6 · contextual ranking from the cart — rank this leg by the price IN the fare brand
       // already chosen on the previous leg, so a change to that selection re-ranks these results.
       const prevFare = (isMulti ? (trip.legs || [])[legIndex - 1]?.fare : trip.outbound?.fare) || "Classic";
+      const priorLeg = isMulti ? (trip.legs || [])[legIndex - 1] : trip.outbound;
       const brandPrice = f => f._fares.find(x => x.key === prevFare)?.price ?? f.price;
-      v = [...v].sort((a, b) => brandPrice(a) - brandPrice(b) || (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
+      // Best Pairing: rank by the genuine outbound+inbound pairing score (cost, duration, brand
+      // compatibility, connection quality, schedule, loyalty). Other tabs keep their own criteria.
+      if (sort === "Best" && priorLeg) {
+        v = [...v].sort((a, b) => pairingScore(a, priorLeg, tier, prevFare).score - pairingScore(b, priorLeg, tier, prevFare).score);
+      } else {
+        v = [...v].sort((a, b) => brandPrice(a) - brandPrice(b) || (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
+      }
     }
     else v = [...v].sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0) || a.price - b.price); // Best
     return v;
-  }, [flights, F, sort]);
+  }, [flights, F, sort, tier]);
 
   const lowest = useMemo(() => (flights || []).reduce((m, f) => Math.min(m, f.price), Infinity), [flights]);
   const fastest = useMemo(() => (flights || []).reduce((m, f) => Math.min(m, durMins(f.duration)), 999), [flights]);
@@ -265,6 +309,7 @@ export function Results({ shared, params, go }) {
       {/* search summary bar */}
       <div className="bg-surface border-b border-line">
         <div className="mx-auto max-w-page px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2">
+          {isMulti && <span className="text-[10px] font-bold uppercase tracking-wide rounded-full px-2.5 py-1 bg-tap-greenDeep text-white shrink-0">Flight {legIndex + 1} of {mLegs.length}</span>}
           <Chip label="From" value={`${cityOf(origin)} · ${origin}`} />
           <button onClick={() => go("results", { ...params, origin: params.dest || dest, dest: params.origin || origin })} className="px-1.5 hover:text-tap-greenDeep" style={{ color: "#232323" }} title="Swap origin and destination" aria-label="Swap"><Icon name="swap" size={19} /></button>
           <Chip label="To" value={`${cityOf(dest)} · ${dest}`} />
@@ -355,39 +400,49 @@ export function Results({ shared, params, go }) {
               <>
                 {/* selected outbound — shown first, labelled (#2,#3) */}
                 <div className="pt-2">
-                  <Card className="border border-tap-green/30 overflow-hidden" style={{ background: "#FFFFFF", borderRadius: "14px" }}>
-                    <div className="px-4 pt-3 text-[10px] font-bold uppercase tracking-wide text-ink inline-flex items-center gap-1">Outbound <Icon name="check" size={11} className="text-ink" /></div>
-                    <div className="px-4 pb-4 pt-1 flex flex-wrap items-center gap-4">
-                      <div className="flex items-center gap-4 min-w-[220px]">
-                        <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.dep}</div><div className="text-[11px] text-ink-faint mt-1">{of.origin}</div></div>
-                        <div className="text-center text-ink-faint min-w-[56px]"><div className="text-[11px]">{of.duration}</div><div className="w-14 h-px bg-line-strong my-1.5 mx-auto" /><div className="text-[11px]">Direct</div></div>
-                        <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.arr}</div><div className="text-[11px] text-ink-faint mt-1">{of.dest}</div></div>
+                  <Card className="border border-tap-green/30 overflow-hidden mx-auto" style={{ background: "#FFFFFF", borderRadius: "14px", maxWidth: "964px", boxShadow: "0px 4px 14px 0px rgba(0, 0, 0, 0.05)" }}>
+                    <div className="flex items-stretch">
+                      {/* left: compact outbound summary */}
+                      <div className="flex-1 min-w-0 px-4 py-3">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-ink inline-flex items-center gap-1 mb-2">Outbound <Icon name="check" size={11} className="text-tap-greenDeep" /></div>
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <div className="flex items-center gap-4 min-w-[220px]">
+                            <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.dep}</div><div className="text-[11px] text-ink-faint mt-1">{of.origin}</div></div>
+                            <div className="text-center text-ink-faint min-w-[56px]"><div className="text-[11px]">{of.duration}</div><div className="w-14 h-px bg-line-strong my-1.5 mx-auto" /><div className="text-[11px]">Direct</div></div>
+                            <div className="text-center"><div className="text-[20px] font-bold leading-none v2-num">{of.arr}</div><div className="text-[11px] text-ink-faint mt-1">{of.dest}</div></div>
+                          </div>
+                          <div className="min-w-[160px]">
+                            <div className="flex items-center gap-2"><img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "16px", width: "auto" }} /><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
+                            <div className="text-[11px] text-ink-faint mt-0.5">{of.aircraft} · Bag included</div>
+                            <div className="text-[11px] font-semibold text-ink-700 mt-1">Earn {miles(Math.round(ob.price * 8))} MI</div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-[160px]">
-                        <div className="flex items-center gap-2"><img src="/v2/assets/homepage/tap-logo.png" alt="TAP Air Portugal" className="shrink-0 object-contain" style={{ height: "15px", width: "auto" }} /><span className="text-[13px] font-semibold">{String(of.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}</span></div>
-                        <div className="text-[11px] text-ink-faint mt-0.5">{of.aircraft} · Bag included</div>
-                      </div>
-                      <div className="text-right rounded-xl bg-surface border border-line min-w-[148px]" style={{ padding: "22px 24px 22px 20px" }}>
-                        <div className="text-[10px] font-semibold text-amber-600">OR {miles(Math.round(ob.price * 110 / 500) * 500)} MI + {EUR(Math.round(ob.price * 0.18))}</div>
-                        <div className="text-[20px] font-bold v2-num leading-tight">{EUR(ob.price)}</div>
-                        <div className="text-[10px] text-ink-faint">1 adult · {ob.fare}</div>
-                        <Btn size="sm" variant="primary" className="mt-1.5" style={{ width: "107px", height: "36px", padding: "10px 18px", borderRadius: "9999px" }}>Selected ✓</Btn>
+                      {/* right: full-height green fare panel attached to edge */}
+                      <div className="text-right self-stretch flex flex-col justify-center shrink-0" style={{ width: "282px", padding: "22px 24px 22px 20px", gap: "24px", background: "rgba(242, 255, 219, 1)" }}>
+                        <div>
+                          <div className="text-[10px] font-semibold text-amber-600">OR {miles(Math.round(ob.price * 110 / 500) * 500)} MI + {EUR(Math.round(ob.price * 0.18))}</div>
+                          <div className="text-[24px] font-bold v2-num leading-tight mt-0.5">{EUR(ob.price)}</div>
+                          <div className="text-[10px] text-ink-faint">1 adult · {ob.fare}</div>
+                        </div>
+                        <Btn size="sm" variant="primary" className="w-full" style={{ height: "36px", padding: "10px 18px", borderRadius: "9999px" }}>Selected ✓</Btn>
                       </div>
                     </div>
                   </Card>
                 </div>
-                {/* journey summary (#22) — full paired journey + bundle savings; updates once inbound flights load */}
-                {view[0] && (() => {
-                  const inb = view[0];
-                  const total = (ob.price || 0) + (inb.price || 0) - 15;
+                {/* journey summary (#22) — full paired journey + bundle savings; only once an inbound
+                    flight is actually SELECTED (not a candidate), so bundle pricing isn't exposed early */}
+                {sel && (() => {
+                  const inb = sel.flight;
+                  const total = (ob.price || 0) + (sel.price || inb.price || 0) - 15;
                   return (
-                    <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 rounded-lg px-3 py-2 mt-1" style={{ background: "#F2FFDB", fontSize: "14px", fontWeight: 600, color: "#2E7D33" }}>
+                    <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 rounded-lg px-3 py-2 mt-1 bg-surface-dark text-white" style={{ fontSize: "14px", fontWeight: 600, boxShadow: "0px 4px 14px rgba(0,0,0,0.05)" }}>
                       <span className="v2-num">{of.flight_no} {of.origin}→{of.dest} {EUR(ob.price || 0)}</span>
-                      <span className="text-ink-faint font-normal">+</span>
-                      <span className="v2-num">{inb.flight_no} {inb.origin}→{inb.dest} {EUR(inb.price || 0)}</span>
-                      <span className="text-ink-faint font-normal">=</span>
+                      <span className="text-white/60 font-normal">+</span>
+                      <span className="v2-num">{inb.flight_no} {inb.origin}→{inb.dest} {EUR(sel.price || inb.price || 0)}</span>
+                      <span className="text-white/60 font-normal">=</span>
                       <span className="font-bold v2-num">{EUR(total)}</span>
-                      <span style={{ fontSize: "12px", fontWeight: 500 }}>(bundle saved {EUR(15)})</span>
+                      <span className="text-white/70" style={{ fontSize: "12px", fontWeight: 500 }}>(bundle saved {EUR(15)})</span>
                     </div>
                   );
                 })()}
@@ -397,7 +452,7 @@ export function Results({ shared, params, go }) {
                 <div className="rounded-2xl bg-surface-dark text-white px-5 py-4 flex flex-wrap items-center gap-4">
                   <div className="flex-1 min-w-[260px]">
                     <div className="text-[11px] font-bold uppercase tracking-wide text-lime">Smart re-rank · paired with your outbound</div>
-                    <div className="text-[14px] font-semibold mt-1">Re-ordered for the cheapest <span className="text-lime">{ob.fare}</span> pairing, best gate-to-gate time, and full {shared?.profile?.user?.tier || "Gold"} benefits on both legs.</div>
+                    <div className="text-[14px] font-semibold mt-1">Re-ordered for the cheapest pairing, best gate-to-gate time, and full {shared?.profile?.user?.tier || "Gold"} benefits on both legs.</div>
                     <div className="flex flex-wrap gap-2 mt-2.5">
                       {["+ Bundle bag −€15", "+ Same-day return", "+ Earn 2× miles"].map(t => <span key={t} className="text-[11px] font-semibold rounded-full border border-white/25 px-2.5 py-1 text-lime">{t}</span>)}
                     </div>
@@ -460,7 +515,7 @@ export function Results({ shared, params, go }) {
 
           {(showAll ? view : view.slice(0, 5)).map((f, i) => (
             <FlightCard key={f.flight_no} f={f} expanded={expanded === f.flight_no} sel={sel} lowest={lowest} cabin={cabin} inline={inlineFares}
-              pairing={leg === "inbound" && i === 0 && !sel} originCity={cityOf(f.origin)} destCity={cityOf(f.dest)}
+              pairing={leg === "inbound" && sort === "Best" && i === 0 && !sel} pairingInfo={leg === "inbound" && i === 0 ? pairingScore(f, trip.outbound, tier, trip.outbound?.fare) : null} originCity={cityOf(f.origin)} destCity={cityOf(f.dest)}
               payMilesOn={showMiles} milesFor={milesFor}
               onToggle={() => setExpanded(expanded === f.flight_no ? null : f.flight_no)} onPick={pickFare} />
           ))}
@@ -475,19 +530,19 @@ export function Results({ shared, params, go }) {
       {/* v33 Outbound #11 — the selection bar appears only AFTER a flight+fare is picked;
           "Change" (#12) deselects and removes it. On the INBOUND leg the bar stays visible once
           the outbound is locked (carried Inbound #10: "OUTBOUND ✓ · INBOUND: select to continue"). */}
-      {(sel || (leg === "inbound" && trip.outbound)) && <div className="sticky bottom-4 z-30 mt-6">
+      {sel && <div className="sticky bottom-4 z-30 mt-6">
         <div className="mx-auto max-w-page px-4 sm:px-6">
           <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
             <div className="min-w-0">
               {sel ? <>
-                <div className="text-[10px] font-bold tracking-widest text-lime uppercase">{isMulti ? `Flight ${legIndex + 1} of ${mLegs.length} selected` : (leg === "inbound" ? "Inbound selected · ✓ Outbound" : "Outbound selected")}</div>
+                <div className="font-bold" style={{ fontFamily: "Inter, sans-serif", fontSize: "10px", fontWeight: 600, letterSpacing: "1px", color: "#9EFC38" }}>{isMulti ? `FLIGHT ${legIndex + 1} OF ${mLegs.length} SELECTED` : (leg === "inbound" ? "OUTBOUND ✓ · INBOUND: select to continue" : "OUTBOUND SELECTED")}</div>
                 {isMulti
                   ? <div className="text-[13px] font-semibold truncate">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} · {EUR(sel.price)}{(trip.legs || []).filter(Boolean).length > 1 && <> &nbsp;·&nbsp; itinerary <span className="text-lime">{EUR((trip.legs || []).filter(Boolean).reduce((s, l) => s + l.price, 0))}</span></>}</div>
                   : leg === "inbound" && trip.outbound
                   ? <div className="text-[13px] font-semibold truncate">{String(trip.outbound.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {trip.outbound.flight.origin}→{trip.outbound.flight.dest} {EUR(trip.outbound.price)} &nbsp;+&nbsp; {String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} {sel.flight.origin}→{sel.flight.dest} {EUR(sel.price)} &nbsp;=&nbsp; <span className="text-lime">{EUR(trip.outbound.price + sel.price - 15)}</span> <span className="text-white/60 font-normal">(bundle saved €15)</span></div>
                   : <div className="text-[13px] font-semibold">{String(sel.flight.flight_no).replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")} · {new Date((leg === "inbound" ? retDate : date) + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} · {sel.flight.dep} → {sel.flight.arr} · {EUR(sel.price)}</div>}
               </> : <>
-                <div className={cx("text-[10px] font-bold tracking-widest uppercase", leg !== "inbound" && "text-white/50")} style={leg === "inbound" ? { color: "#9EFC38", letterSpacing: "1px" } : undefined}>{isMulti ? `Select flight ${legIndex + 1} of ${mLegs.length}` : (leg === "inbound" ? "OUTBOUND ✓ · INBOUND: select to continue" : "Select your outbound flight")}</div>
+                <div className={cx("font-bold", leg !== "inbound" && "text-white/50")} style={leg === "inbound" ? { fontFamily: "Inter, sans-serif", fontSize: "10px", fontWeight: 600, letterSpacing: "1px", color: "#9EFC38" } : { fontSize: "10px", letterSpacing: "1px" }}>{isMulti ? `Select flight ${legIndex + 1} of ${mLegs.length}` : (leg === "inbound" ? "OUTBOUND ✓ · INBOUND: select to continue" : "Select your outbound flight")}</div>
                 <div className="text-[13px] font-semibold text-white/80">Choose a flight and fare above to continue.</div>
               </>}
             </div>
@@ -728,7 +783,7 @@ function CompareFareModal({ f, selectedKey, originCity, destCity, onClose, onPic
   );
 }
 
-function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, onToggle, onPick, cabin, inline, payMilesOn, milesFor }) {
+function FlightCard({ f, expanded, sel, lowest, pairing, pairingInfo, originCity, destCity, onToggle, onPick, cabin, inline, payMilesOn, milesFor }) {
   const [compare, setCompare] = useState(false);
   const cab = cabin || "Economy";
   const m = f._m, classic = f._fares.find(x => x.key === "Classic");
@@ -745,9 +800,9 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
   const selFare = isSelected ? (f._fares.find(x => x.key === sel.fare) || headline) : headline;
   const milesEarn = 1000 + (h % 520);   // stable per-flight earn estimate
   return (
-    <div className={cx("relative", pairing && "pt-3")}>
-      {pairing && <span className="absolute top-0 left-4 z-10 text-[10px] font-bold uppercase tracking-wide bg-tap-greenDeep text-white rounded-md px-2 py-1 inline-flex items-center gap-1">★ Best pairing • recommended for you</span>}
-      <Card style={{ borderRadius: "16px", borderColor: isSelected ? "#9EFD38" : "#E2E2E5", borderWidth: isSelected ? "2px" : undefined }} className={cx("overflow-hidden", pairing && "ring-2 ring-tap-green bg-lime-tint/40", !pairing && expanded && !isSelected && "ring-2 ring-lime")}>
+    <div className={cx("relative", pairing && "pt-6")}>
+      {pairing && <span className="absolute top-0 left-0 z-10 font-bold uppercase text-white inline-flex items-center justify-center gap-1 whitespace-nowrap" style={{ width: "279px", height: "24px", padding: "6px 14px", borderTopLeftRadius: "14px", borderTopRightRadius: "14px", background: "rgba(70, 164, 26, 1)", fontSize: "10px", letterSpacing: "0.5px", boxSizing: "border-box" }}>★ Best Pairing · Recommended for you</span>}
+      <Card style={{ borderRadius: "14px", borderColor: pairing ? "rgba(199, 242, 31, 1)" : isSelected ? "#9EFD38" : "#E2E2E5", borderWidth: (pairing || isSelected) ? "2px" : undefined, background: pairing ? "rgba(242, 252, 217, 1)" : undefined }} className={cx("overflow-hidden", pairing && "rounded-tl-none", !pairing && expanded && !isSelected && "ring-2 ring-lime")}>
       {/* header row — compact single-line layout per design */}
       <div className="p-5 flex flex-wrap items-stretch gap-3">
         {/* flight details — one row that spreads across the full available width so the content
@@ -772,7 +827,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, originCity, destCity, o
             {headline.feats[1][1] ? <Badge tone="green">Bag included</Badge> : <Badge>No bag</Badge>}
             <span className="text-[11px] font-semibold text-ink-700">Earn {miles(milesEarn)} MI</span>
           </div>
-          {pairing && <div className="text-[11px] text-tap-greenDeep font-medium mt-1.5 flex items-start gap-1.5"><span className="text-amber-500 leading-none mt-0.5">●</span> Home in {f.dest} by {f.arr} · same fare brand → bundle €15 off</div>}
+          {pairing && pairingInfo && <div className="text-[11px] text-tap-greenDeep font-medium mt-1.5 flex items-start gap-1.5"><span className="text-amber-500 leading-none mt-0.5">●</span> {pairingInfo.reasons.slice(0, 3).join(" · ")}</div>}
         </div>
         </div>{/* end flight details row */}
         {/* price panel — light grey, right-aligned */}
