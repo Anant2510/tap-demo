@@ -84,6 +84,25 @@ const Chip = ({ children, dot }) => <span className="px-3 py-1.5 rounded-[8px] b
 const Req = () => <span className="text-tap-red ml-0.5">*</span>;
 
 /* ── basket summary (right rail) — grouped by category like the Figma ── */
+/* Mandatory-field input carrying a real validation state: the right-aligned tick appears once the
+   field holds a valid value and disappears again if it is cleared, rather than being a permanent
+   decoration. Declared at module scope so React keeps the same component identity between renders
+   - defining it inside a screen would remount it on every keystroke and drop what was typed. */
+function ValidatedInput({ defaultValue = "", validate, className = "", left = null, right = null, ...p }) {
+  const [v, setV] = useState(String(defaultValue == null ? "" : defaultValue));
+  const good = validate ? !!validate(v) : String(v).trim().length > 0;
+  return (
+    <div className="relative">
+      {left ? <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">{left}</span> : null}
+      <Input value={v} onChange={(e) => setV(e.target.value)} className={cx(left ? "pl-11" : "", right ? "pr-16" : "pr-9", className)} {...p} />
+      <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 pointer-events-none">
+        {right}
+        {good ? <Icon name="check" size={14} className="text-tap-green" /> : null}
+      </span>
+    </div>
+  );
+}
+
 function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, note, milesSwitch, onMilesSwitch, basket, user, onClear, breakdown, hideMiles, grouped, footer, bigTotal, carded }) {
   const t = tripTotals();
   const u = milesSwitch || {};
@@ -99,8 +118,8 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
   trip.extras.forEach(e => { catTotals[e.cat] = (catTotals[e.cat] || 0) + (e.price || 0); });
   const gnights = (() => { try { const d = Math.round((new Date(trip.ret) - new Date(trip.date)) / 864e5); return d > 0 ? d : 8; } catch { return 8; } })();
   const GTag = { Hotels: `${gnights} nights`, Flights: `${trip.pax} pax` };
-  const GRow = ({ icon, label, sub, tag, amt, green, muted, last, qty }) => (
-    <div className="flex items-center gap-3" style={{ minHeight: "72px", padding: "12px 0", borderBottom: last ? "none" : "1px solid #E8E8E5" }}>
+  const GRow = ({ icon, label, sub, tag, amt, green, muted, qty }) => (
+    <div className="flex items-center gap-3" style={{ minHeight: "72px", padding: "12px 0", borderBottom: "1px solid #E8E8E5" }}>
       <span className="inline-flex items-center justify-center shrink-0 rounded-[10px] bg-surface-mute" style={{ width: "36px", height: "36px" }}><Icon name={icon} size={18} className={muted ? "text-ink-faint" : green ? "text-tap-greenDeep" : "text-ink-muted"} /></span>
       <div className="flex-1 min-w-0">
         <div className={cx("font-semibold text-[15px] flex items-center gap-1.5 truncate", green ? "text-tap-greenDeep" : muted ? "text-ink-muted" : "text-ink")}>{label}{tag ? <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface-mute text-ink-muted shrink-0">{tag}</span> : null}</div>
@@ -141,7 +160,7 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
                   { icon: "doc", label: "Taxes & fees", sub: "Airport & carrier charges", amt: t.taxes, muted: true },
                   ...(t.bundle > 0 ? [{ icon: "spark", label: "Bundle savings", sub: "Multi-item discount applied", amt: -t.bundle, green: true }] : []),
                 ];
-                return rows.map((r, i) => { const { key: rk, ...rest } = r; return <GRow key={rk || r.label} {...rest} last={i === rows.length - 1} />; });
+                return rows.map((r, i) => { const { key: rk, ...rest } = r; return <GRow key={rk || r.label} {...rest} />; });
               })()}
             </div>
           ) : (
@@ -172,9 +191,9 @@ function BasketSummary({ step, cta, onCta, disabled, secondary, onSecondary, not
           {breakdown && breakdown.length > 0 && <div className="mt-3 pt-3 border-t border-line space-y-1 text-[12px]"><div className="text-[12px] mb-1" style={{ color: "#667080" }}>Payment breakdown</div>{breakdown.map(b => <div key={b.label} className="flex items-center justify-between"><span className="text-ink-muted">{b.label}</span><span className={cx("font-semibold v2-num", b.green ? "text-tap-greenDeep" : b.red ? "text-tap-red" : b.muted ? "text-ink-faint" : "text-ink")}>{b.text}</span></div>)}</div>}
         </div>
 
-        <Divider className="my-3.5" />
+        {grouped ? <div style={{ height: "16px" }} /> : <Divider className="my-3.5" />}
         <div className={bigTotal ? "mt-5" : ""} style={bigTotal ? { borderRadius: "16px", border: "1px solid #E8E8E5", padding: "18px" } : undefined}>
-        <div className="flex items-end justify-between gap-3"><div className="min-w-0"><div className="text-[13px] text-ink font-bold whitespace-nowrap">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted mt-0.5">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right shrink-0"><div className={cx("v2-num text-ink", bigTotal ? "text-[40px] font-bold leading-none" : "text-[34px] font-bold")}>{eurC(t.total)}</div><div className="text-[11px] v2-num" style={{ color: "#9A9A9A" }}>{BRL(t.total)}</div></div></div>
+        <div className="flex items-end justify-between gap-3 flex-wrap"><div className="shrink-0"><div className="text-[13px] text-ink font-bold whitespace-nowrap">{step === 2 ? "Subtotal" : "Total"} <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[10px] text-ink-muted mt-0.5 whitespace-nowrap">{getCurrency().code !== "EUR" ? "Charged in EUR · rate applied at checkout (MCP)" : (step === 2 ? "No charge yet" : "One-time charge · taxes included")}</div></div><div className="text-right shrink-0 ml-auto"><div className={cx("v2-num text-ink whitespace-nowrap", bigTotal ? "text-[32px] sm:text-[40px] font-bold leading-none" : "text-[28px] sm:text-[34px] font-bold")}>{eurC(t.total)}</div><div className="text-[11px] v2-num" style={{ color: "#9A9A9A" }}>{BRL(t.total)}</div></div></div>
         <div className="mt-3 bg-lime-tint text-tap-greenDark flex items-center justify-between" style={{ borderRadius: "10px", padding: "10px 12px" }}><span className="flex items-center gap-1.5 text-[12px] font-medium"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num text-[14px] font-bold">{miles(EARN(t.total))} tap.miles</span></div>
         </div>
         {breakdown && <div className="mt-3 flex items-center justify-between gap-2" style={{ background: "#F2FCD9", borderRadius: "12px", padding: "10px 12px", border: "1px solid #E8E8E5" }}><div><div className="text-[12px] font-semibold">Save this mix as default?</div><div className="text-[10px] text-ink-faint">Auto-apply for future bookings · editable any time</div></div><button className="shrink-0 text-[11px] font-bold text-tap-greenDeep hover:brightness-95" style={{ borderRadius: "14px", border: "1px solid #2E7D33", padding: "7px 32px" }}>Save mix</button></div>}
@@ -1834,7 +1853,7 @@ export function Payment({ shared, go }) {
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
   }
   const [billCtry, setBillCtry] = useState(trip.contact?.country || "Portugal");
-  const VOK = ({ defaultValue, ...p }) => <div className="relative"><Input defaultValue={defaultValue} className="pr-9" {...p} /><Icon name="check" size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-tap-green pointer-events-none" /></div>;
+  const VOK = (p) => <ValidatedInput {...p} />;
   const billing = (
     <Card className="p-6" style={{ borderRadius: "12px", boxShadow: "none" }}>
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
@@ -1898,23 +1917,30 @@ export function Payment({ shared, go }) {
             <div className="p-1.5 flex gap-1 overflow-x-auto v2-track border-b border-line">{METHODS.filter(m => trip.inbound || m !== "Pay by Segment").map(m => { const on = method === m; return <button key={m} onClick={() => setMethod(m)} className={cx("shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-semibold inline-flex items-center gap-1.5", on ? "bg-tap-green text-white" : "text-ink-muted hover:bg-surface-mute")}>{m}{m === "Card" && on && <span className="flex gap-1 ml-0.5">{["VISA", "MC", "AMEX"].map(b => <span key={b} className="text-[8px] font-bold bg-white/25 rounded px-1 py-0.5 leading-none">{b}</span>)}</span>}</button>; })}</div>
             <div className="p-5">
               {method === "Card" && <>
-                <div className="mb-3"><div className="flex items-center justify-between"><div className="font-semibold text-[18px] flex items-center gap-2"><Icon name="lock" size={14} className="text-ink-faint" /> Pay by card</div><span className="text-[11px] text-ink-faint flex items-center gap-1">Powered by <span className="text-[11px] font-bold text-white rounded-[6px] px-2 py-1" style={{ background: "#6B4DD9" }}>stripe</span></span></div>
-                  <div className="text-[11px] text-ink-faint mt-0.5">Visa · Mastercard · American Express · Maestro · Elo</div></div>
+                {/* header group: title and the supported-card brands belong together, 2px apart.
+                    The title carries an explicit line-height so that 2px is the actual visual gap
+                    rather than 2px plus the default leading under an 18px glyph. */}
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2" style={{ fontSize: "18px", fontWeight: 600, lineHeight: "22px" }}><Icon name="lock" size={14} className="text-ink-faint" /> Pay by card</div>
+                    <div className="text-[11px] text-ink-faint" style={{ marginTop: "2px", lineHeight: "15px" }}>Visa · Mastercard · American Express · Maestro · Elo</div>
+                  </div>
+                  <span className="text-[11px] text-ink-faint flex items-center gap-1 shrink-0">Powered by <span className="text-[11px] font-bold text-white rounded-[6px] px-2 py-1" style={{ background: "#6B4DD9" }}>stripe</span></span>
+                </div>
                 <div className="grid gap-3">
-                  <Field label={<>Cardholder name <Req /></>}><Input defaultValue={(u.full_name || "Daniel Silva").toUpperCase()} /></Field>
+                  <Field label={<>Cardholder name <Req /></>}><ValidatedInput defaultValue={(u.full_name || "Daniel Silva").toUpperCase()} validate={(v) => v.trim().split(/\s+/).filter(Boolean).length >= 2} /></Field>
                   <Field label={<>Card number <Req /></>}>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><svg width="22" height="14" viewBox="0 0 22 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.5" width="21" height="13" rx="2.5" fill="#fff" stroke="#dcdcd8"/><rect x="0" y="3" width="22" height="3" fill="#ed1c24"/><rect x="3" y="9.5" width="7" height="1.8" rx="0.9" fill="#9a9a9a"/></svg></span>
-                      <Input defaultValue={`XXXX XXXX XXXX ${u.card_last4 || "4242"}`} className="pl-11 pr-16 v2-num tracking-wide" />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 pointer-events-none"><span className="text-[10px] font-bold text-ink-slate">VISA</span><Icon name="check" size={13} className="text-tap-green" /></span>
-                    </div>
+                    <ValidatedInput defaultValue={`XXXX XXXX XXXX ${u.card_last4 || "4242"}`} className="v2-num tracking-wide"
+                      left={<><svg width="22" height="14" viewBox="0 0 22 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.5" width="21" height="13" rx="2.5" fill="#fff" stroke="#dcdcd8"/><rect x="0" y="3" width="22" height="3" fill="#ed1c24"/><rect x="3" y="9.5" width="7" height="1.8" rx="0.9" fill="#9a9a9a"/></svg></>}
+                      right={<span className="text-[10px] font-bold text-ink-slate">VISA</span>}
+                      validate={(v) => v.replace(/[^0-9A-Za-z]/g, "").length >= 15} />
                   </Field>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <Field label={<>Expiry (MM / YY) <Req /></>}><div className="relative"><Input defaultValue={u.card_exp || "09 / 28"} placeholder="MM / YY" className="pr-8 v2-num" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div></Field>
+                    <Field label={<>Expiry (MM / YY) <Req /></>}><ValidatedInput defaultValue={u.card_exp || "09 / 28"} placeholder="MM / YY" className="v2-num" validate={(v) => /^\s*\d{2}\s*\/\s*\d{2}\s*$/.test(v)} /></Field>
                     <Field label={<span className="inline-flex items-center gap-1.5">CVC <Req /> <span className="w-3.5 h-3.5 rounded-full inline-flex items-center justify-center" style={{ background: "#F2F2EE" }}><Icon name="info" size={9} className="text-ink-faint" /></span></span>}>
-                      <div className="relative"><Input defaultValue="•••" className="pr-8" /><Icon name="check" size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tap-green" /></div>
+                      <ValidatedInput defaultValue="•••" validate={(v) => v.trim().length >= 3} />
                     </Field>
-                    <Field label={<>Postal / ZIP <Req /></>}><Input defaultValue="01310-100" className="v2-num" /></Field>
+                    <Field label={<>Postal / ZIP <Req /></>}><ValidatedInput defaultValue="01310-100" className="v2-num" validate={(v) => v.replace(/[^0-9A-Za-z]/g, "").length >= 4} /></Field>
                   </div>
                 </div>
                 <div className="mt-3">
