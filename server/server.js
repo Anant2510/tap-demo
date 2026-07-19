@@ -985,9 +985,18 @@ app.post("/api/bookings/ancillary", async (req, res) => {
   if (/^seat-/i.test(code || "")) {
     const seat = String(code).replace(/^seat-/i, "").toUpperCase();
     if (/^\d{1,2}[A-K]$/.test(seat)) {
-      db.prepare("UPDATE bookings SET seat=? WHERE id=?").run(seat, b.id);
-      log("seat_changed", { pnr: b.pnr, seat });
-      return res.json({ ok: true, pnr: b.pnr, seat });
+      // Per-passenger seats live in meta.passengers[i].seat. bookings.seat stays the lead's, so
+      // every existing reader (boarding pass, check-in, My Trips) keeps working unchanged, and a
+      // request without `pax` behaves exactly as before.
+      const idx = Number.isInteger(req.body.pax) && req.body.pax >= 0 ? req.body.pax : 0;
+      let smeta = {}; try { smeta = JSON.parse(b.meta_json || "{}") || {}; } catch {}
+      if (Array.isArray(smeta.passengers) && smeta.passengers[idx]) {
+        smeta.passengers[idx] = { ...smeta.passengers[idx], seat };
+        db.prepare("UPDATE bookings SET meta_json=? WHERE id=?").run(JSON.stringify(smeta), b.id);
+      }
+      if (idx === 0) db.prepare("UPDATE bookings SET seat=? WHERE id=?").run(seat, b.id);
+      log("seat_changed", { pnr: b.pnr, seat, pax: idx });
+      return res.json({ ok: true, pnr: b.pnr, seat, pax: idx });
     }
   }
   const a = db.prepare("SELECT * FROM ancillaries WHERE code=?").get(code);

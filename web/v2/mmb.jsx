@@ -24,12 +24,12 @@ function pickActive(list, preferPnr) {
   return latest[0] || null;   // #10 — if only cancelled bookings remain, surface nothing (don't resurface a cancelled one)
 }
 
-function useActiveBooking() {
+function useActiveBooking(pnr) {
   const [state, setState] = useState({ booking: null, all: [], loading: true, err: null });
   useEffect(() => {
     let alive = true;
     const load = () => api.get("/bookings")
-      .then(rows => { if (alive) setState({ booking: pickActive(rows, trip.pnr), all: rows || [], loading: false, err: null }); })
+      .then(rows => { if (alive) setState({ booking: pickActive(rows, pnr || trip.pnr), all: rows || [], loading: false, err: null }); })
       .catch(e => { if (alive) setState(s => ({ ...s, loading: false, err: e?.message || "Couldn't load your bookings" })); });
     load();
     // #36/#38 — re-pull the booking when a seat/cabin/extras change is committed elsewhere, or when the
@@ -38,7 +38,7 @@ function useActiveBooking() {
     window.addEventListener("tap:booking-changed", onChange);
     window.addEventListener("focus", onChange);
     return () => { alive = false; window.removeEventListener("tap:booking-changed", onChange); window.removeEventListener("focus", onChange); };
-  }, []);
+  }, [pnr]);
   return state;
 }
 // Fired after any booking mutation (seat change, cabin upgrade, extras purchase) so open views refresh.
@@ -161,6 +161,7 @@ export function ManageBooking({ shared, go }) {
     .sort((a, b) => String(a.flight_date).localeCompare(String(b.flight_date))
       || String(a.flight?.dep || "").localeCompare(String(b.flight?.dep || "")));
   const list = trips.length ? trips : [booking];
+  const segCount = list.reduce((n, b) => n + 1 + (b.inboundFlight ? 1 : 0), 0);   // a round trip is two flights, one booking
   const ACTIONS = [
     ["Upgrade cabin", "upgrade", "star"],
     ["Change seat", "seatchange", "seat"],
@@ -178,7 +179,7 @@ export function ManageBooking({ shared, go }) {
     <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
       <Crumb go={go} trail={[{ label: "Home", page: "home" }, { label: "My trips" }]} />
       <h1 className="text-[30px] font-black">My trips</h1>
-      <div className="text-[13px] text-ink-muted mt-1">{list.length} upcoming flight{list.length !== 1 ? "s" : ""} · manage seats, check-in, extras and more</div>
+      <div className="text-[13px] text-ink-muted mt-1">{segCount} upcoming flight{segCount !== 1 ? "s" : ""} · manage seats, check-in, extras and more</div>
 
       <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
         <div className="space-y-4">
@@ -278,7 +279,7 @@ export function ManageBooking({ shared, go }) {
         <aside className="space-y-4 lg:sticky lg:top-6">
           <Card className="p-5">
             <div className="font-bold text-[17px] mb-1">Trip overview</div>
-            <div className="text-[12px] text-ink-muted pb-3 border-b border-line">{list.length} upcoming flight{list.length !== 1 ? "s" : ""} on this profile</div>
+            <div className="text-[12px] text-ink-muted pb-3 border-b border-line">{segCount} upcoming flight{segCount !== 1 ? "s" : ""} on this profile</div>
             <div className="space-y-2 text-[13px] mt-3">
               {list.map((b, i) => (
                 <React.Fragment key={i}>
@@ -324,23 +325,38 @@ export function Retrieve({ shared, go }) {
   const [bookings, setBookings] = useState(null);
   useEffect(() => { api.get("/bookings").then(setBookings).catch(() => setBookings([])); }, []);
   const [email, setEmail] = useState("");
-  const [found, setFound] = useState(false);        // booking-found panel (#8)
+  const [found, setFound] = useState(false);
+  const [foundBooking, setFoundBooking] = useState(null);   // the record find() actually matched        // booking-found panel (#8)
   // Retrieve #1/#3 — reflect the user's actual booking (the current trip) instead of fixed sample data
   const u = shared?.profile?.user || {};
   const airports = shared?.airports || [];
   const cityOf = (c) => airports.find(a => a.code === c)?.city || c;
   const tPax = Array.isArray(trip.passengers) ? trip.passengers : [];
   const hasTrip = !!(trip.pnr && trip.outbound?.flight);
-  const foundRoute = hasTrip ? `${cityOf(trip.outbound.flight.origin)}–${cityOf(trip.outbound.flight.dest)}` : "Porto–Lisbon";
-  const foundFirst = tPax[0]?.first || u.first_name || "Traveller";
-  const foundLast = last || tPax[0]?.last || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : "Traveller");
-  const foundCount = Math.max(1, tPax.length || Number(trip.pax) || 1);
-  const foundFlight = hasTrip ? (trip.outbound.flight.flight_no || "TP1927") : "TP1927";
-  const foundDep = hasTrip ? (trip.outbound.flight.dep || "07:05") : "07:05";
-  const foundDate = hasTrip && trip.date ? fmtDate(trip.date) : "Wed 22 Jul";
-  const recent = hasTrip
-    ? [{ pnr: trip.pnr, name: foundLast, route: foundRoute, date: foundDate }]
-    : [{ pnr: "6ZK4PD", name: "Silva", route: "Porto–Lisbon", date: "12 Jun" }, { pnr: "A23JQM", name: "Costa", route: "Porto–Lisbon", date: "04 Aug" }];
+  // The found panel must describe the booking that was looked up, not the session trip. find()
+  // already resolves the matching record; the old trip/demo values stay only as a fallback for
+  // the state before anything has been retrieved.
+  const fb = foundBooking, fbf = fb?.flight || null, fbPax = (fb?.meta?.passengers || []);
+  const foundRoute = fbf ? `${cityOf(fbf.origin)}–${cityOf(fbf.dest)}` : (hasTrip ? `${cityOf(trip.outbound.flight.origin)}–${cityOf(trip.outbound.flight.dest)}` : "Porto–Lisbon");
+  const foundFirst = fbPax[0]?.first || tPax[0]?.first || u.first_name || "Traveller";
+  const foundLast = fbPax[0]?.last || last || tPax[0]?.last || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : "Traveller");
+  const foundCount = Math.max(1, fbPax.length || Number(fb?.meta?.pax) || tPax.length || Number(trip.pax) || 1);
+  const foundFlight = fbf?.flight_no || fb?.flight_no || (hasTrip ? (trip.outbound.flight.flight_no || "TP1927") : "TP1927");
+  const foundDep = fbf?.dep || (hasTrip ? (trip.outbound.flight.dep || "07:05") : "07:05");
+  const foundDate = fb?.flight_date ? fmtDate(fb.flight_date) : (hasTrip && trip.date ? fmtDate(trip.date) : "Wed 22 Jul");
+  // Recent list comes from the signed-in user's own bookings. It previously fell back to two
+  // invented records (6ZK4PD/Silva, A23JQM/Costa) whose PNRs match nothing, so clicking one ran
+  // a lookup that could never succeed.
+  const recent = (bookings || [])
+    .slice()
+    .sort((a, b) => String(b.flight_date || "").localeCompare(String(a.flight_date || "")))
+    .slice(0, 3)
+    .map(b => ({
+      pnr: b.pnr,
+      name: b.meta?.passengers?.[0]?.last || (u.full_name ? u.full_name.split(" ").slice(-1)[0] : ""),
+      route: b.flight ? `${cityOf(b.flight.origin)}–${cityOf(b.flight.dest)}` : "—",
+      date: b.flight_date ? fmtDate(b.flight_date) : "",
+    }));
   // v33 Retrieve #3 — a booking is retrieved only when BOTH the reference and the last name
   // match the booking record; a wrong surname shows an error instead of "Booking found".
   const nameOnBooking = (b) => {
@@ -359,8 +375,8 @@ export function Retrieve({ shared, go }) {
     const b = all.find(x => String(x.pnr || "").toUpperCase() === wantPnr);
     const names = b ? nameOnBooking(b) : [];
     const nameOk = b && (!names.length || (wantLast && names.some(n => n === wantLast || n.startsWith(wantLast))));
-    if (!b || !wantLast || !nameOk) { setFound(false); setNotFound(true); return; }
-    setNotFound(false); setFound(true); window.scrollTo({ top: 0 });
+    if (!b || !wantLast || !nameOk) { setFoundBooking(null); setFound(false); setNotFound(true); return; }
+    setFoundBooking(b); setNotFound(false); setFound(true); window.scrollTo({ top: 0 });
   };
   return (
     <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
@@ -395,13 +411,15 @@ export function Retrieve({ shared, go }) {
               <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" className="w-full bg-transparent outline-none text-[16px] font-semibold text-ink mt-0.5" />
             </label>
             </div>
-            {/* solid green CTA with arrow (#6) */}
-            <Btn size="lg" className="w-full mt-4" onClick={() => find()}>Retrieve booking <Icon name="arrow" size={15} /></Btn>
-            <div className="text-[12px] text-ink-muted mt-3">Booking made via an agent or partner (e.g. Despegar)? You can still check in and manage most extras here. <button className="font-semibold text-tap-greenDeep hover:underline">Contact support</button> · <button className="font-semibold text-tap-greenDeep hover:underline">Find my PNR</button></div>
+            {/* supporting copy left, compact CTA bottom-right (#6) */}
+            <div className="mt-4 flex items-end justify-between gap-4 flex-wrap">
+              <div className="text-[12px] text-ink-muted flex-1 min-w-[220px]">Booking made via an agent or partner (e.g. Despegar)? You can still check in and manage most extras here. <button className="font-semibold text-tap-greenDeep hover:underline">Contact support</button> · <button className="font-semibold text-tap-greenDeep hover:underline">Find my PNR</button></div>
+              <Btn size="lg" className="shrink-0" style={{ height: "42px", borderRadius: "9999px", padding: "0 22px" }} onClick={() => find()}>Retrieve booking <Icon name="arrow" size={15} /></Btn>
+            </div>
           </Card>
 
           {/* recent on this device (#7) */}
-          <div className="mt-6">
+          {recent.length > 0 && <div className="mt-6">
             <div className="font-bold text-[15px] mb-2.5">Recent on this device</div>
             <div className="space-y-2.5">
               {recent.map(r => (
@@ -412,7 +430,7 @@ export function Retrieve({ shared, go }) {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* booking-found panel (#8) */}
@@ -455,8 +473,8 @@ export function Retrieve({ shared, go }) {
 }
 
 /* ═══════════ A9 · CABIN UPGRADE ═══════════ */
-export function CabinUpgrade({ shared, go }) {
-  const { booking, loading, err } = useActiveBooking();
+export function CabinUpgrade({ shared, go, params }) {
+  const { booking, loading, err } = useActiveBooking(params?.pnr);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [sel, setSel] = useState("exec");   // chosen upgrade option (#4)
@@ -487,11 +505,11 @@ export function CabinUpgrade({ shared, go }) {
   const fareDiff = chosen.diff ?? 0;             // selected upgrade cost (0 until the fare loads)
   const newTotal = (baseFare || 0) + fareDiff;
   const milesPrice = Math.round(fareDiff / MILES_RATE / 500) * 500;
-  const confirm = async () => {
+  const confirm = async (key) => { const optKey = typeof key === "string" ? key : selKey;
     setBusy(true);
     // The cabin code isn't seeded in the ancillaries table (demo): the endpoint returns
     // {ok:false}; we still advance to success so the journey is demoable.
-    await api.post("/bookings/ancillary", { code: "cabin-" + sel, pnr: booking.pnr }).catch(() => ({ ok: false }));
+    await api.post("/bookings/ancillary", { code: "cabin-" + optKey, pnr: booking.pnr }).catch(() => ({ ok: false }));
     notifyBookingChanged();   // #36/#38 — refresh My Trip / check-in / boarding pass
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
@@ -529,12 +547,12 @@ export function CabinUpgrade({ shared, go }) {
             {offered.map(k => { const o = OPTS[k]; const on = selKey === k; return (
               <Card key={k} onClick={() => setSel(k)} className={cx("cursor-pointer transition-all v2-in", on ? "border-2" : "hover:border-line-strong")} style={{ padding: "24px", borderRadius: "16px", ...(on ? { borderColor: "#9EFD38", background: "#F2FFDB" } : {}) }}>
                 <div className="flex items-start justify-between gap-2"><div className="text-[20px] font-bold">{o.name}</div>{o.rec && <span className="text-[9px] font-bold uppercase tracking-wide inline-flex items-center" style={{ background: "#FAD633", color: "#1A1F29", borderRadius: "10px", padding: "3px 8px" }}>Recommended</span>}</div>
-                <div className="mt-1.5"><span className="text-[22px] font-bold v2-num">{o.diff == null ? "…" : `${k === "exec" ? "+" : ""}${eur2(o.diff)}`}</span><span className="text-[12px] text-ink-faint"> {k === "exec" ? "to upgrade" : "currently"}</span></div>
+                <div className="mt-1.5"><span className="text-[22px] font-bold v2-num">{o.diff == null ? "…" : `+${eur2(o.diff)}`}</span><span className="text-[12px] text-ink-faint"> to upgrade</span></div>
                 <div className="h-px w-full my-3" style={{ background: "#E0E3E8" }} />
                 <div className="text-[11px] font-semibold text-tap-greenDeep">Fixed price · instant</div>
                 <div className="text-[11px] font-semibold mt-0.5" style={{ color: "#2E7D33" }}>{o.seats > 5 ? `Available · ${o.seats} seats` : `${o.seats} seats left`}</div>
                 <ul className="text-[13px] font-medium text-ink-muted mt-3 space-y-1.5">{(CABIN_BENEFITS[k] || []).map(b => <li key={b} className="flex items-center gap-1.5"><Icon name="check" size={12} className="text-tap-green shrink-0" /> {b}</li>)}</ul>
-                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" style={{ height: "48px", borderRadius: "24px", padding: "0 16px" }} disabled={busy} onClick={e => { e.stopPropagation(); setSel(k); confirm(); }}>Upgrade for {eur2(baseFare + o.diff)}</Btn>
+                <Btn variant={on ? "primary" : "outline"} className="w-full mt-4" style={{ height: "48px", borderRadius: "24px", padding: "0 16px" }} disabled={busy} onClick={e => { e.stopPropagation(); setSel(k); confirm(k); }}>Upgrade for {o.diff == null ? "…" : eur2(o.diff)}</Btn>
               </Card>
             ); })}
           </div>
@@ -549,21 +567,23 @@ export function CabinUpgrade({ shared, go }) {
 
         <aside className="lg:sticky lg:top-6 space-y-3">
           <Card className="p-5" style={{ borderRadius: "18px" }}>
-            <div className="font-bold text-[16px] mb-3">Upgrade summary</div>
+            <div className="font-bold text-[16px] mb-3">{offered.length ? "Upgrade summary" : "Your cabin"}</div>
             <div className="space-y-2 text-[13px]">
               <div className="flex justify-between"><span className="text-ink-muted">Current {curCabin} fare</span><span className="v2-num">{eur2(baseFare)}</span></div>
-              <div className="flex justify-between"><span className="text-ink-muted">Cabin upgrade · {chosen.name}</span><span className="v2-num">+{eur2(fareDiff)}</span></div>
+              {offered.length > 0 && <div className="flex justify-between"><span className="text-ink-muted">Cabin upgrade · {chosen.name}</span><span className="v2-num">+{eur2(fareDiff)}</span></div>}
             </div>
-            <Divider className="my-3" />
-            <div className="flex items-end justify-between"><span className="font-bold">New total</span><span className="text-[28px] font-bold v2-num">{eur2(newTotal)}</span></div>
-            <div className="text-[11px] text-ink-faint mt-1">or {miles(milesPrice)} miles</div>
-            <Btn size="lg" className="w-full mt-3" style={{ height: "42px", borderRadius: "9999px" }} disabled={busy} onClick={confirm}>{busy ? "Confirming…" : `Upgrade for ${eur2(newTotal)} →`}</Btn>
-            <Btn variant="outline" className="w-full mt-2" style={{ borderColor: "#E8E8E5", color: "#0A0A0A", fontWeight: 600, fontSize: "13px" }} onClick={() => go("manage")}>No thanks, keep {curCabin}</Btn>
+            {offered.length > 0 && <Divider className="my-3" />}
+            {offered.length > 0 && <div className="flex items-end justify-between"><span className="font-bold">New total</span><span className="text-[28px] font-bold v2-num">{eur2(newTotal)}</span></div>}
+            {offered.length > 0 && <div className="text-[11px] text-ink-faint mt-1">or {miles(milesPrice)} miles</div>}
+            {offered.length > 0 && <Btn size="lg" className="w-full mt-3" style={{ height: "42px", borderRadius: "9999px" }} disabled={busy} onClick={() => confirm()}>{busy ? "Confirming…" : `Upgrade for ${eur2(fareDiff)} →`}</Btn>}
+            <Btn variant="outline" className="w-full mt-2" style={{ borderColor: "#E8E8E5", color: "#0A0A0A", fontWeight: 600, fontSize: "13px" }} onClick={() => go("manage")}>{offered.length ? `No thanks, keep ${curCabin}` : "Back to My Trips"}</Btn>
           </Card>
+          {offered.length > 0 && (
           <div className="rounded-xl px-4 py-3" style={{ background: "#FFF0D6", border: "1px solid #FAA824" }}>
             <div className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#1A1F29" }}><Icon name="info" size={14} className="text-[#FAA824]" />{chosen.seats} {chosen.name} seats remaining</div>
             <div className="text-[11px] mt-0.5" style={{ color: "#667080" }}>Window closes 4 h before departure</div>
           </div>
+          )}
         </aside>
       </div>
     </div></div>
@@ -571,8 +591,8 @@ export function CabinUpgrade({ shared, go }) {
 }
 
 /* ═══════════ A10 · SEAT CHANGE ═══════════ */
-export function SeatChange({ shared, go }) {
-  const { booking, loading, err } = useActiveBooking();
+export function SeatChange({ shared, go, params }) {
+  const { booking, loading, err } = useActiveBooking(params?.pnr);
   const [rec, setRec] = useState(null);
   const [seatByPax, setSeatByPax] = useState({});
   const [activePax, setActivePax] = useState(0);
@@ -588,13 +608,13 @@ export function SeatChange({ shared, go }) {
   const paxList = (booking.meta?.passengers && booking.meta.passengers.length)
     ? booking.meta.passengers
     : Array.from({ length: Math.max(1, paxCount) }, (_, i) => ({ first: i === 0 ? (booking.meta?.first_name || "Passenger 1") : `Passenger ${i + 1}` }));
-  const adjSeatFor = (base, i) => { const m = String(base || "").match(/^(\d+)([A-F])$/); if (!m || !i) return base; const r = +m[1], c = "ABCDEF".indexOf(m[2]); return `${r}${"ABCDEF"[((c + i) % 6 + 6) % 6]}`; };
+  const adjSeatFor = (base, i) => { const m = String(base || "").match(/^(\d+)\s*([A-Fa-f])/); if (!m || !i) return base; const r = +m[1], c = "ABCDEF".indexOf(m[2].toUpperCase()); return `${r}${"ABCDEF"[((c + i) % 6 + 6) % 6]}`; };
   const sel = seatByPax[activePax] || null;
   const setSel = (s) => setSeatByPax(p => ({ ...p, [activePax]: (typeof s === "function" ? s(p[activePax]) : s) }));
 
   const aircraft = booking.flight?.aircraft || "A330-900neo";
   const baseSeat = booking.seat || rec?.seat || "8A";
-  const curSeat = adjSeatFor(baseSeat, activePax);
+  const curSeat = booking.meta?.passengers?.[activePax]?.seat || adjSeatFor(baseSeat, activePax);
   const curRow = parseInt(curSeat, 10) || 8;
   const cabinOfRow = (r) => (r <= 5 ? "Business" : r <= 11 ? "Premium" : "Economy");
 
@@ -627,14 +647,14 @@ export function SeatChange({ shared, go }) {
   const confirm = async () => {
     if (!canConfirm) return;   // #31 — CTA stays visually active, but a valid new seat is required
     setBusy(true);
-    for (const s of Object.values(seatByPax)) { if (s) await api.post("/bookings/ancillary", { code: "seat-" + s, pnr: booking.pnr }).catch(() => ({ ok: false })); }
+    for (const [pi, s] of Object.entries(seatByPax)) { if (s) await api.post("/bookings/ancillary", { code: "seat-" + s, pnr: booking.pnr, pax: Number(pi) }).catch(() => ({ ok: false })); }
     notifyBookingChanged();   // #36 — seat change must reflect in My Trip immediately · FT-1 applies every passenger's seat
     setBusy(false); setDone(true); window.scrollTo({ top: 0 });
   };
 
   if (done) return (
     <div className="mx-auto max-w-content px-6 py-8">
-      <SuccessHead title={`Seat ${sel} confirmed`} sub={`PNR ${booking.pnr} · boarding pass reissued`} />
+      <SuccessHead title={(() => { const e = Object.entries(seatByPax).filter(([, v]) => v); return e.length > 1 ? `Seats ${e.map(([, v]) => v).join(" · ")} confirmed` : `Seat ${sel} confirmed`; })()} sub={`PNR ${booking.pnr} · boarding pass reissued`} />
       <Card className="p-5 mt-6 v2-in">
         <BookingBand booking={booking} airports={shared.airports} seatOverride={sel} />
         <div className="flex flex-wrap gap-2 mt-3"><Pill tone="lime">Seat {sel}</Pill><Pill tone="slate">{cabinKey} cabin</Pill>{selFee > 0 && <Pill tone="gold">Extra legroom · {EUR(selFee)}</Pill>}</div>
@@ -664,7 +684,7 @@ export function SeatChange({ shared, go }) {
           {paxList.map((p, i) => (
             <button key={i} onClick={() => setActivePax(i)} className="px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors inline-flex items-center gap-1.5" style={activePax === i ? { background: "#0A0A0A", color: "#FFFFFF" } : { background: "#FFFFFF", color: "#0A0A0A" }}>
               {seatByPax[i] ? <Icon name="check" size={12} className={activePax === i ? "text-tap-green" : "text-tap-greenDeep"} /> : <span className={cx("w-1.5 h-1.5 rounded-full inline-block shrink-0", activePax === i ? "bg-white/50" : "bg-ink-faint")} />}
-              {(p.first || `Passenger ${i + 1}`)} · {seatByPax[i] || adjSeatFor(baseSeat, i)}
+              {(p.first || `Passenger ${i + 1}`)} · {seatByPax[i] || booking.meta?.passengers?.[i]?.seat || adjSeatFor(baseSeat, i)}
             </button>
           ))}
         </div>
@@ -680,7 +700,7 @@ export function SeatChange({ shared, go }) {
           <div className="mx-auto w-fit overflow-x-auto">
             <div className="flex items-center mb-2 justify-center" style={{ gap: 0 }}>
               <span className="w-5 shrink-0" /><span className="shrink-0" style={{ width: "18px" }} />
-              {C.cols.map((col, ci) => <React.Fragment key={col}><span className="text-center text-[10px] text-ink-faint" style={{ width: "60px" }}>{col}</span>{ci < C.cols.length - 1 && <span className="shrink-0" style={{ width: C.aisleAfter?.includes(ci) ? "64px" : "48px" }} />}</React.Fragment>)}
+              {C.cols.map((col, ci) => <React.Fragment key={col}><span className="text-center text-[10px] text-ink-faint" style={{ width: "60px" }}>{col}</span>{ci < C.cols.length - 1 && <span className="shrink-0" style={{ width: C.aisleAfter?.includes(ci) ? "64px" : "8px" }} />}</React.Fragment>)}
             </div>
             <div className="space-y-2.5">
               {C.rows.map(r => (
@@ -696,7 +716,7 @@ export function SeatChange({ shared, go }) {
                           isSel ? "" : isCur ? "text-ink" : isTaken ? "bg-surface-mute text-ink-faint cursor-not-allowed" : extra ? "bg-[#F4B740] text-ink" : isRec ? "bg-lime text-ink" : "bg-white border border-line-strong text-ink hover:border-tap-green")}>
                         <span>{id}</span>{isSel ? <span className="text-[7px] font-medium">New seat</span> : isCur ? <span className="text-[7px] font-medium">{(paxList[activePax]?.first || "Your").split(" ")[0]}{paxList.length > 1 ? "’s seat" : " seat"}</span> : null}
                       </button>
-                      {ci < C.cols.length - 1 && <span className="shrink-0" style={{ width: C.aisleAfter?.includes(ci) ? "64px" : "48px" }} />}
+                      {ci < C.cols.length - 1 && <span className="shrink-0" style={{ width: C.aisleAfter?.includes(ci) ? "64px" : "8px" }} />}
                       </React.Fragment>
                     );
                   })}
@@ -713,12 +733,22 @@ export function SeatChange({ shared, go }) {
 
         <aside className="space-y-4">
           <Card className="p-5 v2-in" style={{ borderRadius: "18px" }}>
-            <div className="font-semibold text-[20px] mb-3" style={{ color: "#1A1F29" }}>Seat change summary{paxList.length > 1 ? <span className="text-[13px] font-medium text-ink-muted"> · {(paxList[activePax]?.first || `Passenger ${activePax + 1}`)}</span> : null}</div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 rounded-xl" style={{ background: "#F7FAFC", border: "1px solid #E0E3E8", padding: "16px" }}><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[22px] font-bold v2-num" style={{ color: "#1A1F29" }}>{safeSeat}</div><div className="text-[10px] text-ink-faint">{cabinKey} · row {safeRow}</div></div>
-              <span className="shrink-0 font-bold" style={{ fontSize: "22px", color: "#1A1F29" }}>→</span>
-              <div className="flex-1 rounded-xl" style={{ background: "#F5FCD9", border: "1px solid #E0E3E8", padding: "16px" }}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[22px] font-bold v2-num" style={{ color: "#1A1F29" }}>{sel || "—"}</div><div className="text-[10px] text-ink-faint">{sel ? (selFee ? "Extra legroom" + (selExit ? " · exit row" : "") : "Standard · row " + parseInt(sel, 10)) : "Pick a seat"}</div></div>
-            </div>
+            <div className="font-semibold text-[20px] mb-3" style={{ color: "#1A1F29" }}>Seat change summary</div>
+            {paxList.map((p, pi) => {
+              const cur0 = booking.meta?.passengers?.[pi]?.seat || adjSeatFor(baseSeat, pi);
+              const cur = seatInCabin(cur0) ? cur0 : `${C.rows[0]}${C.cols[0]}`;
+              const nxt = seatByPax[pi] || null;
+              return (
+                <div key={pi} className={pi ? "mt-3" : ""}>
+                  {paxList.length > 1 && <div className="text-[12px] font-semibold mb-1.5" style={{ color: activePax === pi ? "#46A41A" : "#667080" }}>{p.first || `Passenger ${pi + 1}`}</div>}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 rounded-xl" style={{ background: "#F7FAFC", border: "1px solid #E0E3E8", padding: "16px" }}><div className="text-[10px] uppercase tracking-wide text-ink-faint">Current</div><div className="text-[22px] font-bold v2-num" style={{ color: "#1A1F29" }}>{cur}</div><div className="text-[10px] text-ink-faint">{cabinKey} · row {parseInt(cur, 10) || C.rows[0]}</div></div>
+                    <span className="shrink-0 font-bold" style={{ fontSize: "22px", color: "#1A1F29" }}>→</span>
+                    <div className="flex-1 rounded-xl" style={{ background: "#F5FCD9", border: "1px solid #E0E3E8", padding: "16px" }}><div className="text-[10px] uppercase tracking-wide text-ink-faint">New</div><div className="text-[22px] font-bold v2-num" style={{ color: "#1A1F29" }}>{nxt || "—"}</div><div className="text-[10px] text-ink-faint">{nxt ? (feeOf(nxt) ? "Extra legroom" + (isExit(nxt) ? " · exit row" : "") : "Standard · row " + parseInt(nxt, 10)) : "Pick a seat"}</div></div>
+                  </div>
+                </div>
+              );
+            })}
             <div style={{ height: "1px", background: "#E8E8E5", margin: "16px 0", width: "100%" }} />
             <div className="flex items-center justify-between mb-3" style={{ height: "76px", borderRadius: "14px", border: "1px solid #E0E3E8", padding: "0 18px" }}><div><div className="text-[13px] font-semibold">Extra-legroom fee</div><div className="text-[11px] text-ink-faint">{selFee > 0 ? "One-time · added to this booking" : "Applies to exit & extra-legroom rows"}</div></div><span className="v2-num font-bold" style={{ fontSize: "22px", color: "#1A1F29" }}>{eur2(selFee)}</span></div>
             <div className="mb-1" style={{ background: "#FFF5E0", border: "1px solid #FAA824", padding: "16px 22px", borderRadius: "12px" }}>
@@ -1494,7 +1524,7 @@ export function AddExtras({ shared, go, params }) {
                     </ul>
                     {best
                       ? <Btn size="sm" className="w-full mt-4" style={{ borderRadius: "20px", padding: "10px 14px" }} disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "Add bundle"}</Btn>
-                      : <Btn variant="outline" size="sm" className="w-full mt-4" style={{ borderRadius: "20px", padding: "10px 14px", borderColor: "#46A41A" }} disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "+ Add"}</Btn>}
+                      : <Btn variant="outline" size="sm" className="w-full mt-4" style={{ borderRadius: "20px", padding: "10px 14px", borderColor: "#46A41A", color: "#46A41A" }} disabled={on} onClick={() => addBundle(b)}>{on ? <><Icon name="check" size={13} /> Added</> : "+ Add"}</Btn>}
                   </div>
                 );
               })}

@@ -125,6 +125,9 @@ export function Results({ shared, params, go }) {
   const date = isMulti ? (mLeg.date || _isoPlus(3 + legIndex * 3)) : ((leg === "inbound" ? params.ret : params.date) || _isoPlus(leg === "inbound" ? 5 : 3));
   const retDate = params.ret || _isoPlus(5);
   const pax = +params.pax || 1, cabin = params.cabin || "Economy";
+  // The searched traveller count was only ever a URL param: nothing wrote it back to `trip`, so
+  // Express Checkout (which skips the Passenger step) and tripTotals() both fell back to 1 adult.
+  if (!trip.pnr && trip.pax !== pax) trip.pax = pax;
   const adults = +params.adults || pax, children = +params.children || 0, infants = +params.infants || 0;   // #13 — passenger-type breakdown
   // Pay-with-Miles: when the toggle is on, price each fare as "miles you have + € remaining".
   const payMilesOn = params.payMiles === true || params.payMiles === "true";

@@ -1321,7 +1321,7 @@ export function Basket({ shared, go }) {
           <div className="lg:sticky lg:top-6 space-y-4">
             <Card style={{ padding: "24px", borderRadius: "18px" }}>
               <div className="flex items-start justify-between">
-                <div><h2 className="text-[16px] font-bold">My trip basket</h2><div className="text-[11px] text-ink-muted">All amounts in EUR (€)</div></div>
+                <div><h2 className="text-[16px] font-bold">My trip basket</h2><div className="text-[11px] text-ink-muted">All amounts in {getCurrency().label}</div></div>
                 <span className="text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded px-2 py-1">Step 3/5</span>
               </div>
               <div className="rounded-lg bg-surface-soft px-3 py-2 mt-3">
@@ -1338,7 +1338,7 @@ export function Basket({ shared, go }) {
               </div>
               <Divider className="my-3" />
               <div className="flex items-end justify-between">
-                <div><div className="text-[14px] font-bold">Total <span className="text-ink-muted font-medium">(in EUR)</span></div><div className="text-[11px] text-ink-muted">No charge yet</div></div>
+                <div><div className="text-[14px] font-bold">Total <span className="text-ink-muted font-medium">(in {getCurrency().label})</span></div><div className="text-[11px] text-ink-muted">No charge yet</div></div>
                 <div className="text-right"><div className="text-[28px] font-bold v2-num" style={{ letterSpacing: "-0.03em" }}>{eurC(t.total)}</div><div className="text-[10px] text-ink-faint v2-num">{BRL(t.total)}</div></div>
               </div>
               <div className="mt-3 rounded-lg bg-lime-tint text-tap-greenDark text-[12px] font-semibold px-3 py-2 flex items-center justify-between"><span className="flex items-center gap-1.5"><Icon name="plane" size={12} /> You'll earn</span><span className="v2-num">{miles(EARN(t.total))} tap.miles</span></div>
@@ -1446,7 +1446,7 @@ function SplitSummary({ payers, amtFor, total, allocated, leadAmt, paid, onPaySh
     <aside>
       <Card className="p-5 lg:sticky lg:top-20">
         <div className="flex items-start justify-between">
-          <div><div className="font-bold text-[16px]">Split payment</div><div className="text-[11px] text-ink-muted">{payers.length} traveller{payers.length !== 1 ? "s" : ""} · in EUR (€)</div></div>
+          <div><div className="font-bold text-[16px]">Split payment</div><div className="text-[11px] text-ink-muted">{payers.length} traveller{payers.length !== 1 ? "s" : ""} · in {getCurrency().label}</div></div>
           <span className="text-[10px] font-bold uppercase tracking-wide bg-[#3b6fd6] text-white rounded px-2 py-1">Step 4/5</span>
         </div>
         {/* #63/#64/#65 — product breakdown */}
@@ -1840,7 +1840,7 @@ export function Payment({ shared, go }) {
           if (qr && qr.ok) alsoBooked.push({ pnr: qr.pnr, origin: sn.origin, dest: sn.dest, total: basketTripTotal(sn) });
         }
         if (alsoBooked.length) { trip.alsoBooked = alsoBooked; clearBasketQueue(); } else if (queued.length) { clearBasketQueue(); }
-        trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to, payNote: method === "Instalments" ? `${instPlan.n}× instalments — ${EUR(instFirst)} today, then ${instPlan.n - 1} × ${EUR(instPer)}` : method === "Pay by Segment" ? `Paid by segment — outbound ${EUR(obShare)}${hasInbound ? ` + return ${EUR(ibShare)}` : ""}` : null };
+        trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total: t.total, queued_total: queuedTotal, queued_n: queued.length, voucher_amt, miles_used, miles_amt, cashback_amt, card_amt, method, email: r.email?.to, payNote: method === "Instalments" ? `${instPlan.n}× instalments — ${EUR(instFirst)} today, then ${instPlan.n - 1} × ${EUR(instPer)}` : method === "Pay by Segment" ? `Paid by segment — outbound ${EUR(obShare)}${hasInbound ? ` + return ${EUR(ibShare)}` : ""}` : null };
         // Cart persistence #1 — a completed booking is not a resumable cart. saveTrip() sees the pnr
         // and purges the localStorage trip immediately (the pnr was set by direct assignment, which
         // doesn't fire notify()/saveTrip on its own, so the pre-payment snapshot would otherwise linger
@@ -1856,16 +1856,16 @@ export function Payment({ shared, go }) {
   const VOK = (p) => <ValidatedInput {...p} />;
   const billing = (
     <Card className="p-6" style={{ borderRadius: "12px", boxShadow: "none" }}>
-      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+      <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: "18px" }}>
         <div className="flex items-center" style={{ gap: "12px" }}>
           <span className="inline-flex items-center justify-center shrink-0" style={{ width: "36px", height: "36px", borderRadius: "8px", background: "#F2F2EE" }}><img src={AIC + "billing.png"} alt="" className="w-[18px] h-[18px] object-contain opacity-70" onError={e => { e.currentTarget.style.display = "none"; }} /></span>
           <div><div style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A" }}>Billing details</div><div className="leading-4" style={{ fontSize: "12px", color: "#6B6B6B" }}>We use these only for payment authorisation and invoicing.</div></div>
         </div>
         <label onClick={() => setUseContactBilling(v => !v)} className="flex items-center gap-2.5 rounded-[10px] cursor-pointer shrink-0" style={{ background: "#F2FFDB", border: "1px solid #9EFD38", padding: "8px 12px" }}><span className="inline-flex items-center justify-center shrink-0" style={{ width: "18px", height: "18px", borderRadius: "5px", background: useContactBilling ? "#336614" : "#FFFFFF", border: useContactBilling ? "none" : "1px solid #DCEFC6" }}>{useContactBilling && <Icon name="check" size={11} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span><span style={{ fontSize: "12px", fontWeight: 500, color: "#336614" }}>Use contact details from this booking</span></label>
       </div>
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Field label={<>Country <Req /></>}><FlagSelect value={billCtry} onChange={setBillCtry} options={FLAG_CTRY} /></Field>
-        <Field label={<>Street address <Req /></>}><VOK defaultValue="Av. Paulista, 1842 · Apt 71" /></Field>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4" style={{ gap: "18px" }}>
+        <Field className="lg:col-span-2" label={<>Country <Req /></>}><FlagSelect value={billCtry} onChange={setBillCtry} options={FLAG_CTRY} /></Field>
+        <Field className="lg:col-span-2" label={<>Street address <Req /></>}><VOK defaultValue="Av. Paulista, 1842 · Apt 71" /></Field>
         <Field label={<>City <Req /></>}><VOK defaultValue={trip.contact?.city || "Porto"} /></Field>
         <Field label="State / province"><Input defaultValue="SP" /></Field>
         <Field label={<>Postal code <Req /></>}><VOK defaultValue="01310-100" /></Field>
@@ -1991,7 +1991,7 @@ export function Payment({ shared, go }) {
                       <div className={cx("inline-flex items-center gap-1.5 rounded-lg border ml-auto", custom ? "border-tap-green bg-surface" : "border-line-strong")} style={{ padding: "8px 16px" }}>
                         <span className="text-[13px] text-ink-faint">{cur.symbol}</span>
                         {custom
-                          ? <input type="number" min="0" step="0.01" value={amtFor(i) ? +(amtFor(i) * cur.rate).toFixed(2) : ""} onChange={e => { const raw = e.target.value.replace(/^0+(?=\d)/, ""); setSplitAmts(a => ({ ...a, [i]: Math.max(0, +(+raw / cur.rate).toFixed(2)) })); }} className="w-20 bg-transparent font-bold v2-num text-[18px] outline-none" style={{ color: "#1A1F29" }} aria-label={`Amount for ${p.name}`} />
+                          ? <input type="number" min="0" step="0.01" value={amtFor(i) ? +(amtFor(i) * cur.rate).toFixed(2) : ""} onChange={e => { const raw = e.target.value.replace(/^0+(?=\d)/, ""); const nextAmt = +(+raw / cur.rate).toFixed(2); setSplitAmts(a => ({ ...a, [i]: Number.isFinite(nextAmt) ? Math.max(0, nextAmt) : 0 })); }} className="w-20 bg-transparent font-bold v2-num text-[18px] outline-none" style={{ color: "#1A1F29" }} aria-label={`Amount for ${p.name}`} />
                           : <span className="font-bold v2-num text-[18px]" style={{ color: "#1A1F29" }}>{(amtFor(i) * cur.rate).toFixed(2)}</span>}
                         <button type="button" onClick={() => { setSplitTab("Custom Split"); setSplitAmts(a => (a[i] != null ? a : { ...a, [i]: equal })); }} title={custom ? "Edit amount" : "Edit amounts — switch to a custom split"} aria-label="Edit amount" className="inline-flex items-center justify-center rounded hover:bg-surface-mute -mr-1 p-0.5">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={custom ? "var(--tap-green)" : "#171717"} style={{ opacity: custom ? 1 : 0.7 }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -2356,7 +2356,12 @@ export function Confirmation({ shared, go }) {
   const toggleRec = async (code) => {
     const on = addedRecs.has(code);
     setAddedRecs(prev => { const n = new Set(prev); on ? n.delete(code) : n.add(code); return n; });
-    try { await api.post("/bookings/ancillary", { pnr: trip.pnr, code, ...(on ? { remove: true } : {}) }); } catch { }
+    let ok = false;
+    try { const r = await api.post("/bookings/ancillary", { pnr: trip.pnr, code, ...(on ? { remove: true } : {}) }); ok = !!(r && r.ok !== false); } catch { ok = false; }
+    // Server rejected (e.g. code absent from the ancillaries catalogue) — undo the optimistic flip rather than show a state the booking does not have.
+    if (!ok) { setAddedRecs(prev => { const n = new Set(prev); on ? n.add(code) : n.delete(code); return n; }); return; }
+    // Every other booking mutation notifies; this one did not, so Add Extras and the shell kept a stale items list.
+    try { window.dispatchEvent(new Event("tap:booking-changed")); } catch { }
   };
   if (!trip.pnr) return noTrip(go);
   const pay = trip.payment || {}, o = trip.outbound, i = trip.inbound, u = shared.profile?.user || {}, t = tripTotals();
@@ -2370,7 +2375,7 @@ export function Confirmation({ shared, go }) {
     const seg = (c, d, seat) => c ? `${c.flight.origin} -> ${c.flight.dest}  ${c.flight.flight_no}\n  ${fmtDate(d)} · dep ${c.flight.dep} · arr ${c.flight.arr} · seat ${seat}` : "";
     return [`TAP AIR PORTUGAL — E-TICKET`, `PNR: ${trip.pnr}`, `Passenger(s): ${pax.map(p => `${p.first} ${p.last || ""}`.trim()).join(", ")}`, ``, seg(o, trip.date, leadSeat), i ? seg(i, trip.ret, inSeat || "22B") : "", ``, `Total paid: ${EUR(t.total)}`].filter(Boolean).join("\n");
   };
-  const addCalendar = () => { const ics = [o, i].filter(Boolean).map(c => buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? leadSeat : (inSeat || "22B")}` })).join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
+  const addCalendar = () => { const events = [o, i].filter(Boolean).map((c, n) => (buildICS({ title: `TAP ${c.flight.flight_no} ${c.flight.origin}→${c.flight.dest}`, start: `${c === o ? trip.date : trip.ret}T${c.flight.dep || "08:00"}:00`, location: `${c.flight.origin} Airport`, description: `PNR ${trip.pnr} · seat ${c === o ? leadSeat : (inSeat || "22B")}` }).match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/) || [""])[0].replace(/^UID:.*$/m, `UID:${trip.pnr}-${n}@flytap`)).filter(Boolean); const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//TAP Air Portugal//FlyTAP//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", ...events, "END:VCALENDAR", ""].join("\r\n"); downloadFile(`TAP-${trip.pnr}.ics`, ics, "text/calendar"); };
   const downloadTicket = () => downloadFile(`eticket-${trip.pnr}.txt`, ticketText(), "text/plain");
   // v33 Booking Confirmed #2 — the invoice link DOWNLOADS a real PDF (was wrongly routed to the basket).
   const buildInvoicePdf = (lines) => {
@@ -2438,12 +2443,12 @@ export function Confirmation({ shared, go }) {
                 ) : (
                 <div key={idx} className="rounded-[12px] px-5 mb-2 flex flex-wrap items-center gap-4" style={{ background: "#f2ffdb", minHeight: "108px" }}>
                   <div><div className="text-[14px] font-bold" style={{ color: "#1A1F29" }}>{c.flight.origin}</div><div className="text-[26px] font-bold v2-num leading-none mt-0.5">{c.flight.dep}</div><div className="text-[11px] mt-1" style={{ color: "#667080" }}>Terminal 1</div></div>
-                  <div className="flex-1 min-w-[170px] text-center"><div className="text-[12px] font-medium text-ink-muted">{c.flight.duration} · nonstop</div><div className="h-0.5 bg-ink/80 my-2 mx-auto max-w-[340px]" /><div className="text-[12px] font-semibold text-ink">{c._lbl ? c._lbl + " · " : ""}{fmtDate(c._d).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="text-[11px] mt-0.5" style={{ color: "#667080" }}>Seat {c._seat} · Gate info 90 min before</div></div>
+                  <div className="flex-1 min-w-[170px] text-center"><div className="text-[12px] font-medium text-ink-muted">{c.flight.duration} · nonstop</div><div className="h-0.5 bg-ink/80 my-2 mx-auto max-w-[340px]" /><div className="text-[12px] font-semibold text-ink">{c._lbl ? c._lbl + " · " : ""}{fmtDate(c._d).replace(/(\w+) (\d+) \d+/, "$1 $2")} · {c.flight.flight_no} · {c.flight.aircraft}</div><div className="text-[11px] mt-0.5" style={{ color: "#667080" }}>{pax.length > 1 ? "Seats " : "Seat "}{pax.map((_, n) => adjSeat(c._seat, n)).join(" · ")} · Gate info 90 min before</div></div>
                   <div className="text-right"><div className="text-[14px] font-bold" style={{ color: "#1A1F29" }}>{c.flight.dest}</div><div className="text-[26px] font-bold v2-num leading-none mt-0.5">{c.flight.arr}</div><div className="text-[11px] mt-1" style={{ color: "#667080" }}>Terminal 1</div></div>
                 </div>
                 ));
               })()}
-              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="star" size={11} className="text-ink-muted" /> {/exec/i.test(o?.fare || "") ? "Lounge access" : "Miles earned"}</span></div>
+              <div className="flex flex-wrap gap-2 mt-3">{pax.map((p, n) => <span key={n} className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="user" size={11} className="text-ink-muted" /> {p.first} {p.last} · {inSeat && adjSeat(inSeat, n) !== adjSeat(leadSeat, n) ? `${adjSeat(leadSeat, n)} out · ${adjSeat(inSeat, n)} ret` : adjSeat(leadSeat, n)}</span>)}<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="bag" size={11} className="text-ink-muted" /> Carry-on × {pax.length}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="seat" size={11} className="text-ink-muted" /> {seatClass}</span><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-surface text-ink rounded-[14px] shadow-sm" style={{ border: "1px solid #E8E8E5", padding: "7px 12px" }}><Icon name="star" size={11} className="text-ink-muted" /> {/exec/i.test(o?.fare || "") ? "Lounge access" : "Miles earned"}</span></div>
               <div className="flex flex-wrap gap-5 mt-4 text-[13px] font-semibold text-tap-greenDeep"><button onClick={addWallet} disabled={walletAdded} className={walletAdded ? "text-tap-greenDeep cursor-default" : "hover:underline"}>{walletAdded ? "Added to Wallet ✓" : "Add to Wallet"}</button><button onClick={addCalendar} className="hover:underline">Add to Calendar</button><button onClick={downloadTicket} className="hover:underline">Download e-ticket</button></div>
               <div className="text-[12px] text-ink-faint mt-3">Manage booking · check-in opens 24h before</div>
             </Card>
@@ -2498,7 +2503,7 @@ export function Confirmation({ shared, go }) {
             <Card className="p-5" style={{ borderRadius: "18px", borderColor: "#E8E8E5", boxShadow: "0px 8px 24px rgba(0,0,0,0.08)" }}>
               <div className="font-bold text-[16px]">Payment receipt</div>
               <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
-              <div className="space-y-1.5 text-[13px]"><Row label={`Fare x${trip.pax}`} v={eur2(t.flights)} /><Row label="Taxes & fees" v={eur2(t.taxes)} />{t.extras ? <Row label="Extras" v={eur2(t.extras)} /> : null}{t.bundle ? <Row label="Bundle savings" v={"−" + eur2(t.bundle)} green /> : null}{pay.voucher_amt ? <Row label="Voucher" v={"−" + eur2(pay.voucher_amt)} green /> : null}{pay.miles_amt ? <Row label={`Miles (${miles(pay.miles_used)})`} v={"−" + eur2(pay.miles_amt)} green /> : null}</div>
+              <div className="space-y-1.5 text-[13px]"><Row label={`Fare x${trip.pax}`} v={eur2(t.flights)} /><Row label="Taxes & fees" v={eur2(t.taxes)} />{t.extras ? <Row label="Extras" v={eur2(t.extras)} /> : null}{pay.queued_total ? <Row label={`Other trips (${pay.queued_n || 1})`} v={eur2(pay.queued_total)} /> : null}{t.bundle ? <Row label="Bundle savings" v={"−" + eur2(t.bundle)} green /> : null}{pay.voucher_amt ? <Row label="Voucher" v={"−" + eur2(pay.voucher_amt)} green /> : null}{pay.miles_amt ? <Row label={`Miles (${miles(pay.miles_used)})`} v={"−" + eur2(pay.miles_amt)} green /> : null}{pay.cashback_amt ? <Row label="Cashback wallet" v={"−" + eur2(pay.cashback_amt)} green /> : null}</div>
               <div className="h-px my-3" style={{ background: "#E8E8E5" }} />
               <div className="rounded-xl overflow-hidden mt-1" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5" }}>
                 <div className="flex items-center justify-between gap-2" style={{ padding: "18px 20px" }}><div className="text-[12px] font-semibold text-ink">Paid · {(() => { const parts = []; if (pay.miles_used > 0) parts.push(`${miles(pay.miles_used)} miles`); if (pay.voucher_amt > 0) parts.push(`voucher ${eur2(pay.voucher_amt)}`); if ((pay.card_amt ?? t.total) > 0) parts.push(`${eur2(pay.card_amt ?? t.total)} card${u.card_last4 ? " ••" + u.card_last4 : ""}`); return parts.length ? parts.join(" + ") : (pay.method || "Card"); })()}</div><div className="text-[34px] font-bold text-tap-green v2-num">{eur2(pay.card_amt ?? t.total)}</div></div>
@@ -2563,7 +2568,7 @@ export function ExpressCheckout({ shared, go, params }) {
   // v33 Express #5 — every traveller from the search is priced and shown; nothing is hardcoded to 1.
   const paxN = Math.max(1, Number(params?.pax) || Number(trip.pax) || 1);
   const paxRows = Array.from({ length: paxN }, (_, n) => n === 0
-    ? { first: u.first_name || "Traveller", last: (u.full_name || "").split(" ").slice(-1)[0] || "", lead: true }
+    ? (trip.passengers?.[0]?.first ? { ...trip.passengers[0], lead: true } : { first: u.first_name || "Traveller", last: (u.full_name || "").split(" ").slice(-1)[0] || "", lead: true })
     : (trip.passengers?.[n]?.first ? { ...trip.passengers[n], lead: false } : { first: `Traveller ${n + 1}`, last: "", lead: false }));
   const base = (o?.price || 0) * paxN;
   const seatNo = chosenSeat() || (/exec|plus|premium/i.test(o?.fare || "") ? seatForFare(o?.fare) : (seat?.seat || seatForFare(o?.fare)));
@@ -2576,7 +2581,7 @@ export function ExpressCheckout({ shared, go, params }) {
     if (!o) return; setBusy(true);
     try {
       const items = ["seat-" + seatNo, bag && "checked-bag", carbon && "carbon"].filter(Boolean);
-      const r = await api.post("/pay", { flight_no: o.flight.flight_no, items, total, voucher_amt: 0, miles_used: 0, miles_amt: 0, card_amt: total, seat: seatNo, date, fare: o?.fare, cabin: fareCabin(o?.fare), pax: paxN, passengers: ((trip.passengers || []).filter(p => p && p.first).length ? (trip.passengers || []).filter(p => p && p.first) : paxRows).map(p => ({ title: p.title, first: p.first, last: p.last })) });
+      const r = await api.post("/pay", { flight_no: o.flight.flight_no, items, total, voucher_amt: 0, miles_used: 0, miles_amt: 0, card_amt: total, seat: seatNo, date, fare: o?.fare, cabin: fareCabin(o?.fare), inbound: i?.flight?.flight_no ? { flight_no: i.flight.flight_no, date: trip.ret } : null, pax: paxN, passengers: ((trip.passengers || []).filter(p => p && p.first).length ? (trip.passengers || []).filter(p => p && p.first) : paxRows).map(p => ({ title: p.title, first: p.first, last: p.last })) });
       if (r.ok) { trip.pnr = r.pnr; trip.seat = seatNo; trip.payment = { total, card_amt: total, method: "Card", email: r.email?.to }; go("confirmation"); }
       else alert("Payment could not be completed: " + (r.error || "unknown"));
     } catch (e) { alert("Payment error: " + e.message); } finally { setBusy(false); }
@@ -2597,7 +2602,7 @@ export function ExpressCheckout({ shared, go, params }) {
                 {[o, i].filter(Boolean).map((c, idx) => (
                   <div key={idx} className="py-2.5 border-t border-[#E0E2E8] first:border-0">
                     <span className="inline-block text-[11px] font-semibold uppercase tracking-wide text-ink rounded-full mb-1.5" style={{ background: "#F7F8FA", padding: "4px 10px" }}>{idx === 0 ? "Outbound" : "Return"} · {fmtDate(idx === 0 ? date : retDate).replace(/(\w+) (\d+) \d+/, "$1 $2")}</span>
-                    <div className="flex items-center gap-3"><div><div className="text-[22px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin} · {cityOf(c.flight.origin)}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="my-1 mx-auto" style={{ width: "120px", maxWidth: "100%", height: "2px", background: "#E0E2E8" }} /><div className="font-semibold text-ink-muted">{c.flight.flight_no} · {c.flight.aircraft}</div></div><div className="text-right"><div className="text-[22px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest} · {cityOf(c.flight.dest)}</div></div></div>
+                    <div className="flex items-center gap-3"><div><div className="text-[22px] font-bold v2-num">{c.flight.dep}</div><div className="text-[11px] text-ink-faint">{c.flight.origin} · {cityOf(c.flight.origin)}</div></div><div className="flex-1 text-center text-[11px] text-ink-muted">{c.flight.duration} · Direct<div className="my-1 mx-auto" style={{ width: "120px", maxWidth: "100%", height: "1px", background: "#E0E2E8" }} /><div className="font-semibold text-ink-muted">{c.flight.flight_no} · {c.flight.aircraft}</div></div><div className="text-right"><div className="text-[22px] font-bold v2-num">{c.flight.arr}</div><div className="text-[11px] text-ink-faint">{c.flight.dest} · {cityOf(c.flight.dest)}</div></div></div>
                   </div>
                 ))}
                 <div className="mt-2 pt-3 border-t border-[#E0E2E8] flex items-start justify-between gap-3"><div><div className="text-[13px] font-bold">Fare: Classic</div><div className="text-[11px] text-ink-muted mt-0.5">23kg bag · seat select · 50% refund · changes for fee</div></div><button onClick={() => setShowFare(v => !v)} className="text-[13px] font-semibold hover:brightness-90 shrink-0" style={{ color: "#46A41A" }}>{showFare ? "Hide fare rules" : "See fare rules"}</button></div>
@@ -2643,7 +2648,7 @@ export function ExpressCheckout({ shared, go, params }) {
                 <div className="text-[14px] font-semibold">{(u.email || "d•••@gmail.com").replace(/(.).+(@.+)/, "$1•••••$2")} · {u.phone || "+351 ••• 482"}</div>
                 <div className="text-[11px] text-ink-faint mt-0.5">Boarding pass, receipt and IROPS alerts go here.</div>
               </Sec>
-              <Card className="p-4" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5", borderRadius: "10px", boxShadow: "none", padding: "14px" }}><label className="flex items-start gap-2.5 text-[13px]"><span className="mt-0.5 inline-flex items-center justify-center shrink-0 cursor-pointer" style={{ width: "20px", height: "20px", borderRadius: "5px", background: agree ? "#0A0A0A" : "#FFFFFF", border: "1px solid #0A0A0A" }} onClick={() => setAgree(!agree)}>{agree && <Icon name="check" size={12} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span><span className="flex-1"><span className="flex items-center gap-2 font-semibold">I accept the fare conditions {!agree && <span className="font-bold uppercase tracking-wide rounded-full text-white" style={{ background: "#ED1C24", fontSize: "9px", padding: "3px 8px" }}>Required</span>}</span><span className="block text-[11px] text-ink-muted mt-0.5">By continuing you agree to the <button className="font-semibold" style={{ color: "#0A0A0A" }}>fare conditions</button> · <button className="font-semibold" style={{ color: "#0A0A0A" }}>baggage rules</button> · <button className="font-semibold" style={{ color: "#0A0A0A" }}>privacy policy</button>.</span><span className="block text-[11px] text-ink-faint mt-1">You'll receive your booking confirmation and e-ticket after successful payment.</span></span></label></Card>
+              <Card className="p-4" style={{ background: "#FAFAF7", border: "1px solid #E8E8E5", borderRadius: "10px", boxShadow: "none", padding: "14px" }}><label className="flex items-start gap-2.5 text-[13px]"><span className="mt-0.5 inline-flex items-center justify-center shrink-0 cursor-pointer" style={{ width: "20px", height: "20px", borderRadius: "5px", background: agree ? "#0A0A0A" : "#FFFFFF", border: "1px solid #0A0A0A" }} onClick={() => setAgree(!agree)}>{agree && <Icon name="check" size={12} className="stroke-[3]" style={{ color: "#9EFD38" }} />}</span><span className="flex-1"><span className="flex items-center gap-2 font-semibold">I accept the fare conditions</span><span className="block text-[11px] text-ink-muted mt-0.5">By continuing you agree to the <button className="font-semibold" style={{ color: "#0A0A0A" }}>fare conditions</button> · <button className="font-semibold" style={{ color: "#0A0A0A" }}>baggage rules</button> · <button className="font-semibold" style={{ color: "#0A0A0A" }}>privacy policy</button>.</span><span className="block text-[11px] text-ink-faint mt-1">You'll receive your booking confirmation and e-ticket after successful payment.</span></span><span className="shrink-0"><span className="font-bold uppercase tracking-wide text-white" style={{ background: "#ED1C24", fontSize: "9px", borderRadius: "999px", padding: "3px 8px" }}>Required</span></span></label></Card>
             </div>
             <aside className="space-y-4">
               <Card className="p-5" style={{ borderRadius: "12px", border: "1px solid #E0E2E8", background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -2653,7 +2658,7 @@ export function ExpressCheckout({ shared, go, params }) {
                 <div className="flex items-center justify-between"><div style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>Total to pay</div><div className="v2-num" style={{ fontSize: "28px", fontWeight: 700, color: "#0A0A0A" }}>{eur2(total)}</div></div>
                 <div className="mt-3" style={{ background: "#EBF7ED", borderRadius: "8px", padding: "8px 12px", color: "#00874E", fontSize: "12px", fontWeight: 600 }}>Earn {miles(earn)} miles · or pay {miles(Math.round(total * 0.9 / MILES_RATE))} mi + {eur2(Math.round(total * 0.1))}</div>
                 <div className="mt-3 flex items-stretch overflow-hidden" style={{ background: "#F7F8FA", border: "1px solid #E0E2E8", borderRadius: "8px" }}><input placeholder="Promo code" className="flex-1 bg-transparent outline-none" style={{ padding: "10px 12px", fontSize: "13px", color: "#666B80" }} /><button className="font-bold hover:brightness-95" style={{ padding: "0 16px", fontSize: "13px", color: "#46A41A" }}>Apply</button></div>
-                <div className="mt-3 flex items-center" style={{ background: "#FFF5E0", borderRadius: "8px", padding: "8px 12px", gap: "8px", color: "#8C590D", fontSize: "12px", fontWeight: 600 }}><span style={{ color: "#e8920a", fontSize: "8px" }}>●</span> <SessionTimer minutes={15} prefix="Price held for" /> · won't change if you pay now</div>
+                <div className="mt-3 flex items-center flex-wrap" style={{ background: "#FFF5E0", borderRadius: "8px", padding: "8px 12px", gap: "8px", color: "#8C590D", fontSize: "12px", fontWeight: 600 }}><span style={{ color: "#e8920a", fontSize: "8px" }}>●</span> <SessionTimer minutes={15} prefix="Price held for" className="whitespace-nowrap" /><span className="whitespace-nowrap">· won't change if you pay now</span></div>
                 <Btn size="lg" className="w-full mt-3" style={{ height: "60px", borderRadius: "9999px", background: "#46A41A", color: "#fff", fontSize: "15px", fontWeight: 700 }} disabled={!agree || busy} onClick={pay}>{busy ? "Processing…" : `Pay ${eur2(total)} securely`}</Btn>
                 <div className="flex items-center justify-center gap-2 mt-2" style={{ fontSize: "13px", fontWeight: 600 }}><button className="hover:underline text-ink">Save &amp; pay later</button><span className="text-ink-faint">·</span><button onClick={() => go("payment")} className="hover:underline text-ink">Use miles instead</button></div>
                 <div className="text-center mt-2 leading-relaxed" style={{ fontSize: "11px", color: "#666B80" }}>PCI · Visa · Mastercard · Amex · MB WAY · Apple Pay · PayPal<br />Free 24h cancellation · Refundable taxes · 24/7 support</div>
