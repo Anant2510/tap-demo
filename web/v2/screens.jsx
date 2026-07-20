@@ -169,7 +169,7 @@ function DatePicker({ value, onChange, min, placeholder = "Select date", buttonC
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} className={buttonClassName || "w-full text-left bg-surface border border-line-strong rounded-xl px-3 py-2.5 text-[15px] inline-flex items-center justify-between"}>
         {sel ? <span className="truncate min-w-0 flex-1 font-bold">{fmtField(sel)}</span> : <span className="text-ink-faint truncate min-w-0 flex-1">{placeholder}</span>}
-        <Icon name="clock" size={14} className="text-ink-muted ml-2 shrink-0" />
+        <Icon name="calendar" size={14} className="text-ink-muted ml-2 shrink-0" />
       </button>
       {open && pos && createPortal(<>
         <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
@@ -735,10 +735,11 @@ function HeroSearch({ u, pat, cityOf, airports, go }) {
             {/* #15 passenger — traveler icon before count */}
             <div className="p-3"><div className={lbl}>Passenger</div><div className="flex items-center gap-2 mt-1.5"><Icon name="user" size={14} className="text-ink-muted shrink-0" /><PaxPanel adults={pax} children={kids} infants={infants} onChange={c => { setPax(c.adults); setKids(c.children); setInfants(c.infants); }} buttonClassName={cx(bare, "text-left inline-flex items-center justify-between")} /></div><div className="text-[10px] text-ink-faint mt-1">{u.first_name} · saved</div></div>
             <div className="p-3"><div className={lbl}>Cabin</div><div className="relative mt-1.5"><select value={cabin} onChange={e => setCabin(e.target.value)} className={cx(bare, "appearance-none pr-6 truncate cursor-pointer")}>{["Economy", "Premium", "Business"].map(c => <option key={c}>{c}</option>)}</select><Icon name="chevron" size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" /></div></div>
-            {/* #11 search CTA — 161×92 rounded green button */}
-            <div className="p-2 flex items-stretch">
-              <button onClick={go2} className="w-full text-white font-bold text-[14px] flex items-center justify-center gap-2.5 rounded-[16px] hover:opacity-95 transition-opacity" style={{ background: "rgba(70,164,26,1)", padding: "16px 22px" }}>Search flight <Icon name="arrow" size={15} /></button>
-            </div>
+          </div>
+          {/* v35 HomePage #1: the CTA is its own component below the form — the bordered
+              container ends after Cabin. */}
+          <div className="mt-3 flex justify-end">
+            <button onClick={go2} className="text-white font-bold text-[14px] flex items-center justify-center gap-2.5 rounded-[16px] hover:opacity-95 transition-opacity" style={{ background: "rgba(70,164,26,1)", padding: "16px 22px" }}>Search flight <Icon name="arrow" size={15} /></button>
           </div>
           {type === "multi" && (
             <div className="mt-3 space-y-2">

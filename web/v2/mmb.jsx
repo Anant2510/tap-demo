@@ -96,14 +96,21 @@ const SuccessHead = ({ title, sub }) => (
 
 // #2 — derive an adjacent seat per traveller from the booking's assigned seat, so
 // multi-passenger bookings show a seat for every traveller (grouped by passenger).
-function seatForPax(base, i) {
-  const m = String(base || "14F").match(/^(\d+)\s*([A-F])$/i);
+// Canonical passenger-seat resolver. Stored per-passenger seats (meta.passengers[i].seat, written
+// by the seat-change flow) always win; the fallback shifts RIGHT from the lead seat (D -> E for
+// pax 2), matching adjSeat (checkout), adjSeatFor (seat change) and ciAdjSeat (check-in). The old
+// seatForPax stepped LEFT (D -> C), which is why My Trips disagreed with every other page.
+function paxSeat(b, i) {
+  const stored = b?.meta?.passengers?.[i]?.seat;
+  if (stored) return stored;
+  const base = b?.seat || "";
+  const m = String(base).match(/^(\d+)\s*([A-Fa-f])/);
   if (!m) return base || "—";
-  const row = +m[1], cols = "ABCDEF", col = cols.indexOf(m[2].toUpperCase());
-  const nc = ((col - i) % 6 + 6) % 6;                 // step left through the row, wrapping
-  const rowAdj = row + Math.floor((i - col) / 6 > 0 ? Math.floor((i - col) / 6) : 0);
-  return `${col - i >= 0 ? row : rowAdj}${cols[nc]}`;
+  if (!i) return `${m[1]}${m[2].toUpperCase()}`;
+  const L = "ABCDEF", c = L.indexOf(m[2].toUpperCase());
+  return `${m[1]}${L[((c + i) % 6 + 6) % 6]}`;
 }
+const seatForPax = (base, i) => paxSeat({ seat: base }, i);   // legacy signature, corrected direction
 const Crumb = ({ go, label = "Manage booking", trail }) => {
   if (trail && trail.length) return (
     <nav className="flex items-center gap-1.5 text-[12px] text-ink-muted mb-3 flex-wrap">
@@ -132,7 +139,13 @@ function bundleServices(b, meta) {
   const ci = b.checked_in;
   const items = [...new Set(b.items || [])];
   const svc = [{ label: `${(b.flight_no || "").replace(/([A-Za-z]+)\s*(\d+)/, "$1 $2")}`, status: "Confirmed", tone: "green" }];
-  svc.push({ label: `${t("seat")} ${b.seat || "—"}`, status: b.seat && b.seat !== "—" ? "Assigned" : "Auto at check-in", tone: b.seat && b.seat !== "—" ? "green" : "slate" });
+  // One row per booking, but it must name every traveller's seat (#21): a party of two reading
+  // "Seat 22D" looks like only one of them has an assignment.
+  const svcPaxN = Math.max(1, (Array.isArray(meta.passengers) && meta.passengers.length) || Number(meta.pax) || 1);
+  const svcSeats = Array.from({ length: svcPaxN }, (_, i) => paxSeat(b, i)).filter(x => x && x !== "—");
+  svc.push(svcSeats.length
+    ? { label: `${svcSeats.length > 1 ? "Seats" : t("seat")} ${svcSeats.join(" · ")}`, status: "Assigned", tone: "green" }
+    : { label: `${t("seat")} —`, status: "Auto at check-in", tone: "slate" });
   items.filter(c => c !== "seat").forEach(c => {
     let status = "Confirmed", label = extraLabel(c);
     if (c === "meal") status = "Pre-ordered";
@@ -169,7 +182,11 @@ export function ManageBooking({ shared, go }) {
     ["Add extras", "addextras", "bag"],
     ["Cancel & refund", "refund", "info"],
   ];
-  const priceOf = b => Math.round(b.flight?.price || 180);
+  // v35 My Trip #1: the trip's price is what was actually PAID (booking-flow total: fare x pax +
+  // extras + taxes), which the server returns as b.payment.total. The old fallback showed the
+  // single-leg base fare (e.g. €276 against a €1,285 booking). Base fare remains only for
+  // bookings created before payment data was persisted.
+  const priceOf = b => Math.round(b.payment?.total ?? b.flight?.price ?? 180);
   const subtotal = list.reduce((s, b) => s + priceOf(b), 0);
   const taxes = Math.round(subtotal * 0.055);
   const savings = 42;
@@ -221,7 +238,7 @@ export function ManageBooking({ shared, go }) {
                     </div>
                     <div className="text-[12px] text-ink-muted mt-1">{cityOf(airports, f.origin)}–{cityOf(airports, f.dest)} · {fmtDate(b.flight_date)} · {f.duration || "1h05"} · Direct</div>
                     <div className="text-[12px] text-ink-muted mt-0.5">{paxN} traveller{paxN > 1 ? "s" : ""} · {f.flight_no || b.flight_no} · {fareName}</div>
-                    {paxNames.length > 0 && <div className="mt-1.5 flex flex-col gap-1">{paxNames.map((nm, i) => <span key={i} className="text-[12px] text-ink inline-flex items-center gap-1.5"><Icon name="user" size={11} className="text-ink-faint" /><span className="font-medium">{nm}</span><span className="text-ink-faint">·</span><span className="inline-flex items-center gap-1 text-tap-greenDeep font-semibold"><Icon name="seat" size={10} /> {(paxNames.length > 1) ? seatForPax(b.seat, i) : (b.seat || "—")}</span></span>)}</div>}
+                    {paxNames.length > 0 && <div className="mt-1.5 flex flex-col gap-1">{paxNames.map((nm, i) => <span key={i} className="text-[12px] text-ink inline-flex items-center gap-1.5"><Icon name="user" size={11} className="text-ink-faint" /><span className="font-medium">{nm}</span><span className="text-ink-faint">·</span><span className="inline-flex items-center gap-1 text-tap-greenDeep font-semibold"><Icon name="seat" size={10} /> {(paxNames.length > 1) ? paxSeat(b, i) : (b.seat || "—")}</span></span>)}</div>}
                     {inb && <div className="mt-2 pt-2 border-t border-line/70 flex items-center gap-2 flex-wrap">
                       <span className="text-[10px] font-bold uppercase tracking-wide bg-surface-mute text-ink-muted rounded px-1.5 py-0.5">Return</span>
                       <span className="text-[14px] font-black">{inb.origin} <span className="text-ink-faint">→</span> {inb.dest}</span>
@@ -283,7 +300,7 @@ export function ManageBooking({ shared, go }) {
             <div className="space-y-2 text-[13px] mt-3">
               {list.map((b, i) => (
                 <React.Fragment key={i}>
-                  <div className="flex justify-between gap-3"><span className="text-ink-muted">{cityOf(airports, b.flight?.origin)}–{cityOf(airports, b.flight?.dest)}</span><span className="font-semibold v2-num">{eur2(Math.round(b.flight?.price || 180))}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-ink-muted">{cityOf(airports, b.flight?.origin)}–{cityOf(airports, b.flight?.dest)}</span><span className="font-semibold v2-num">{eur2(priceOf(b))}</span></div>
                   {b.inboundFlight && <div className="flex justify-between gap-3 pl-3"><span className="text-ink-faint text-[12px]">↩ Return · {cityOf(airports, b.inboundFlight.origin)}–{cityOf(airports, b.inboundFlight.dest)} · {b.inboundFlight.flight_no}</span><span className="text-[11px] text-ink-faint">incl.</span></div>}
                 </React.Fragment>
               ))}
@@ -654,10 +671,11 @@ export function SeatChange({ shared, go, params }) {
 
   if (done) return (
     <div className="mx-auto max-w-content px-6 py-8">
+      {/* every confirmed seat, in passenger order — the band and pills must match the title (#22) */}
       <SuccessHead title={(() => { const e = Object.entries(seatByPax).filter(([, v]) => v); return e.length > 1 ? `Seats ${e.map(([, v]) => v).join(" · ")} confirmed` : `Seat ${sel} confirmed`; })()} sub={`PNR ${booking.pnr} · boarding pass reissued`} />
       <Card className="p-5 mt-6 v2-in">
-        <BookingBand booking={booking} airports={shared.airports} seatOverride={sel} />
-        <div className="flex flex-wrap gap-2 mt-3"><Pill tone="lime">Seat {sel}</Pill><Pill tone="slate">{cabinKey} cabin</Pill>{selFee > 0 && <Pill tone="gold">Extra legroom · {EUR(selFee)}</Pill>}</div>
+        <BookingBand booking={booking} airports={shared.airports} seatOverride={(() => { const e = Object.entries(seatByPax).filter(([, v]) => v).sort((a, b) => a[0] - b[0]).map(([, v]) => v); return e.length ? e.join(" · ") : sel; })()} />
+        <div className="flex flex-wrap gap-2 mt-3">{(() => { const e = Object.entries(seatByPax).filter(([, v]) => v).sort((a, b) => a[0] - b[0]); return (e.length ? e : [[String(activePax), sel]]).map(([pi, v]) => <Pill key={pi} tone="lime">Seat {v}</Pill>); })()}<Pill tone="slate">{cabinKey} cabin</Pill>{selFee > 0 && <Pill tone="gold">Extra legroom · {EUR(selFee)}</Pill>}</div>
       </Card>
       <div className="rounded-2xl border border-tap-green/30 p-4 mt-4 text-[12px]" style={{ background: "#f2ffdb88" }}><span className="font-semibold">New boarding pass issued.</span> Old pass invalidated · Wallet &amp; email updated · gate info continues.</div>
       <div className="mt-5"><Btn onClick={() => { notifyBookingChanged(); go("manage"); }}>Back to booking</Btn></div>

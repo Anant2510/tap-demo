@@ -635,13 +635,19 @@ function CartView({ go, mode = "cart", shared }) {
   useEffect(() => { if (trip.outbound) api.post("/journey", { origin: trip.origin, dest: trip.dest, date: trip.date, stage: isBasket ? "basket" : "cart", device: "Web app" }).catch(() => {}); }, []); // eslint-disable-line
   const [, force] = useState(0); const r = () => force(x => x + 1);
   const [carbonOn, setCarbonOn] = useState(() => hasExtra("carbon"));
+  // v35 View&Customize #1: carbon offset is auto-selected and in the basket the moment the page
+  // opens; OPT-OUT removes it. trip.carbonOptOut remembers an opt-out for this itinerary so we
+  // don't force it back on every re-visit.
+  useEffect(() => {
+    if (!trip.carbonOptOut && !hasExtra("carbon")) { toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); setCarbonOn(true); save(); r(); }
+  }, []);
   // H2 — a fare change can surface as early as the cart step (and on resume, via the force flag).
   // Only in the checkout "cart" step, not the standalone basket view.
   const [reval, setReval] = usePriceReval(!isBasket);
   // Don't re-seed a recommended basket if the member explicitly cleared it last time; an open
   // saved basket has already been restored on login, so seedExtras() is a no-op in that case.
   useEffect(() => { if (trip.outbound && shared?.basket?.status !== "cleared") seedExtras(); r(); }, []);
-  // Carbon offset is offered as an opt-in in the cart (not auto-added), so it isn't a default basket line.
+  // v35: carbon offset auto-adds on cart load (see effect above); OPT-OUT removes it for this trip.
   // Insurance is mandatory and pre-selected to the recommended Plus plan. Reflect that pre-selection
   // in the basket/total from first render (not only after the user re-picks a plan) so any extra
   // that is pre-selected for the user is counted in the summary from the start.
@@ -829,7 +835,7 @@ function CartView({ go, mode = "cart", shared }) {
 
             {/* Carbon offset — ONE unified card (no internal divider): icon, title, price, note,
                 auto-added state, opt-out badge and climate notice all share a single container. */}
-            <div className="mx-auto flex items-center gap-3" style={{ width: "100%", maxWidth: "848px", minHeight: "87px", borderRadius: "18px", border: "1px solid rgba(232, 232, 229, 1)", background: "#FFFFFF", boxShadow: "0px 4px 16px 0px rgba(0, 0, 0, 0.06)", padding: "12px 18px", boxSizing: "border-box" }}>
+            <div className="flex items-center gap-3" style={{ width: "100%", minHeight: "87px", borderRadius: "18px", border: "1px solid rgba(232, 232, 229, 1)", background: "#FFFFFF", boxShadow: "0px 4px 16px 0px rgba(0, 0, 0, 0.06)", padding: "12px 18px", boxSizing: "border-box" }}>
               <span className="shrink-0 w-9 h-9 rounded-lg bg-lime-tint text-tap-greenDeep inline-flex items-center justify-center"><Icon name="leaf" size={18} /></span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -837,13 +843,13 @@ function CartView({ go, mode = "cart", shared }) {
                   <span className="text-[14px] font-bold v2-num">{eur2(10)}</span>
                   <span className="text-[12px] text-ink-muted">{carbonOn ? "Auto-checked · uncheck if you wish" : "Optional · offset this trip's CO₂"}</span>
                 </div>
-                <div className="flex items-center gap-2 mt-1.5 cursor-pointer w-fit" onClick={() => { const next = !carbonOn; setCarbonOn(next); if (next !== hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }}>
+                <div className="flex items-center gap-2 mt-1.5 cursor-pointer w-fit" onClick={() => { const next = !carbonOn; trip.carbonOptOut = !next; setCarbonOn(next); if (next !== hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }}>
                   <span className="w-5 h-5 rounded-md inline-flex items-center justify-center shrink-0" style={carbonOn ? { background: "rgba(10,10,10,1)", border: "1px solid rgba(232,232,229,1)" } : { background: "rgba(255,255,255,1)", border: "1px solid rgba(232,232,229,1)" }}>{carbonOn && <Icon name="check" size={12} className="stroke-[3] text-[rgba(158,253,56,1)]" />}</span>
                   <span className="text-[13px] font-semibold">{carbonOn ? "Auto-added" : "Offset this trip's emissions"}</span>
                 </div>
               </div>
               <div className="text-right shrink-0">
-                {carbonOn && <><button onClick={() => { setCarbonOn(false); if (hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }} className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00] hover:brightness-95">Opt-out</button>
+                {carbonOn && <><button onClick={() => { trip.carbonOptOut = true; setCarbonOn(false); if (hasExtra("carbon")) toggleExtra({ code: "carbon", name: "Carbon offset", price: 10, cat: "Carbon offset", source: "auto" }); save(); r(); }} className="inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#fff4d6] text-[#9a6b00] hover:brightness-95">Opt-out</button>
                 <div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Default ON in EU (climate)</div></>}
               </div>
             </div>
@@ -1158,7 +1164,7 @@ export function Basket({ shared, go }) {
         )}
 
         {/* two-column: scrollable content + right-side sticky basket panel (Tab 6 #6) */}
-        <div className="grid lg:grid-cols-[minmax(0,880px)_376px] lg:justify-center gap-8 mt-6 items-start">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_376px] gap-8 mt-6 items-start">
           <div className="space-y-6 min-w-0">
             {/* flights anchor — tinted header (#1) + zebra benefits row (#2) */}
             <div>
@@ -2336,7 +2342,10 @@ export function Confirmation({ shared, go }) {
   useEffect(() => { setAddedRecs(new Set()); setWalletAdded(false); }, [trip.pnr]);
   // A14 · contextual ancillary recommendations for THIS booking — derived from route,
   // trip length, party size and what was NOT already purchased. Limited to 3, added to the PNR.
-  const [addedRecs, setAddedRecs] = useState(() => new Set());
+  // v35 Booking Confirmed #1: the added set must survive leaving and returning to this page, so
+  // it is mirrored on the module-level trip object (server state is the ultimate truth; this is
+  // the session mirror of it).
+  const [addedRecs, setAddedRecs] = useState(() => new Set(trip.recsAdded || []));
   const ancRecs = (() => {
     const ob = trip.outbound; const dst = ob?.flight?.dest;
     const hasBag = (trip.extras || []).some(e => /bag/i.test(e.code || "") || /bag|luggage/i.test(e.name || ""));
@@ -2361,6 +2370,7 @@ export function Confirmation({ shared, go }) {
     // Server rejected (e.g. code absent from the ancillaries catalogue) — undo the optimistic flip rather than show a state the booking does not have.
     if (!ok) { setAddedRecs(prev => { const n = new Set(prev); on ? n.add(code) : n.delete(code); return n; }); return; }
     // Every other booking mutation notifies; this one did not, so Add Extras and the shell kept a stale items list.
+    trip.recsAdded = on ? (trip.recsAdded || []).filter(c => c !== code) : [...new Set([...(trip.recsAdded || []), code])];
     try { window.dispatchEvent(new Event("tap:booking-changed")); } catch { }
   };
   if (!trip.pnr) return noTrip(go);
@@ -2468,7 +2478,7 @@ export function Confirmation({ shared, go }) {
                       <div className="text-[11px] text-ink-muted mt-1 flex-1 max-w-[280px]">{r.sub}</div>
                       <div className="flex items-center justify-between mt-3">
                         <div className="text-[20px] font-bold v2-num">{eur2(r.price)}</div>
-                        <span className="inline-flex items-center gap-2">{on && <button onClick={() => go("addextras")} className="text-[11px] font-semibold text-tap-greenDeep hover:underline whitespace-nowrap">Review extras →</button>}<Btn size="sm" variant={on ? "primary" : "outline"} style={{ borderRadius: "20px", padding: "10px 14px" }} title={on ? "Remove from trip" : "Add to trip"} onClick={() => toggleRec(r.code)}>{on ? "Added ✓" : "+ Add to trip"}</Btn></span>
+                        <span className="inline-flex items-center gap-2">{on && <button onClick={() => go("addextras")} className="text-[11px] font-semibold text-tap-greenDeep hover:underline whitespace-nowrap">Review extras →</button>}<Btn size="sm" variant={on ? "primary" : "outline"} style={{ borderRadius: "20px", padding: "10px 14px" }} title={on ? "Remove from trip" : "Add to trip"} onClick={() => toggleRec(r.code)}>{on ? "Added ✓ · Remove" : "+ Add to trip"}</Btn></span>
                       </div>
                       </div>
                     </Card>

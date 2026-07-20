@@ -26,6 +26,18 @@ export function setLeg(leg, choice) { trip[leg] = choice; notify(); }
 // unrelated search), the flight is stale and must be dropped so the page shows the correct route
 // and prompts a fresh selection — instead of the header showing AMS–JFK while the flight card
 // shows a stale DEL–JFK. Returns true if it cleared anything.
+// v35 Important #4: hotels, transfers, lounge passes and experiences are bought for a specific
+// destination. When the searched route changes they are stale by definition, so drop them and let
+// the recommendation seeder rebuild for the new city. Route-agnostic extras (bags, meals, wifi,
+// insurance, carbon) survive. seeded/carbonOptOut reset so the new destination gets a fresh pass.
+const DEST_BOUND = new Set(["Hotels", "Cars & transfers", "Lounge & services", "Experiences"]);
+function dropDestinationExtras() {
+  const before = trip.extras.length;
+  trip.extras = trip.extras.filter(x => !DEST_BOUND.has(x.cat));
+  trip.seeded = false;
+  trip.carbonOptOut = false;
+  return trip.extras.length !== before;
+}
 export function syncTripRoute() {
   if (trip.pnr) return false;
   // Multi-city: each leg is its own route, but the legs must CHAIN — leg N's destination must be
@@ -40,6 +52,7 @@ export function syncTripRoute() {
         const a = legs[i]?.flight, b = legs[i + 1]?.flight;
         if (a && b && a.dest && b.origin && a.dest !== b.origin) {
           trip.outbound = null; trip.inbound = null; trip.legs = [];
+          dropDestinationExtras();
           notify();
           return true;
         }
@@ -51,6 +64,7 @@ export function syncTripRoute() {
   const o = trip.outbound?.flight;
   if (trip.origin && trip.dest && o && (o.origin !== trip.origin || o.dest !== trip.dest)) {
     trip.outbound = null; trip.inbound = null; trip.legs = [];
+    dropDestinationExtras();
     notify();
     return true;
   }

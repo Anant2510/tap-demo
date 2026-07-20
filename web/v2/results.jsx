@@ -267,11 +267,8 @@ export function Results({ shared, params, go }) {
   const fastest = useMemo(() => (flights || []).reduce((m, f) => Math.min(m, durMins(f.duration)), 999), [flights]);
   const earliest = useMemo(() => (flights || []).map(f => f.dep).sort()[0], [flights]);
 
-  // Always surface fares on the top "Best" flight so a fare is visible to pick on every leg.
-  // Keyed on the fetched list + leg, so it re-opens on a new search/leg but doesn't fight manual collapses.
-  useEffect(() => {
-    if (flights && flights.length) setExpanded(view[0]?.flight_no ?? null);
-  }, [flights, leg]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v35 Search #3 (both legs): results load with every card collapsed; fares appear only after
+  // the user clicks "See fares". The previous auto-expand of the top flight is retired.
 
   function pickFare(f, fare) {
     if (!fare) {                                                // #17 — re-clicking the selected fare deselects (toggle)
@@ -403,7 +400,7 @@ export function Results({ shared, params, go }) {
               <>
                 {/* selected outbound — shown first, labelled (#2,#3) */}
                 <div className="pt-2">
-                  <Card className="border border-tap-green/30 overflow-hidden mx-auto" style={{ background: "#FFFFFF", borderRadius: "14px", maxWidth: "964px", boxShadow: "0px 4px 14px 0px rgba(0, 0, 0, 0.05)" }}>
+                  <Card className="border border-tap-green/30 overflow-hidden" style={{ background: "#FFFFFF", borderRadius: "14px", boxShadow: "0px 4px 14px 0px rgba(0, 0, 0, 0.05)" }}>
                     <div className="flex items-stretch">
                       {/* left: compact outbound summary */}
                       <div className="flex-1 min-w-0 px-4 py-3">
@@ -433,22 +430,9 @@ export function Results({ shared, params, go }) {
                     </div>
                   </Card>
                 </div>
-                {/* journey summary (#22) — full paired journey + bundle savings; only once an inbound
-                    flight is actually SELECTED (not a candidate), so bundle pricing isn't exposed early */}
-                {sel && (() => {
-                  const inb = sel.flight;
-                  const total = (ob.price || 0) + (sel.price || inb.price || 0) - 15;
-                  return (
-                    <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 rounded-lg px-3 py-2 mt-1 bg-surface-dark text-white" style={{ fontSize: "14px", fontWeight: 600, boxShadow: "0px 4px 14px rgba(0,0,0,0.05)" }}>
-                      <span className="v2-num">{of.flight_no} {of.origin}→{of.dest} {EUR(ob.price || 0)}</span>
-                      <span className="text-white/60 font-normal">+</span>
-                      <span className="v2-num">{inb.flight_no} {inb.origin}→{inb.dest} {EUR(sel.price || inb.price || 0)}</span>
-                      <span className="text-white/60 font-normal">=</span>
-                      <span className="font-bold v2-num">{EUR(total)}</span>
-                      <span className="text-white/70" style={{ fontSize: "12px", fontWeight: 500 }}>(bundle saved {EUR(15)})</span>
-                    </div>
-                  );
-                })()}
+                {/* v35 Inbound #5: the paired-journey fare strip was rendered here AND inside the
+                    booking summary module — the same totals twice on one page. The module owns it;
+                    the standalone strip (old #22) is retired. */}
                 {/* divider (#9) */}
                 <div className="flex items-center gap-3 py-1"><div className="flex-1 h-px bg-line-strong" /><span className="text-[11px] font-bold uppercase tracking-wide text-ink-faint">Select inbound flight</span><div className="flex-1 h-px bg-line-strong" /></div>
                 {/* smart re-rank recommendation band (#10) */}
@@ -469,7 +453,7 @@ export function Results({ shared, params, go }) {
             );
           })()}
           {/* date strip */}
-          <div className="mx-auto flex items-stretch gap-1" style={{ width: "100%", maxWidth: "964px", height: "64px", borderRadius: "14px", border: "1px solid rgba(226, 226, 229, 1)", boxShadow: "0px 4px 14px 0px rgba(0, 0, 0, 0.05)", padding: "0 16px", background: "#fff" }}>
+          <div className="flex items-stretch gap-1" style={{ width: "100%", height: "64px", borderRadius: "14px", border: "1px solid rgba(226, 226, 229, 1)", boxShadow: "0px 4px 14px 0px rgba(0, 0, 0, 0.05)", padding: "0 16px", background: "#fff" }}>
             <button onClick={() => setWeekAnchor(shiftISO(weekAnchor || date, -7))} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Previous week">‹</button>
             <div className="flex-1 flex gap-1 overflow-x-auto v2-track justify-center items-stretch">
             {week.map(d => {
@@ -533,7 +517,8 @@ export function Results({ shared, params, go }) {
       {/* v33 Outbound #11 — the selection bar appears only AFTER a flight+fare is picked;
           "Change" (#12) deselects and removes it. On the INBOUND leg the bar stays visible once
           the outbound is locked (carried Inbound #10: "OUTBOUND ✓ · INBOUND: select to continue"). */}
-      {sel && <div className="sticky bottom-4 z-30 mt-6">
+      {sel && <div className="h-24" aria-hidden="true" />}
+      {sel && <div className="fixed inset-x-0 bottom-4 z-40">
         <div className="mx-auto max-w-page px-4 sm:px-6">
           <div className="bg-surface-dark text-white rounded-2xl shadow-pop px-5 py-3.5 flex items-center gap-4">
             <div className="min-w-0">
@@ -550,6 +535,7 @@ export function Results({ shared, params, go }) {
               </>}
             </div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
+              {!isMulti && leg === "inbound" && trip.outbound && <button onClick={() => go("express")} className="inline-flex items-center justify-center font-semibold hover:brightness-95 shrink-0" style={{ height: "36px", padding: "10px 16px", borderRadius: "9999px", border: "1px solid #9EFD38", color: "#9EFD38", background: "transparent" }}>Express checkout</button>}
               {!isMulti && <button onClick={() => { setSel(null); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ width: "110px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", color: "#fff", background: "transparent" }}>Change</button>}
               <Btn variant="lime" className="text-[14px] font-bold" style={{ minWidth: "150px", height: "41px", padding: "0 22px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Customize your cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Customize your cart")} <Icon name="arrow" size={14} /></Btn>
             </div>
@@ -844,11 +830,7 @@ function FlightCard({ f, expanded, sel, lowest, pairing, pairingInfo, originCity
           </>)}
           <div className="text-[10px] text-ink-faint">1 adult · {isSelected ? sel.fare : `${CABIN_LABEL[cab] || "Economy"} ${headline.key}`}</div>
           <div className="mt-2">
-            {inline
-              ? (isSelected
-                  ? <Btn size="sm" variant="primary" className="w-full" onClick={() => onPick(f, sel.fare)}>Selected ✓</Btn>
-                  : <div className="text-[10px] text-ink-faint text-center py-1">Choose a fare below ↓</div>)
-              : isSelected
+            {isSelected
                 ? <Btn size="sm" variant="primary" className="text-[13px] font-semibold" style={{ width: "107px", height: "36px", padding: "10px 18px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} onClick={onToggle}>{expanded ? "Hide fares ↑" : "Selected ✓"}</Btn>
                 : <Btn size="sm" variant="outline" className="w-full" onClick={onToggle}>{expanded ? "Hide fares ↑" : `See ${cabinFares.length} fare${cabinFares.length !== 1 ? "s" : ""} ↓`}</Btn>}
           </div>
@@ -857,14 +839,14 @@ function FlightCard({ f, expanded, sel, lowest, pairing, pairingInfo, originCity
 
       {/* expanded fare grid — shown whenever the card is expanded, including when a fare is
           already selected, so the user can re-open and switch fares (Outbound #62 / Inbound #15,#33) */}
-      {(expanded || inline) && (
+      {expanded && (
         <div className="border-t border-line bg-surface-soft px-5 py-5">
           <div className="flex items-center justify-between mb-3">
             <div><div className="font-bold text-[15px]">Choose your fare</div><div className="text-[11px] text-ink-muted">All fares earn miles · 24h free cancel · Gold benefits applied</div></div>
             <button onClick={() => setCompare(true)} className="text-[12px] font-semibold text-tap-greenDeep hover:underline">Compare fares</button>
           </div>
           {compare && <CompareFareModal f={f} selectedKey={isSelected ? sel.fare : "Classic"} originCity={originCity} destCity={destCity} onClose={() => setCompare(false)} onPick={(fare) => { setCompare(false); onPick(f, fare); }} />}
-          <div className={cx("grid sm:grid-cols-2 gap-3", cabinFares.length >= 4 ? "lg:grid-cols-4" : cabinFares.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
+          <div className={cx("grid gap-3", cabinFares.length >= 4 ? "sm:grid-cols-2 lg:grid-cols-4" : cabinFares.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
             {cabinFares.map(fare => {
               const picked = isSelected && sel.fare === fare.key;
               return (

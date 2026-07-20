@@ -41,5 +41,6 @@ button{font-family:inherit}
 /* Search bar: five cells sized by content need, not equal 12-col chunks. From/To holds TWO
    airport pickers plus the swap button, so it gets the most; Cabin/Passenger need least. */
 @media (min-width: 1024px) {
-  .v2-searchgrid { grid-template-columns: 2fr 1.3fr 0.95fr 0.9fr 1.05fr; }
+  /* v35: four cells — the search CTA moved out of the container (HomePage #1) */
+  .v2-searchgrid { grid-template-columns: 2fr 1.3fr 0.95fr 0.9fr; }
 }
