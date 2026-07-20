@@ -455,11 +455,11 @@ export function Results({ shared, params, go }) {
           {/* date strip */}
           <div className="flex items-stretch gap-1" style={{ width: "100%", height: "64px", borderRadius: "14px", border: "1px solid rgba(226, 226, 229, 1)", boxShadow: "0px 4px 14px 0px rgba(0, 0, 0, 0.05)", padding: "0 16px", background: "#fff" }}>
             <button onClick={() => setWeekAnchor(shiftISO(weekAnchor || date, -7))} className="px-2 rounded-xl hover:bg-surface-mute text-ink-muted shrink-0 text-[18px] leading-none" title="Previous week">‹</button>
-            <div className="flex-1 flex gap-1 overflow-x-auto v2-track justify-center items-stretch">
+            <div className="flex-1 flex gap-1 overflow-x-auto v2-track items-stretch">
             {week.map(d => {
               const on = d.date === date;
               return <button key={d.date} onClick={() => go("results", { ...params, [leg === "inbound" ? "ret" : "date"]: d.date })}
-                className={cx("text-center transition-colors flex flex-col items-center justify-center gap-1", on ? "" : "min-w-[84px] px-3 rounded-xl hover:bg-surface-mute")} style={on ? { width: "126.29px", padding: "14px", background: "rgba(242, 255, 219, 1)", borderBottom: "1px solid #2E7D33" } : undefined}>
+                className={cx("text-center transition-colors flex flex-col items-center justify-center gap-1 flex-1 min-w-[84px]", on ? "" : "px-3 rounded-xl hover:bg-surface-mute")} style={on ? { padding: "14px", background: "rgba(242, 255, 219, 1)", borderBottom: "1px solid #2E7D33" } : undefined}>
                 <div className={cx(on ? "" : "text-[11px]", on ? "" : "text-ink-muted")} style={on ? { color: "#111111", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "11px", lineHeight: "100%", letterSpacing: "0.5px" } : undefined}>{new Date(d.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}</div>
                 <div className={cx(on ? "" : "text-[15px] font-bold", "v2-num", !on && "text-ink")} style={on ? { color: "#46A41A", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "15px", lineHeight: "100%", letterSpacing: "0.5px" } : undefined}>{d.price ? EUR(d.price) : "—"}</div>
               </button>;
@@ -536,7 +536,7 @@ export function Results({ shared, params, go }) {
             </div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
               {!isMulti && leg === "inbound" && trip.outbound && <button onClick={() => go("express")} className="inline-flex items-center justify-center font-semibold hover:brightness-95 shrink-0" style={{ height: "36px", padding: "10px 16px", borderRadius: "9999px", border: "1px solid #9EFD38", color: "#9EFD38", background: "transparent" }}>Express checkout</button>}
-              {!isMulti && <button onClick={() => { setSel(null); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ width: "110px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", color: "#fff", background: "transparent" }}>Change</button>}
+              {!isMulti && !(leg === "inbound" && trip.outbound) && <button onClick={() => { setSel(null); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex items-center justify-center font-semibold hover:brightness-95 transition-colors shrink-0" style={{ width: "110px", height: "36px", padding: "10px 14px", borderRadius: "9999px", border: "1px solid #666670", color: "#fff", background: "transparent" }}>Change</button>}
               <Btn variant="lime" className="text-[14px] font-bold" style={{ minWidth: "150px", height: "41px", padding: "0 22px", borderRadius: "9999px", background: "#46A41A", color: "#fff" }} disabled={!sel || (type === "round" && leg === "inbound" && !trip.outbound)} onClick={advance}>{isMulti ? (legIndex < mLegs.length - 1 ? "Next flight" : "Customize your cart") : (type === "round" && leg === "outbound" ? "Pick inbound" : "Customize your cart")} <Icon name="arrow" size={14} /></Btn>
             </div>
           </div>
