@@ -126,7 +126,7 @@ export function AIConcierge({ shared, go, embedded, onToggleOff }) {
   /* ── full screen (/ai route) ── */
   return (
     <div className="bg-surface-soft min-h-screen">
-      <div className="mx-auto max-w-page px-4 sm:px-6 py-6 grid lg:grid-cols-[1fr_320px] gap-6 items-start">
+      <div className="mx-auto max-w-page px-4 sm:px-6 py-6 grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
         <Card className="p-0 flex flex-col h-[74vh] overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 text-white" style={{ background: "linear-gradient(100deg,#c0392b,#a93226)" }}>
             <div className="flex items-center gap-2.5"><span className="w-8 h-8 rounded-full bg-white/15 inline-flex items-center justify-center"><Icon name="spark" size={15} /></span><div><div className="text-[14px] font-bold">TAP AI Assistant</div><div className="text-[11px] text-white/80 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-lime" /> Online</div></div></div>

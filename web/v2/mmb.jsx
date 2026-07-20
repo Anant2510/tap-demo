@@ -198,7 +198,7 @@ export function ManageBooking({ shared, go }) {
       <h1 className="text-[30px] font-black">My trips</h1>
       <div className="text-[13px] text-ink-muted mt-1">{segCount} upcoming flight{segCount !== 1 ? "s" : ""} · manage seats, check-in, extras and more</div>
 
-      <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-6 mt-6 items-start">
         <div className="space-y-4">
           {list.map((b, idx) => {
             const f = b.flight || {};
@@ -402,7 +402,7 @@ export function Retrieve({ shared, go }) {
       {/* supporting description (#1) */}
       <p className="text-[13px] text-ink-muted mt-1 max-w-xl">Find any booking — direct, agent, or partner. Then check in, add extras, or change seats.</p>
 
-      <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-6 mt-6 items-start">
         <div>
           <Card className="p-5">
             {/* retrieval options (#2) */}
@@ -553,7 +553,7 @@ export function CabinUpgrade({ shared, go, params }) {
         </div>
         <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold shrink-0" style={{ borderRadius: "14px", padding: "8px 16px", background: "#F2FCD9", color: "#2E7D33" }}><Icon name="check" size={12} /> Checked in</span>
       </div>
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 mt-6 items-start">
         <div>
           <div className="rounded-xl text-[13px] flex items-center gap-2 flex-wrap" style={{ background: "#FAFAF7", border: "1px solid #DCDCD8", padding: "18px" }}>
             <span className="text-ink-muted">Current:</span><span className="font-semibold">{curCabin} · Seat {booking.seat || "—"}</span><Icon name="arrow" size={14} className="text-ink-faint" /><span className="text-ink-muted">Upgrade to:</span>
@@ -708,7 +708,7 @@ export function SeatChange({ shared, go, params }) {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_380px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-6 mt-6 items-start">
         <Card className="p-6 v2-in" style={{ borderRadius: "18px", boxShadow: "0 8px 24px rgba(0,0,0,0.08)" }}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="text-[18px] font-bold" style={{ color: "#1A1F29" }}>{aircraft} · {cabinKey === "Business" ? "Executive" : cabinKey} cabin</div>
@@ -889,7 +889,7 @@ export function DisruptionCenter({ shared, go }) {
       <h1 className="text-[28px] font-black">Your flight was disrupted</h1>
       <p className="text-[13px] text-ink-muted mt-1">{dis.recovery?.message || `Flight ${booking.flight_no} is affected.`} Choose how each traveller in this booking would like to be handled — they don't all have to do the same thing.</p>
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 mt-6 items-start">
         <div className="space-y-5">
           <div className="rounded-2xl border border-tap-red/30 p-5" style={{ background: "#fff1f1" }}>
             <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1 mb-3">Disrupted</span>
@@ -1046,7 +1046,7 @@ export function Rebook({ shared, params, go }) {
       <h1 className="text-[28px] font-black">Rebook your flight</h1>
       <p className="text-[13px] text-ink-muted mt-1">{rec.message}</p>
 
-      <div className="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-6 mt-6 items-start">
         <div className="space-y-5">
           {/* Disruption card — struck flight in a tinted container (#3) */}
           <div className="rounded-2xl border border-tap-red/30 p-5" style={{ background: "#fff1f1" }}>
@@ -1224,7 +1224,7 @@ export function CheckInIndirect({ shared, go, params }) {
       <h1 className="text-[26px] font-black">Check in for your flight</h1>
       <p className="text-[13px] text-ink-muted mt-1 flex items-center gap-1.5 flex-wrap"><Icon name="check" size={13} className="text-tap-green" /> Open · {booking.flight_no || "TP1042"} {cityOf(shared.airports, booking.flight?.origin)}–{cityOf(shared.airports, booking.flight?.dest)} · {fmtDate(booking.flight_date)} · Booked via Booking.com agency</p>
 
-      <div className="grid lg:grid-cols-[1fr_422px] gap-8 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_422px] gap-8 mt-6 items-start">
         <div className="space-y-4">
           {/* Passenger cards (#4) */}
           {bookedPax.map(p => (
@@ -1380,7 +1380,7 @@ export function AddExtras({ shared, go, params }) {
         <button onClick={() => setStep("extras")} className="text-[12px] font-semibold text-tap-greenDeep mb-3 inline-flex items-center gap-1"><Icon name="arrow" size={12} className="rotate-180" /> Back to extras</button>
         <h1 className="text-[26px] font-black">Review &amp; pay</h1>
         <p className="text-[13px] text-ink-muted mt-1">PNR {sel.pnr} · {fmtDate(sel.flight_date)} · {cityOf(airports, sel.flight?.origin)}–{cityOf(airports, sel.flight?.dest)}</p>
-        <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-5 items-start">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 mt-5 items-start">
           <Card className="p-5">
             <div className="font-bold text-[15px] mb-3">Extras to add</div>
             <div className="space-y-2.5">
@@ -1513,7 +1513,7 @@ export function AddExtras({ shared, go, params }) {
       <p className="text-[13px] text-ink-muted mt-1">Add bags, seats, meals &amp; lounge — paid direct to TAP. Agency does not need to be involved.</p>
       <div className="mt-4"><BookingBand booking={sel} airports={airports} /></div>
 
-      <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6 mt-6 items-start">
         <div className="space-y-6">
           {/* #25 — bundle-based add-ons: 3 packages with grouped benefits, savings & a single CTA each (replaces the individual category cards). */}
           <section>
@@ -1701,7 +1701,7 @@ export function SplitBooking({ shared, params, go }) {
       <Crumb go={go} trail={[{ label: "My Trip", page: "manage" }, { label: "Change / split travellers" }]} />
       <h1 className="text-[26px] font-black">Change or split travellers</h1>
       <p className="text-[13px] text-ink-muted mt-1">Move one or more travellers to a different flight, or cancel just their seats — the rest of the party keeps their booking. This creates a second record (PNR split).</p>
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 mt-6 items-start">
         <div className="space-y-4">
           <Card className="p-5">
             <div className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">Current booking · {booking.pnr}</div>
@@ -1860,7 +1860,7 @@ export function Refund({ shared, go, params }) {
       <h1 className="text-[36px] font-bold" style={{ color: "#0A0A0A" }}>Refund request</h1>
       <p className="text-[16px] leading-6 mt-1" style={{ color: "#6B6B6B" }}>Flight cancelled by airline. Choose how to receive each item refund. Travel-bank gets +10% bonus.</p>
 
-      <div className="grid lg:grid-cols-[1fr_420px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_420px] gap-6 mt-6 items-start">
         <div className="space-y-5">
           {/* Refundable items (#4) */}
           <Card className="p-6" style={{ borderRadius: "18px" }}>

@@ -466,7 +466,7 @@ function SeatMapModal({ pax = 1, cabin = "Economy", aircraft, initialType, onClo
           <span className="text-[12px] font-semibold text-tap-greenDeep">{cfg.types.find(t => t.code === type)?.name}: <span className="font-normal text-ink-muted">{ruleFor(type).hint}</span></span>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_320px] gap-5 mt-5 items-start">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-5 mt-5 items-start">
           <div className="rounded-2xl border border-line p-4 overflow-x-auto v2-track">
             <div className="text-center text-[15px] font-bold">{aircraft || cfg.aircraftFallback} · {cabin} cabin</div>
             <div className="text-center text-[11px] font-semibold text-ink-faint mt-1">{cfg.blocks.map(b => b.length).join("-")} layout · {abreast} across</div>
@@ -824,8 +824,11 @@ function CartView({ go, mode = "cart", shared }) {
         {/* v33 View&Customize #1 — the flight itinerary summary is not part of this screen in the
             approved design; flight details live in the basket, My Trips and itinerary pages. */}
 
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
-          <div className="space-y-5">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6 mt-6 items-start">
+          {/* v35 feedback: minmax(0,..) + min-w-0 let this column shrink below the seat-type row's
+              intrinsic width, so the row's own overflow-x-auto engages as a scroller instead of
+              the whole column growing and pushing My Trip Basket off-viewport at 100%. */}
+          <div className="space-y-5 min-w-0">
             <Module n="01" icon="seat" kicker="Seats & baggage" title="Seats & baggage" sub="Pick where you sit and what you bring.">
               <div className="flex items-center justify-between mb-2"><Eyebrow>Choose your seat type · per passenger · both flights</Eyebrow><button onClick={() => setSeatMapOpen(true)} className="text-[12px] font-semibold text-tap-greenDeep shrink-0 hover:underline">Full Cabin View</button></div>
               <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x scroll-smooth"><SeatType code="std" name={seatIncluded.name} sub={seatIncluded.sub} />{SEAT_TYPE_OPTS.map(o => <SeatType key={o.code} code={o.code} name={o.name} sub={o.sub} price={o.price} />)}</div>
@@ -1904,7 +1907,7 @@ export function Payment({ shared, go }) {
         <p className="text-[13px] text-ink-muted mt-1">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
         <div className="flex flex-wrap items-center gap-2 mt-3"><Chip>{trip.origin}–{trip.dest}</Chip><Chip>{trip.pax} adults</Chip><Chip>{fmtDate(trip.date).replace(/ \d{4}/, "")} – {fmtDate(trip.ret).replace(/ \d{4}/, "")}</Chip><Chip dot>{u.first_name} {trip.pax > 1 ? "+ " + (trip.pax - 1) : ""}</Chip><span className="ml-auto inline-flex items-center gap-2 rounded-lg bg-surface-mute px-3 py-1.5"><span className="w-2 h-2 rounded-full bg-tap-red inline-block" /><span className="leading-tight"><span className="block text-[9px] font-bold uppercase tracking-wide text-ink-faint">Price locked</span><SessionTimer prefix="" suffix=" remaining" className="block text-[12px] font-bold text-ink v2-num" /></span></span></div>
 
-        <div className="grid lg:grid-cols-[1fr_328px] gap-6 mt-5 items-start">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_328px] gap-6 mt-5 items-start">
           <div className="space-y-[18px]">
             {queued.length > 0 && (
               <div className="rounded-2xl flex items-center gap-3 flex-wrap" style={{ background: "#F2FCD9", border: "1px solid #2E7D33", padding: "14px 16px" }}>
@@ -2252,7 +2255,7 @@ export function StopoverBuilder({ shared, go }) {
       <Eyebrow>Portugal Stopover · free on TAP long-haul via Lisbon</Eyebrow>
       <h1 className="text-[30px] font-black mt-1">Break your trip in Lisbon</h1>
       <p className="text-[13px] text-ink-muted mt-1 max-w-2xl">Stop over for up to a few nights at no extra airfare. We've tailored the picks to your profile{premium ? " — boutique stays first, as a " + (u.tier || "premium") + " member." : "."} Every component is priced separately — add only what you want.</p>
-      <div className="grid lg:grid-cols-[1fr_330px] gap-6 mt-6 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_330px] gap-6 mt-6 items-start">
         <div className="space-y-5">
           {trip.outbound && trip.outbound.flight.origin !== "LIS" && trip.outbound.flight.dest !== "LIS" && (() => {
             const of = trip.outbound.flight;
@@ -2424,7 +2427,7 @@ export function Confirmation({ shared, go }) {
     <div className="bg-[rgba(255,255,255,1)] min-h-screen">
       <div className="mx-auto max-w-page px-4 sm:px-6 py-8">
         <div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full bg-tap-green text-white inline-flex items-center justify-center shrink-0"><Icon name="check" size={22} /></span><div><h1 className="text-[36px] font-bold leading-tight">Booking Confirmed</h1><div className="text-[16px] text-ink-muted leading-6">PNR {trip.pnr} · Receipt sent to {pay.email || u.email}</div></div></div>
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6 mt-6 items-start">
           <div className="space-y-6">
             <Card className="p-6" style={{ borderRadius: "18px", background: "#FFFFFF", borderColor: "#E8E8E5" }}>
               <div className="flex items-center gap-2 mb-3"><div className="font-semibold text-[16px]">Your itinerary</div><span className="text-[11px] font-bold uppercase tracking-wide bg-tap-red text-white rounded-md px-2.5 py-1">PNR {trip.pnr}</span></div>
@@ -2606,7 +2609,7 @@ export function ExpressCheckout({ shared, go, params }) {
         <h1 className="text-[26px] font-bold">Express checkout</h1>
         <p className="text-[13px] text-ink-muted mt-1">Review your total and pay securely to confirm your trip. No charge has been made until you click Pay.</p>
         {!o ? <Card className="p-10 text-center mt-6"><div className="text-[14px] text-ink-muted">Loading your usual {cityOf(origin)} ⇄ {cityOf(dest)} trip…</div></Card> : (
-          <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6 items-start">
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6 mt-6 items-start">
             <div className="space-y-[14px]">
               <Sec title={`Your trip · ${cityOf(o?.flight?.origin || origin)} ⇄ ${cityOf(o?.flight?.dest || dest)}`} action="Change flight" onAction={() => go("results", { origin, dest, date, ret: retDate, type: "round" })}>
                 {[o, i].filter(Boolean).map((c, idx) => (
