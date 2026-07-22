@@ -622,25 +622,12 @@ export function Homepage({ shared, go }) {
 
 /* ─────────────────────────── HOME (returning user · Daniel) ─────────────────────────── */
 /* editable, functional hero search (route editable · trip-type + pay-with-miles work) */
-function HomeAIPanel({ go, aiOn, onToggle }) {
-  const [q, setQ] = useState("");
-  const cats = ["Book Flights", "Book Hotels", "Book Experiences", "Book Cabs & Transfers", "Check Flight Status", "Manage Trips", "More.."];
-  // v35 feedback: carry the typed query into TAP AI instead of dropping it on navigation.
-  // Category chips seed a "Book <category>" style intent; the text box seeds its own text.
-  const submit = (seed) => { const text = (typeof seed === "string" ? seed : q).trim(); go("ai", text ? { q: text } : undefined); };
-  return (
-    <div className="mt-5">
-      <div className="flex items-center justify-center gap-2 text-[17px] font-bold"><Icon name="spark" size={18} className="text-tap-green" /> Enhance your travel journey</div>
-      <div className="flex flex-wrap justify-center gap-2 mt-5">
-        {cats.map(c => <button key={c} onClick={() => submit(c)} className="rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] font-medium shadow-sm hover:border-tap-green hover:text-tap-greenDeep transition-colors">{c}</button>)}
-      </div>
-      <div className="mt-5 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
-        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="e.g. Book Thursday 06:10 LIS → OPO with miles" className="flex-1 bg-transparent text-[14px] outline-none placeholder:text-ink-faint" />
-        <button className="text-ink-muted hover:text-ink shrink-0" title="Voice input"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v4" /></svg></button>
-        <button onClick={submit} className="w-10 h-10 rounded-full bg-surface-dark text-white inline-flex items-center justify-center shrink-0 hover:bg-ink-strong" title="Ask TAP AI"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="9" width="2.5" height="6" rx="1.25" /><rect x="9" y="5" width="2.5" height="14" rx="1.25" /><rect x="14" y="7" width="2.5" height="10" rx="1.25" /><rect x="19" y="10" width="2.5" height="4" rx="1.25" /></svg></button>
-      </div>
-    </div>
-  );
+function HomeAIPanel({ go, aiOn, onToggle, shared }) {
+  // v35 feedback: the hero must converse IN PLACE, not navigate to /ai. AIConcierge already has a
+  // purpose-built embedded branch (its own thread + composer + inline send); render that instead of
+  // the old teaser whose every control called go("ai"). "Expand full chat" inside it still offers
+  // the full page for anyone who wants it.
+  return <AIConcierge shared={shared} go={go} embedded onToggleOff={onToggle} />;
 }
 
 function HeroSearch({ u, pat, cityOf, airports, go }) {
@@ -849,7 +836,7 @@ export function Home({ shared, go }) {
             <div className="text-ink-muted text-[14px] mt-3">Bom dia, {u.first_name}.</div>
             <h1 className="text-[32px] font-semibold tracking-[-0.8px] leading-none text-[rgba(15,20,16,1)]">{aiOn ? "Ask me anything about your trip." : "Ready for your usual trip?"}</h1>
             {aiOn
-              ? <HomeAIPanel go={go} aiOn={aiOn} onToggle={() => setAiOn(false)} />
+              ? <HomeAIPanel go={go} aiOn={aiOn} onToggle={() => setAiOn(false)} shared={shared} />
               : <HeroSearch u={u} pat={pat} cityOf={cityOf} airports={airports} go={go} />}
           </div>
         </div>
