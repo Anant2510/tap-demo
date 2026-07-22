@@ -140,11 +140,117 @@ function CancelledCard({ card, go }) {
   );
 }
 
+// Checked in — a compact boarding-pass card with seat + boarding group.
+function CheckinCard({ card, go }) {
+  return (
+    <div className="rounded-xl border-2 mt-2 overflow-hidden" style={{ borderColor: "#9EFD38" }}>
+      <div className="px-3.5 py-3" style={{ background: "linear-gradient(100deg,#e8f8dc,#f5fcd9)" }}>
+        <div className="flex items-center gap-2 text-[13px] font-bold text-tap-greenDark"><Icon name="check" size={15} className="text-tap-green" /> Checked in · {card.pnr}</div>
+        <div className="text-[11px] text-ink-faint mt-0.5">{card.flight_no}{card.route ? ` · ${card.route}` : ""}{card.date ? ` · ${card.date}` : ""}</div>
+      </div>
+      <div className="px-3.5 py-2.5 flex items-center gap-4 text-[12px]">
+        {card.seat && <div><span className="text-ink-faint">Seat</span> <span className="font-bold v2-num text-ink">{card.seat}</span></div>}
+        {card.group && <div><span className="text-ink-faint">Boarding</span> <span className="font-bold text-ink">{card.group}</span></div>}
+        <button onClick={() => go("manage")} className="ml-auto text-[12px] font-semibold text-tap-greenDeep hover:underline">Boarding pass ↗</button>
+      </div>
+    </div>
+  );
+}
+
+// Refund status — read-only progress card for an in-flight refund.
+function RefundCard({ card }) {
+  return (
+    <div className="rounded-xl border border-line mt-2 p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[13px] font-bold text-ink">Refund · {card.pnr}</div>
+        {card.amount != null && <div className="text-[15px] font-bold v2-num text-ink">{EUR(card.amount)}</div>}
+      </div>
+      <div className="text-[11px] text-ink-faint mt-0.5">{[card.method, card.stage].filter(Boolean).join(" · ")}</div>
+      {card.eta && <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-tap-greenDeep"><Icon name="clock" size={12} /> {card.eta}</div>}
+    </div>
+  );
+}
+
+// ── Extras & discovery A2UI cards ──
+// Basket after add/remove extras — itemised, with fare + extras reconciling to the total.
+function ExtrasCard({ card, act }) {
+  const items = card.items || [];
+  return (
+    <div className="rounded-xl border border-line mt-2 overflow-hidden">
+      <div className="px-3.5 py-2.5" style={{ background: "#FAFAF7" }}>
+        <div className="text-[13px] font-bold text-ink">Your basket</div>
+      </div>
+      <div className="px-3.5 py-1">
+        {items.map((it, i) => (
+          <div key={it.code || i} className="flex items-center justify-between py-1.5 text-[12px]">
+            <span className="text-ink">{it.name || it.code}</span>
+            <span className="v2-num text-ink-muted">{it.price ? EUR(it.price) : "Included"}</span>
+          </div>
+        ))}
+        {items.length === 0 && <div className="py-1.5 text-[12px] text-ink-faint">No extras yet.</div>}
+      </div>
+      <div className="px-3.5 py-2.5 border-t border-line flex items-center justify-between">
+        <div className="text-[11px] text-ink-faint">Fare {card.fare != null ? EUR(card.fare) : ""}{card.extras_total ? ` + extras ${EUR(card.extras_total)}` : ""}</div>
+        <div className="text-[15px] font-bold v2-num text-ink">{card.total != null ? EUR(card.total) : ""}</div>
+      </div>
+      <div className="p-3 pt-0"><Btn size="sm" variant="primary" onClick={() => act("Pay now with my saved profile")}>Pay {card.total != null ? EUR(card.total) : ""} →</Btn></div>
+    </div>
+  );
+}
+
+// Personalized bundle (event + hotel + flight). No book_package tool exists, so the CTA starts the
+// booking flow by searching the bundle's destination rather than claiming a one-tap book.
+function PackageCard({ card, act, go }) {
+  return (
+    <div className="rounded-xl border border-line mt-2 overflow-hidden">
+      <div className="px-3.5 py-3" style={{ background: "linear-gradient(100deg,#e8f8dc,#f5fcd9)" }}>
+        <div className="flex items-center gap-2">
+          <div className="text-[13px] font-bold text-ink">{card.event}</div>
+          {card.badge && <Pill tone="lime">{card.badge}</Pill>}
+        </div>
+        <div className="text-[11px] text-ink-faint mt-0.5">{[card.venue, card.city, card.date].filter(Boolean).join(" · ")}</div>
+        {card.affinity_label && <div className="text-[10px] text-tap-greenDeep font-semibold mt-1">Picked from your {card.affinity_label}</div>}
+      </div>
+      <div className="px-3.5 py-2 text-[12px]">
+        {card.eventPrice != null && <div className="flex justify-between py-0.5"><span className="text-ink-muted">Event</span><span className="v2-num">{EUR(card.eventPrice)}</span></div>}
+        {card.hotel && <div className="flex justify-between py-0.5"><span className="text-ink-muted">{card.hotel}{card.hotelNights ? ` · ${card.hotelNights} nights` : ""}</span><span className="v2-num">{card.hotelPrice != null ? EUR(card.hotelPrice) : ""}</span></div>}
+        {card.flight && <div className="flex justify-between py-0.5"><span className="text-ink-muted">Return flight</span><span className="v2-num">{card.flightPrice != null ? EUR(card.flightPrice) : ""}</span></div>}
+      </div>
+      <div className="px-3.5 py-2.5 border-t border-line flex items-center justify-between">
+        <span className="text-[11px] text-ink-faint">All-in</span>
+        <span className="text-[15px] font-bold v2-num text-ink">{card.total != null ? EUR(card.total) : ""}</span>
+      </div>
+      <div className="p-3 pt-0 flex flex-wrap gap-2">
+        <Btn size="sm" variant="primary" onClick={() => act(`Find flights to ${card.city}`)}>Start booking →</Btn>
+        <button onClick={() => go("home")} className="text-[12px] font-semibold text-ink-muted px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Maybe later</button>
+      </div>
+    </div>
+  );
+}
+
+// Destination ideas — each chip re-asks the agent to search that city.
+function SuggestionsCard({ card, act }) {
+  const sug = (card.suggestions || []).slice(0, 6);
+  if (!sug.length) return null;
+  return (
+    <div className="rounded-xl border border-line mt-2 p-3">
+      <div className="text-[12px] font-semibold text-ink mb-2">Where to next?</div>
+      <div className="flex flex-wrap gap-1.5">
+        {sug.map((s, i) => (
+          <button key={s.code || i} onClick={() => act(`Find flights to ${s.city || s.code}`)} className="px-2.5 py-1.5 rounded-full bg-lime-tint text-tap-greenDark text-[11px] font-semibold hover:brightness-95">
+            {s.city || s.code}{s.flown ? " · been" : s.searched ? " · searched" : ""}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Bubble({ m, onPick, onQuick, go, act }) {
   if (m.role === "user") return <div className="flex justify-end"><div className="max-w-[80%] rounded-2xl rounded-br-md bg-surface-dark text-white px-3.5 py-2.5 text-[13px]">{m.content}</div></div>;
   const c = (m.cards || [])[0];
   // Rendered as interactive A2UI cards. Remaining types still use the compact summary.
-  const richSlice = c && ["flights", "selected", "confirmation", "booking", "seat", "confirm", "upgraded", "cancelled"].includes(c.type);
+  const richSlice = c && ["flights", "selected", "confirmation", "booking", "seat", "confirm", "upgraded", "cancelled", "checkin", "refund", "extras", "package", "suggestions"].includes(c.type);
   return (
     <div className="space-y-2">
       {m.content && <div className={cx("text-[13px] text-ink leading-relaxed whitespace-pre-line", m.intro && "rounded-2xl bg-surface-mute px-4 py-3")}>{m.content}</div>}
@@ -156,7 +262,12 @@ function Bubble({ m, onPick, onQuick, go, act }) {
       {c?.type === "confirm" && <ConfirmCard card={c} act={act} />}
       {c?.type === "upgraded" && <UpgradedCard card={c} />}
       {c?.type === "cancelled" && <CancelledCard card={c} go={go} />}
-      {c && !richSlice && <div className="rounded-xl border border-line bg-surface-soft p-3 text-[12px] text-ink-muted">{c.type === "package" ? `${c.event} · ${c.city} — ${EUR(c.total)} (flight + hotel + event)` : c.type === "wallet" ? `Wallet: ${miles(c.miles)} miles (~${EUR(c.miles_value_eur)})${c.voucher ? ` + ${EUR(c.voucher)} voucher` : ""}` : c.type === "checkin" ? `Checked in · ${c.pnr}` : c.type === "suggestions" ? "Here are some options for you." : "Done."}</div>}
+      {c?.type === "checkin" && <CheckinCard card={c} go={go} />}
+      {c?.type === "refund" && <RefundCard card={c} />}
+      {c?.type === "extras" && <ExtrasCard card={c} act={act} />}
+      {c?.type === "package" && <PackageCard card={c} act={act} go={go} />}
+      {c?.type === "suggestions" && <SuggestionsCard card={c} act={act} />}
+      {c && !richSlice && <div className="rounded-xl border border-line bg-surface-soft p-3 text-[12px] text-ink-muted">{c.type === "wallet" ? `Wallet: ${miles(c.miles)} miles (~${EUR(c.miles_value_eur)})${c.voucher ? ` + ${EUR(c.voucher)} voucher` : ""}` : "Done."}</div>}
       {m.command?.action === "show_search" && <Btn size="sm" variant="outline" className="mt-1" onClick={() => go("results", { origin: m.command.origin, dest: m.command.dest, date: m.command.date })}>View all flights →</Btn>}
       {m.command?.action === "express" && <Btn size="sm" variant="outline" className="mt-1" onClick={() => go("express")}>Open express checkout →</Btn>}
       {(m.command?.action === "navigate" && m.command.screen) && <Btn size="sm" variant="outline" className="mt-1" onClick={() => go(m.command.screen === "search" ? "results" : m.command.screen === "manage" ? "basket" : m.command.screen)}>Open →</Btn>}

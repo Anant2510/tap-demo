@@ -1930,6 +1930,9 @@ function buildUI(toolCalls) {
     if (tc.name === "search_flights" && tc.result?.ok) {
       cards = [{ type: "flights", origin: tc.result.origin, dest: tc.result.dest, city: tc.result.city, date: tc.result.date, flights: tc.result.flights }];
       command = { action: "show_search", origin: tc.result.origin, dest: tc.result.dest, date: tc.result.date };
+    } else if (tc.name === "add_extras" && tc.result?.ok) {
+      // v35 extras A2UI: add_extras previously emitted no card.
+      cards = [{ type: "extras", items: tc.result.items, fare: tc.result.fare, extras_total: tc.result.extras_total, total: tc.result.total }];
     } else if (tc.name === "get_suggestions" && tc.result?.ok) {
       cards = [{ type: "suggestions", suggestions: tc.result.suggestions }];
       command = { action: "navigate", screen: "search" };
@@ -1958,6 +1961,9 @@ function buildUI(toolCalls) {
       command = { action: "navigate", screen: "manage" };
     } else if (tc.name === "check_in" && tc.result?.ok && tc.result.state === "checked_in_now") {
       cards = [{ type: "checkin", ...tc.result }];
+    } else if (tc.name === "get_refund_status" && tc.result?.ok && tc.result.refund) {
+      // v35 post-booking A2UI: refund status previously emitted no card.
+      cards = [{ type: "refund", pnr: tc.result.pnr, amount: tc.result.amount, method: tc.result.method, stage: tc.result.stage, eta: tc.result.eta }];
       command = { action: "navigate", screen: "manage" };
     } else if (tc.name === "check_in" && tc.result?.ok && tc.result.state === "already_checked_in") {
       cards = [{ type: "booking", pnr: tc.result.pnr, flight_no: tc.result.flight_no, route: tc.result.route, dep: tc.result.date, seat: tc.result.seat, checked_in: true }];
