@@ -37,7 +37,7 @@ function Bubble({ m, onPick, onQuick, go }) {
   );
 }
 
-export function AIConcierge({ shared, go, embedded, onToggleOff }) {
+export function AIConcierge({ shared, go, embedded, onToggleOff, params }) {
   const profile = shared?.profile || {};
   const u = profile.user || {};
   const pat = profile.pattern || {};
@@ -57,7 +57,9 @@ export function AIConcierge({ shared, go, embedded, onToggleOff }) {
   ];
 
   const [msgs, setMsgs] = useState([{ role: "assistant", content: greeting, intro: true }]);
-  const [input, setInput] = useState("");
+  // Seed the box from ?q= handed over by the landing hero, so a query typed there survives the
+  // navigation to this page instead of being lost. The user still presses send — we pre-fill, not auto-fire.
+  const [input, setInput] = useState(params?.q || "");
   const [busy, setBusy] = useState(false);
   const session = useRef("v2-" + Math.random().toString(36).slice(2, 8));
   const endRef = useRef(null);

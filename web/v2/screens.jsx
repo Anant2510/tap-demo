@@ -625,12 +625,14 @@ export function Homepage({ shared, go }) {
 function HomeAIPanel({ go, aiOn, onToggle }) {
   const [q, setQ] = useState("");
   const cats = ["Book Flights", "Book Hotels", "Book Experiences", "Book Cabs & Transfers", "Check Flight Status", "Manage Trips", "More.."];
-  const submit = () => go("ai");
+  // v35 feedback: carry the typed query into TAP AI instead of dropping it on navigation.
+  // Category chips seed a "Book <category>" style intent; the text box seeds its own text.
+  const submit = (seed) => { const text = (typeof seed === "string" ? seed : q).trim(); go("ai", text ? { q: text } : undefined); };
   return (
     <div className="mt-5">
       <div className="flex items-center justify-center gap-2 text-[17px] font-bold"><Icon name="spark" size={18} className="text-tap-green" /> Enhance your travel journey</div>
       <div className="flex flex-wrap justify-center gap-2 mt-5">
-        {cats.map(c => <button key={c} onClick={submit} className="rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] font-medium shadow-sm hover:border-tap-green hover:text-tap-greenDeep transition-colors">{c}</button>)}
+        {cats.map(c => <button key={c} onClick={() => submit(c)} className="rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] font-medium shadow-sm hover:border-tap-green hover:text-tap-greenDeep transition-colors">{c}</button>)}
       </div>
       <div className="mt-5 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
         <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="e.g. Book Thursday 06:10 LIS → OPO with miles" className="flex-1 bg-transparent text-[14px] outline-none placeholder:text-ink-faint" />

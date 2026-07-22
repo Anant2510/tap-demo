@@ -793,10 +793,10 @@ function FlightCard({ f, expanded, sel, lowest, pairing, pairingInfo, originCity
       {pairing && <span className="absolute top-0 left-0 z-10 font-bold uppercase text-white inline-flex items-center justify-center gap-1 whitespace-nowrap" style={{ width: "279px", height: "24px", padding: "6px 14px", borderTopLeftRadius: "14px", borderTopRightRadius: "14px", background: "rgba(70, 164, 26, 1)", fontSize: "10px", letterSpacing: "0.5px", boxSizing: "border-box" }}>★ Best Pairing · Recommended for you</span>}
       <Card style={{ borderRadius: "14px", borderColor: pairing ? "rgba(199, 242, 31, 1)" : isSelected ? "#9EFD38" : "#E2E2E5", borderWidth: (pairing || isSelected) ? "2px" : undefined, background: pairing ? "rgba(242, 252, 217, 1)" : undefined }} className={cx("overflow-hidden", pairing && "rounded-tl-none", !pairing && expanded && !isSelected && "ring-2 ring-lime")}>
       {/* header row — compact single-line layout per design */}
-      <div className="p-5 flex flex-wrap items-stretch gap-3">
+      <div className="p-5 flex flex-wrap items-stretch justify-between gap-x-8 gap-y-3">
         {/* flight details — one row that spreads across the full available width so the content
             isn't congested on the left with a gap before the fare panel (approved layout) */}
-        <div className="flex-1 min-w-[420px] flex items-center justify-between gap-4">
+        <div className="flex items-center gap-6 min-w-0">
         {/* times + route — airport under time, no arrow */}
         <div className="flex items-center gap-4 min-w-[230px]">
           <div className="text-left"><div className="text-[22px] font-bold leading-none v2-num text-left">{f.dep}</div><div className="text-[11px] text-ink-faint mt-1 text-left">{f.origin}</div></div>
