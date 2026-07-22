@@ -1965,6 +1965,14 @@ function buildUI(toolCalls) {
     } else if (tc.name === "cancel_booking" && tc.result?.ok && tc.result.state === "cancelled") {
       cards = [{ type: "cancelled", ...tc.result }];
       command = { action: "navigate", screen: "manage" };
+    } else if (tc.name === "upgrade_cabin" && tc.result?.ok) {
+      // v35 post-booking A2UI: upgrade success previously emitted no card at all.
+      cards = [{ type: "upgraded", pnr: tc.result.pnr, cabin: tc.result.cabin, price: tc.result.price }];
+    } else if (tc.result && tc.result.state === "needs_confirm") {
+      // Irreversible tools (cancel, upgrade, split) return needs_confirm FIRST. Card it so the chat
+      // can show an explicit confirm/cancel prompt instead of a plain grey line. The tool name tells
+      // the card which "yes" phrase to send back to complete the action.
+      cards = [{ type: "confirm", tool: tc.name, ...tc.result }];
     } else if (tc.name === "express_usual" && tc.result?.ok) {
       command = { action: "express" };   // opens the 2-step Express Checkout on the web screen
     } else if (tc.name === "get_journey" && tc.result?.ok && tc.result.in_progress) {

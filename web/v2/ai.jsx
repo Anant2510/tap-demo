@@ -7,6 +7,48 @@ import React, { useState, useRef, useEffect } from "react";
 import { api, EUR, miles, tierProgress } from "./lib.js";
 import { Btn, Card, Pill, Icon, Eyebrow, Divider, cx } from "./ui.jsx";
 
+// ── A2UI transaction cards (vertical slice: search → select → checkout) ──
+// Each card renders the agent's real result inline and routes button taps back through the same
+// agent via `act(text)` (which calls send()), so the whole book flow happens in the chat.
+
+// Step 2 — a flight has been selected; show it with the primary "pay" action + adjustments.
+function SelectedCard({ card, act }) {
+  const extras = card.auto_extras || [];
+  return (
+    <div className="rounded-xl border-2 mt-2 overflow-hidden" style={{ borderColor: "#9EFD38" }}>
+      <div className="px-3.5 py-2.5 flex items-center justify-between" style={{ background: "#F5FCD9" }}>
+        <div><div className="text-[13px] font-bold text-ink">{card.flight_no} · {card.route}</div><div className="text-[11px] text-ink-faint">{card.dep}{card.arr ? ` → ${card.arr}` : ""}{card.seat ? ` · seat ${card.seat}` : ""}</div></div>
+        <div className="text-[15px] font-bold v2-num text-ink">{EUR(card.price)}</div>
+      </div>
+      {extras.length > 0 && <div className="px-3.5 pt-2 text-[11px] text-ink-faint">Included: {extras.join(" · ")}</div>}
+      <div className="p-3 flex flex-wrap gap-2">
+        <Btn size="sm" variant="primary" onClick={() => act("Pay now with my saved profile")}>Pay {EUR(card.price)} →</Btn>
+        <button onClick={() => act("How can I pay for this?")} className="text-[12px] font-semibold text-tap-greenDeep px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Payment options</button>
+        <button onClick={() => act("Change my seat")} className="text-[12px] font-semibold text-ink-muted px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Change seat</button>
+      </div>
+    </div>
+  );
+}
+
+// Step 3 — booked; show the PNR, how it was paid, and next actions (still in chat).
+function ConfirmationCard({ card, act, go }) {
+  const s = card.split || {};
+  const parts = [s.voucher ? `${EUR(s.voucher)} voucher` : null, s.miles ? `${miles(s.miles)} miles` : null, s.card ? `${EUR(s.card)} card` : null].filter(Boolean);
+  return (
+    <div className="rounded-xl border border-line mt-2 overflow-hidden">
+      <div className="px-3.5 py-3" style={{ background: "linear-gradient(100deg,#e8f8dc,#f5fcd9)" }}>
+        <div className="flex items-center gap-2 text-[13px] font-bold text-tap-greenDark"><Icon name="check" size={15} className="text-tap-green" /> Booked · PNR {card.pnr}</div>
+        <div className="text-[11px] text-ink-faint mt-0.5">{card.route}{card.dep ? ` · ${card.dep}` : ""} · {EUR(card.total)}{parts.length ? ` · ${parts.join(" + ")}` : ""}</div>
+      </div>
+      <div className="p-3 flex flex-wrap gap-2">
+        <button onClick={() => act(`Choose seats for ${card.pnr}`)} className="text-[12px] font-semibold text-tap-greenDeep px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Choose seats</button>
+        <button onClick={() => act(`Add extras to ${card.pnr}`)} className="text-[12px] font-semibold text-ink-muted px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Add extras</button>
+        <button onClick={() => go("manage")} className="text-[12px] font-semibold text-ink-muted px-3 py-2 rounded-full border border-line hover:bg-surface-mute">View in My Trips ↗</button>
+      </div>
+    </div>
+  );
+}
+
 function FlightCard({ card, onPick }) {
   return (
     <div className="rounded-xl border border-line overflow-hidden mt-2">
@@ -21,14 +63,100 @@ function FlightCard({ card, onPick }) {
     </div>
   );
 }
-function Bubble({ m, onPick, onQuick, go }) {
+
+// ── Post-booking A2UI cards ──
+// The manage hub — one card summarising the booking with every post-booking action as a chat button.
+function BookingCard({ card, act, go }) {
+  const ci = card.checked_in;
+  return (
+    <div className="rounded-xl border border-line mt-2 overflow-hidden">
+      <div className="px-3.5 py-2.5 flex items-center justify-between" style={{ background: "#FAFAF7" }}>
+        <div><div className="text-[13px] font-bold text-ink">{card.pnr} · {card.route}</div><div className="text-[11px] text-ink-faint">{card.flight_no}{card.dep ? ` · ${card.dep}` : ""}{card.seat ? ` · seat ${card.seat}` : ""}{ci ? " · checked in" : ""}</div></div>
+        {card.status && <Pill tone={/on time|confirmed/i.test(card.status) ? "lime" : "slate"}>{card.status}</Pill>}
+      </div>
+      <div className="p-3 flex flex-wrap gap-2">
+        <button onClick={() => act(`Change my seat on ${card.pnr}`)} className="text-[12px] font-semibold text-tap-greenDeep px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Change seat</button>
+        <button onClick={() => act(`Upgrade ${card.pnr} to Business`)} className="text-[12px] font-semibold text-tap-greenDeep px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Upgrade</button>
+        {!ci && <button onClick={() => act(`Check me in for ${card.pnr}`)} className="text-[12px] font-semibold text-ink-muted px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Check in</button>}
+        <button onClick={() => act(`Cancel ${card.pnr}`)} className="text-[12px] font-semibold text-tap-red px-3 py-2 rounded-full border hover:bg-tap-red/5" style={{ borderColor: "rgba(237,28,36,0.35)" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// Seat change result — confirmed move, or "taken" with a one-tap alternative.
+function SeatCard({ card, act }) {
+  if (card.taken) {
+    return (
+      <div className="rounded-xl border border-line mt-2 p-3">
+        <div className="text-[12px] text-ink"><span className="font-semibold">{card.seat}</span> is taken.{card.suggestion ? "" : " Try another seat."}</div>
+        {card.suggestion && <button onClick={() => act(`Give me seat ${card.suggestion}`)} className="mt-2 text-[12px] font-semibold text-tap-greenDeep px-3 py-2 rounded-full border border-line hover:bg-surface-mute">Take {card.suggestion} instead →</button>}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border-2 mt-2 p-3" style={{ borderColor: "#9EFD38", background: "#F5FCD9" }}>
+      <div className="flex items-center gap-2 text-[13px] font-bold text-ink"><Icon name="check" size={14} className="text-tap-green" /> Seat {card.seat}{card.cabin ? ` · ${card.cabin}` : ""}</div>
+      <div className="text-[11px] text-ink-faint mt-0.5">{card.from ? `Moved from ${card.from}. ` : ""}{card.included ? "Included in your fare." : card.price ? `${EUR(card.price)} — added to your trip.` : ""}</div>
+    </div>
+  );
+}
+
+// Irreversible action awaiting an explicit yes — never fires on the button that produced it.
+function ConfirmCard({ card, act }) {
+  const yes = card.tool === "cancel_booking" ? "Yes, cancel it"
+            : card.tool === "upgrade_cabin" ? `Yes, upgrade to ${card.cabin || "Business"}`
+            : card.tool === "split_booking" ? "Yes, go ahead" : "Yes, confirm";
+  const isDestructive = card.tool === "cancel_booking";
+  return (
+    <div className="rounded-xl border mt-2 p-3" style={{ borderColor: isDestructive ? "rgba(237,28,36,0.35)" : "#E8E8E5", background: isDestructive ? "rgba(237,28,36,0.04)" : "#FAFAF7" }}>
+      <div className="text-[12px] text-ink">{card.message || "Please confirm this action."}</div>
+      <div className="mt-2.5 flex gap-2">
+        <button onClick={() => act(yes)} className={cx("text-[12px] font-semibold text-white px-3.5 py-2 rounded-full", isDestructive ? "bg-tap-red hover:opacity-90" : "bg-tap-green hover:bg-tap-greenDeep")}>{isDestructive ? "Confirm cancellation" : "Confirm"}</button>
+        <button onClick={() => act("No, keep it")} className="text-[12px] font-semibold text-ink-muted px-3.5 py-2 rounded-full border border-line hover:bg-surface-mute">Keep it</button>
+      </div>
+    </div>
+  );
+}
+
+function UpgradedCard({ card }) {
+  return (
+    <div className="rounded-xl border-2 mt-2 p-3" style={{ borderColor: "#9EFD38", background: "#F5FCD9" }}>
+      <div className="flex items-center gap-2 text-[13px] font-bold text-ink"><Icon name="check" size={14} className="text-tap-green" /> {card.pnr} upgraded to {card.cabin}</div>
+      <div className="text-[11px] text-ink-faint mt-0.5">{card.price ? `${EUR(card.price)} — ticket reissued.` : "Ticket reissued."}</div>
+    </div>
+  );
+}
+
+function CancelledCard({ card, go }) {
+  const r = card.refund || {};
+  const parts = [r.card ? `${EUR(r.card)} to card` : null, r.miles ? `${miles(r.miles)} miles back` : null, r.voucher ? `${EUR(r.voucher)} voucher` : null].filter(Boolean);
+  return (
+    <div className="rounded-xl border border-line mt-2 p-3">
+      <div className="text-[13px] font-bold text-ink">Cancelled · {card.pnr}</div>
+      <div className="text-[11px] text-ink-faint mt-0.5">{card.route}{parts.length ? ` · refund: ${parts.join(" · ")}` : ""}</div>
+      <button onClick={() => go("manage")} className="mt-2 text-[12px] font-semibold text-tap-greenDeep px-3 py-2 rounded-full border border-line hover:bg-surface-mute">View My Trips ↗</button>
+    </div>
+  );
+}
+
+function Bubble({ m, onPick, onQuick, go, act }) {
   if (m.role === "user") return <div className="flex justify-end"><div className="max-w-[80%] rounded-2xl rounded-br-md bg-surface-dark text-white px-3.5 py-2.5 text-[13px]">{m.content}</div></div>;
   const c = (m.cards || [])[0];
+  // Rendered as interactive A2UI cards. Remaining types still use the compact summary.
+  const richSlice = c && ["flights", "selected", "confirmation", "booking", "seat", "confirm", "upgraded", "cancelled"].includes(c.type);
   return (
     <div className="space-y-2">
       {m.content && <div className={cx("text-[13px] text-ink leading-relaxed whitespace-pre-line", m.intro && "rounded-2xl bg-surface-mute px-4 py-3")}>{m.content}</div>}
       {c?.type === "flights" && <FlightCard card={c} onPick={onPick} />}
-      {c && c.type !== "flights" && <div className="rounded-xl border border-line bg-surface-soft p-3 text-[12px] text-ink-muted">{c.type === "package" ? `${c.event} · ${c.city} — ${EUR(c.total)} (flight + hotel + event)` : c.type === "wallet" ? `Wallet: ${miles(c.miles)} miles (~${EUR(c.miles_value_eur)})${c.voucher ? ` + ${EUR(c.voucher)} voucher` : ""}` : c.type === "confirmation" ? `Booked · PNR ${c.pnr}` : c.type === "booking" ? `Booking ${c.pnr} · ${c.route} · ${c.dep}` : c.type === "suggestions" ? "Here are some options for you." : "Done."}</div>}
+      {c?.type === "selected" && <SelectedCard card={c} act={act} />}
+      {c?.type === "confirmation" && <ConfirmationCard card={c} act={act} go={go} />}
+      {c?.type === "booking" && <BookingCard card={c} act={act} go={go} />}
+      {c?.type === "seat" && <SeatCard card={c} act={act} />}
+      {c?.type === "confirm" && <ConfirmCard card={c} act={act} />}
+      {c?.type === "upgraded" && <UpgradedCard card={c} />}
+      {c?.type === "cancelled" && <CancelledCard card={c} go={go} />}
+      {c && !richSlice && <div className="rounded-xl border border-line bg-surface-soft p-3 text-[12px] text-ink-muted">{c.type === "package" ? `${c.event} · ${c.city} — ${EUR(c.total)} (flight + hotel + event)` : c.type === "wallet" ? `Wallet: ${miles(c.miles)} miles (~${EUR(c.miles_value_eur)})${c.voucher ? ` + ${EUR(c.voucher)} voucher` : ""}` : c.type === "checkin" ? `Checked in · ${c.pnr}` : c.type === "suggestions" ? "Here are some options for you." : "Done."}</div>}
       {m.command?.action === "show_search" && <Btn size="sm" variant="outline" className="mt-1" onClick={() => go("results", { origin: m.command.origin, dest: m.command.dest, date: m.command.date })}>View all flights →</Btn>}
       {m.command?.action === "express" && <Btn size="sm" variant="outline" className="mt-1" onClick={() => go("express")}>Open express checkout →</Btn>}
       {(m.command?.action === "navigate" && m.command.screen) && <Btn size="sm" variant="outline" className="mt-1" onClick={() => go(m.command.screen === "search" ? "results" : m.command.screen === "manage" ? "basket" : m.command.screen)}>Open →</Btn>}
@@ -103,7 +231,7 @@ export function AIConcierge({ shared, go, embedded, onToggleOff, params }) {
   );
   const Thread = (
     <div className={cx("space-y-3 overflow-y-auto v2-track", embedded ? "max-h-[360px] mt-3" : "flex-1 py-4")}>
-      {msgs.map((m, i) => <Bubble key={i} m={m} onPick={pickFlight} onQuick={send} go={go} />)}
+      {msgs.map((m, i) => <Bubble key={i} m={m} onPick={pickFlight} onQuick={send} go={go} act={send} />)}
       {busy && <div className="text-[12px] text-ink-faint flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-tap-green animate-pulse" /> TAP AI is thinking…</div>}
       <div ref={endRef} />
     </div>
