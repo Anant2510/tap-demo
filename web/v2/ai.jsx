@@ -113,9 +113,11 @@ export function AIConcierge({ shared, go, embedded, onToggleOff, params }) {
   if (embedded) {
     return (
       <Card className="mt-5 p-4 sm:p-5">
-        <div className="flex items-center justify-between">
-          <div><div className="flex items-center gap-2 text-[15px] font-bold"><Icon name="spark" size={16} className="text-tap-green" /> TAP AI Assistant</div><div className="text-[11px] text-tap-greenDeep font-semibold flex items-center gap-1 mt-0.5"><span className="w-1.5 h-1.5 rounded-full bg-tap-green" /> Online · personalized from {sourceLabel}</div></div>
-          <button onClick={onToggleOff} className="flex items-center gap-2 text-[12px] font-semibold text-ink-muted">TAP AI <span className="w-9 h-5 rounded-full bg-lime relative"><span className="absolute right-0.5 top-0.5 w-4 h-4 rounded-full bg-white" /></span></button>
+        {/* v35 feedback: the hero already renders the TAP AI toggle above this panel, so the
+            panel's own toggle was a duplicate. Removed; the header is now just the title. */}
+        <div>
+          <div className="flex items-center gap-2 text-[15px] font-bold"><Icon name="spark" size={16} className="text-tap-green" /> TAP AI Assistant</div>
+          <div className="text-[11px] text-tap-greenDeep font-semibold flex items-center gap-1 mt-0.5"><span className="w-1.5 h-1.5 rounded-full bg-tap-green" /> Online · personalized from {sourceLabel}</div>
         </div>
         {Thread}
         <div className="mt-3 mb-3">{Suggestions}</div>

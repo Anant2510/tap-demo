@@ -2014,6 +2014,25 @@ function parseRoute(text, home) {
   return { origin: origin || home, dest };
 }
 function deterministicAgent(text, session) {
+  // v35 feedback: honour "cheapest" / "quickest" / "earliest" and an explicit count ("5 cheapest")
+  // in the flight-search reply AND cards. search_flights returns departure-ordered; this reshapes
+  // the result the user actually asked for so the summary line and the card list agree.
+  const shapeFlights = (r, qLower) => {
+    if (!r || !r.ok || !Array.isArray(r.flights)) return r;
+    const nMatch = qLower.match(/\b(\d{1,2})\b/);
+    const n = nMatch ? Math.min(Math.max(+nMatch[1], 1), r.flights.length) : null;
+    let mode = /cheap|low(?:est)?\s*(?:price|fare)|under|budget/.test(qLower) ? "cheap"
+             : /quick|fast|short(?:est)?|direct(?:est)?/.test(qLower) ? "quick"
+             : /earl|first|morning/.test(qLower) ? "early"
+             : /late|last|evening/.test(qLower) ? "late" : null;
+    let list = r.flights.slice();
+    if (mode === "cheap") list.sort((a, b) => a.price - b.price);
+    else if (mode === "early") list.sort((a, b) => String(a.dep).localeCompare(String(b.dep)));
+    else if (mode === "late") list.sort((a, b) => String(b.dep).localeCompare(String(a.dep)));
+    // "quick" would need durations the summary doesn't expose; leave order, still honour the count.
+    if (n) list = list.slice(0, n);
+    return { ...r, flights: list, shaped: { mode, n, total: r.flights.length } };
+  };
   const q = (text || "").toLowerCase();
   const uid = (session && session.uid) || SERVER_DEFAULT_UID;   // per-session identity for direct reads (tools get it via session)
   const calls = [];
@@ -2259,8 +2278,18 @@ function deterministicAgent(text, session) {
       const r = run("list_destinations", { origin });
       return done(r.ok ? `From ${r.originCity} you can fly to ${r.count} cities — ${r.destinations.slice(0, 6).map(d => d.city).join(", ")} and more. Which destination?` : "Where would you like to fly to?");
     }
-    const r = run("search_flights", { origin, dest, date });
-    if (r.ok) { const lo = Math.min(...r.flights.map(f => f.price)); return done(`Found ${r.flights.length} flights ${cityName(r.origin)}→${r.city} on ${r.date}, from €${lo}. Pick one below, or say a flight number to add it.`); }
+    const r0 = run("search_flights", { origin, dest, date });
+    const r = shapeFlights(r0, q);
+    // buildUI derives the cards from the recorded tool call, so mirror the shaped list onto it —
+    // otherwise the summary says "5 cheapest" while the cards stay departure-ordered.
+    if (r.ok && calls.length) calls[calls.length - 1].result = r;
+    if (r.ok) {
+      const lo = Math.min(...r.flights.map(f => f.price));
+      const sh = r.shaped || {};
+      const noun = sh.mode === "cheap" ? "cheapest " : sh.mode === "early" ? "earliest " : sh.mode === "late" ? "latest " : "";
+      const shown = sh.n && sh.n < sh.total ? `Showing the ${sh.n} ${noun}of ${sh.total} flights` : `Found ${r.flights.length} flights`;
+      return done(`${shown} ${cityName(r.origin)}→${r.city} on ${r.date}, from €${lo}. Pick one below, or say a flight number to add it.`);
+    }
     if (r.available_destinations) return done(`${r.message} From ${cityName(origin)} you can fly to ${r.available_destinations.slice(0, 6).map(d => d.city).join(", ")} and more.`);
     return done(r.message || "Tell me the route (e.g. 'Lisbon to Madrid') and I'll search.");
   }
