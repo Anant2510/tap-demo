@@ -44,3 +44,32 @@ button{font-family:inherit}
   /* v35: four cells — the search CTA moved out of the container (HomePage #1) */
   .v2-searchgrid { grid-template-columns: 2fr 1.3fr 0.95fr 0.9fr; }
 }
+
+/* ── Airline theme tokens (Phase 4 client SDK) ───────────────────────────────
+   Defaults are TAP's exact palette, so an un-themed deployment renders pixel-
+   identically. A tenant overrides these at runtime from its brand payload, which
+   is why the chat renderer uses .air-* utilities instead of tap-* Tailwind classes. */
+:root{
+  --air-accent:#46a41a;        /* was tap-green      */
+  --air-accent-deep:#2e7d33;   /* was tap-greenDeep  */
+  --air-accent-dark:#336614;   /* was tap-greenDark  */
+  --air-highlight:#9efd38;     /* was lime           */
+  --air-tint:#f2ffdb;          /* was lime-tint      */
+  --air-danger:#ed1c24;        /* was tap-red        */
+}
+.air-accent{color:var(--air-accent)}
+.air-accent-deep{color:var(--air-accent-deep)}
+.air-accent-dark{color:var(--air-accent-dark)}
+.air-danger{color:var(--air-danger)}
+.air-bg-accent{background-color:var(--air-accent)}
+.air-bg-danger{background-color:var(--air-danger)}
+.air-bg-highlight{background-color:var(--air-highlight)}
+.air-bg-tint{background-color:var(--air-tint)}
+.air-bg-tint-soft{background-color:color-mix(in srgb,var(--air-tint) 30%,transparent)}
+.air-border-accent{border-color:var(--air-accent)}
+.air-ring-accent{--tw-ring-color:var(--air-accent);box-shadow:0 0 0 1px var(--air-accent)}
+.air-hover-tint:hover{background-color:var(--air-tint)}
+.air-hover-accent-deep:hover{background-color:var(--air-accent-deep)}
+.air-hover-border-accent:hover{border-color:var(--air-accent)}
+.air-hover-danger-soft:hover{background-color:color-mix(in srgb,var(--air-danger) 5%,transparent)}
+.air-border-highlight-soft{border-color:color-mix(in srgb,var(--air-highlight) 40%,transparent)}

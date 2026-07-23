@@ -19,6 +19,7 @@ const { callClaude, callClaudeAgent, FALLBACKS, hasKey } = require("./claude");
 const { generateFlights, getRoute } = require("./search");
 const { AIRPORTS } = require("./routes-data");
 const { packageFor } = require("./packages");
+const { createAirlineAdapter, registerAirline, getAirline, resolveTenant, listAirlines, REQUIRED_TOOLS } = require("./airline");
 const whatsapp = require("./whatsapp");
 const notify = require("./notify");
 // tools the web chat uses, so both channels can do everything the website can.
@@ -1382,13 +1383,13 @@ const AGENT_TOOLS = [
   { name: "get_refund_status", description: "Status of a refund after a cancellation: amount, method and where it is in the timeline.",
     input_schema: { type: "object", properties: {} } },
 
-  { name: "search_flights", description: `Search TAP flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is ${searchToday()}).`,
+  { name: "search_flights", description: `Search {{airline}} flights for a SPECIFIC route (origin + destination) and date. Only call this when you know BOTH the origin and the destination. If the customer hasn't said where they want to go, do NOT call this — call list_destinations or ask them first. Never assume or default the destination. Dates like 'next Friday' resolve to YYYY-MM-DD (today is ${searchToday()}).`,
     input_schema: { type: "object", properties: {
       origin: { type: "string", description: "Origin IATA code, e.g. OPO. If the customer didn't specify an origin, use the customer's home airport." },
       dest: { type: "string", description: "Destination IATA code, e.g. LIS, MAD, CDG. REQUIRED — never guess this. If unknown, call list_destinations instead." },
       date: { type: "string", description: `Travel date YYYY-MM-DD. Defaults to today (${searchToday()}) if the customer gave no date.` },
     }, required: ["origin", "dest"] } },
-  { name: "list_destinations", description: "List the real cities TAP flies to FROM a given origin airport. Use this whenever the customer asks where they can fly from a city, asks for 'options from <city>' without naming a destination, or asks a factual question like 'do we only fly to X from Y?'. Returns the actual route network from the database.",
+  { name: "list_destinations", description: "List the real cities {{airline}} flies to FROM a given origin airport. Use this whenever the customer asks where they can fly from a city, asks for 'options from <city>' without naming a destination, or asks a factual question like 'do we only fly to X from Y?'. Returns the actual route network from the database.",
     input_schema: { type: "object", properties: {
       origin: { type: "string", description: "Origin IATA code, e.g. LIS, OPO, MAD." },
     }, required: ["origin"] } },
@@ -1418,7 +1419,7 @@ const AGENT_TOOLS = [
     input_schema: { type: "object", properties: {} } },
   { name: "get_wallet", description: "Get the customer's LIVE Miles&Go balance and voucher status from the database. Use whenever they ask about miles, points, voucher, balance, or 'what can I pay with' / 'how much are my miles worth'. Always call this rather than answering from memory — balances change after bookings and cancellations.",
     input_schema: { type: "object", properties: {} } },
-  { name: "get_recommendation", description: "Get the customer's personalized experiential PACKAGE — derived from their co-branded TAP credit-card spend. Each customer has an affinity (football / golf / music) and a matching bundle of event ticket + hotel + return flight. Use when they ask 'any packages for me', 'what should I do this weekend', 'recommend something', 'anything fun in <city>', or react to their interest. Returns the affinity, the rationale (which card-spend category drove it), and the full package with prices (and any add-on like a golf-bag).",
+  { name: "get_recommendation", description: "Get the customer's personalized experiential PACKAGE — derived from their co-branded {{airline}} credit-card spend. Each customer has an affinity (football / golf / music) and a matching bundle of event ticket + hotel + return flight. Use when they ask 'any packages for me', 'what should I do this weekend', 'recommend something', 'anything fun in <city>', or react to their interest. Returns the affinity, the rationale (which card-spend category drove it), and the full package with prices (and any add-on like a golf-bag).",
     input_schema: { type: "object", properties: {} } },
   { name: "get_journey", description: "Get the customer's UNFINISHED booking journey shared across web, this chat, and WhatsApp. Use when they say 'where was I', 'continue/resume my booking', 'pick up where I left off', 'did I have something going', or otherwise reference an in-progress booking. Returns the stage they left at (results/seat/extras/review), the route, and their selections (flight, seat, add-ons). After calling it, re-select that flight with select_flight if one was chosen, then guide them from that exact step — do NOT restart from scratch.",
     input_schema: { type: "object", properties: {} } },
@@ -1484,10 +1485,13 @@ function firstFreeSeat(pref, tier) {
   return null;
 }
 
-function agentRunTool(name, input, session) {
-  session = session || getSession("default");
-  const uid = (session && session.uid) || SERVER_DEFAULT_UID;   // per-session identity; same default as resolveUid
-  if (name === "search_flights") {
+// ── TAP airline adapter (Phase 1) ──────────────────────────────────────────
+// Tool implementations migrate here from the inline chain in agentRunTool, one
+// at a time, verbatim. Helpers (db, cityName, generateFlights, …) are module-
+// scope in this file, so moved bodies resolve them identically at call time.
+const TapAdapter = createAirlineAdapter("tap", {
+  search_flights(input, ctx) {
+    const { uid, session } = ctx;
     const origin = (input.origin || "OPO").toUpperCase();
     const dest = (input.dest || "").toUpperCase();
     // Never guess a destination — tell the agent to ask or list instead.
@@ -1510,8 +1514,9 @@ function agentRunTool(name, input, session) {
     session.lastSearch = { origin, dest, date, flights: stored };
     return { ok: true, origin, dest, date, city: cityName(dest),
       flights: stored.map(f => ({ flight_no: f.flight_no, dep: f.dep, arr: f.arr, price: f.price, status: f.status, recommended: !!f.recommended })) };
-  }
-  if (name === "list_destinations") {
+  },
+  list_destinations(input, ctx) {
+    const { uid, session } = ctx;
     const origin = (input.origin || "OPO").toUpperCase();
     const rows = db.prepare("SELECT dest FROM routes WHERE origin=?").all(origin);
     if (!rows.length) return { ok: false, message: `No routes found from ${cityName(origin)} (${origin}). Check the airport code.` };
@@ -1523,16 +1528,18 @@ function agentRunTool(name, input, session) {
     });
     log("agent_list_destinations", { origin, count: dests.length });
     return { ok: true, origin, originCity: cityName(origin), count: dests.length, destinations: dests };
-  }
-  if (name === "get_suggestions") {
+  },
+  get_suggestions(input, ctx) {
+    const { uid, session } = ctx;
     const sug = db.prepare("SELECT * FROM destinations").all().slice(0, 6).map(d => {
       const flown = db.prepare("SELECT COUNT(*) c FROM travel_history WHERE user_id=? AND route LIKE ?").get(uid, `%→${d.code}`).c;
       const searched = db.prepare("SELECT COUNT(*) c FROM searches WHERE user_id=? AND dest=?").get(uid, d.code).c;
       return { code: d.code, city: d.city, flown, searched };
     });
     return { ok: true, suggestions: sug };
-  }
-  if (name === "select_flight") {
+  },
+  select_flight(input, ctx) {
+    const { uid, session } = ctx;
     const f = flightByNo((input.flight_no || "").toUpperCase());
     if (!f) return { ok: false, message: "That flight number isn't in the latest results — search the route first." };
     const auto = db.prepare("SELECT code FROM ancillaries WHERE auto=1").all().map(a => a.code);
@@ -1542,8 +1549,9 @@ function agentRunTool(name, input, session) {
     saveJourney({ origin: f.origin, dest: f.dest, date: f.flight_date, device: "Chat agent", stage: "seat", flight_no: f.flight_no, items: auto }, uid);
     log("agent_select", { flight_no: f.flight_no });
     return { ok: true, flight_no: f.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, arr: f.arr, price: f.price, seat: session.selected.seat, auto_extras: auto };
-  }
-  if (name === "get_flight_info") {
+  },
+  get_flight_info(input, ctx) {
+    const { uid, session } = ctx;
     const no = (input.flight_no || "").toUpperCase().replace(/\s+/g, "");
     // Look up the flight in any prior search results (the flights table).
     let f = db.prepare("SELECT * FROM flights WHERE UPPER(flight_no)=? ORDER BY id DESC LIMIT 1").get(no);
@@ -1557,8 +1565,9 @@ function agentRunTool(name, input, session) {
       price: f.price, aircraft: f.aircraft, status: f.status || "scheduled",
       availability: { total_seats_left: total, business, premium_economy: premium, economy },
       note: total > 0 ? `Yes — ${total} seats available across Business (${business}), Premium (${premium}) and Economy (${economy}).` : "This flight is full." };
-  }
-  if (name === "add_extras") {
+  },
+  add_extras(input, ctx) {
+    const { uid, session } = ctx;
     const sel = session.selected;
     if (!sel) return { ok: false, message: "No flight selected yet." };
     const codes = (input.codes || []).map(c => c.toLowerCase());
@@ -1570,8 +1579,9 @@ function agentRunTool(name, input, session) {
     log("agent_extras", { flight_no: sel.flight_no, items: sel.items, total: basket.total });
     return { ok: true, items: basket.named, fare: basket.fare, extras_total: basket.extras, total: basket.total,
       note: `Basket total is now €${basket.total.toFixed(2)} (fare €${basket.fare} + extras €${basket.extras.toFixed(2)}). Quote this total.` };
-  }
-  if (name === "remove_extras") {
+  },
+  remove_extras(input, ctx) {
+    const { uid, session } = ctx;
     const sel = session.selected;
     if (!sel) return { ok: false, message: "No flight selected yet." };
     const codes = (input.codes || []).map(c => c.toLowerCase());
@@ -1589,8 +1599,9 @@ function agentRunTool(name, input, session) {
       note: removed.length
         ? `Removed ${removed.join(", ")}. New basket total is €${basket.total.toFixed(2)} (fare €${basket.fare} + extras €${basket.extras.toFixed(2)}). ALWAYS quote this new total.`
         : `Nothing matched to remove; basket total stays €${basket.total.toFixed(2)}.` };
-  }
-  if (name === "list_seats") {
+  },
+  list_seats(input, ctx) {
+    const { uid, session } = ctx;
     const tier = (db.prepare("SELECT tier FROM users WHERE id=?").get(uid) || {}).tier || "Gold";
     const cur = session.selected?.seat || prefSeat(uid);
     const want = (input.cabin || "").toLowerCase();
@@ -1603,8 +1614,9 @@ function agentRunTool(name, input, session) {
       });
     return { ok: true, current_seat: cur, current_cabin: seatCabinLabel(cur), tier, cabins,
       note: `You're in ${cur} (${seatCabinLabel(cur)}). Business and Premium Economy are included with ${tier}; Economy front rows are €8. Tell me a seat (e.g. 12A) or a preference (window, aisle, business) and I'll move you.` };
-  }
-  if (name === "change_seat") {
+  },
+  change_seat(input, ctx) {
+    const { uid, session } = ctx;
     const tier = (db.prepare("SELECT tier FROM users WHERE id=?").get(uid) || {}).tier || "Gold";
     const cur = session.selected?.seat || prefSeat(uid);
     let target = (input.seat || "").toUpperCase().replace(/\s+/g, "");
@@ -1624,8 +1636,9 @@ function agentRunTool(name, input, session) {
     return { ok: true, from: cur, seat: target, cabin: seatCabinLabel(target),
       price: newPrice, included: newPrice === 0, fare_diff: diff,
       note: `Moved you to ${target} (${seatCabinLabel(target)})${newPrice === 0 ? ", included with " + tier : ", €" + newPrice}${diff > 0 ? ` (+€${diff})` : diff < 0 ? ` (−€${-diff})` : ""}.` };
-  }
-  if (name === "checkout") {
+  },
+  checkout(input, ctx) {
+    const { uid, session } = ctx;
     let sel = session.selected;
     if (!sel) {
       // Fall back to the open basket (e.g. express started from a chip/home didn't run
@@ -1668,8 +1681,9 @@ function agentRunTool(name, input, session) {
     sendEmail("booking_confirmation", { f: { ...f, flight_date: bookDate }, pnr, pay: { voucher_amt, miles_used, miles_amt, card_amt } });
     session.selected = null;
     return { ok: true, pnr, total: gross, date: bookDate, split: { voucher: voucher_amt, miles: miles_used, miles_eur: miles_amt, card: card_amt }, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep };
-  }
-  if (name === "get_wallet") {
+  },
+  get_wallet(input, ctx) {
+    const { uid, session } = ctx;
     const u = db.prepare("SELECT miles, card_brand, card_last4 FROM users WHERE id=?").get(uid);
     const v = db.prepare("SELECT code, amount, status, expiry FROM vouchers WHERE user_id=? ORDER BY id DESC LIMIT 1").get(uid);
     const milesValue = +(u.miles * 0.003).toFixed(2);   // €0.003/mile, same rate as checkout
@@ -1681,8 +1695,9 @@ function agentRunTool(name, input, session) {
       card: "your saved card",
       note: "You can split any booking across voucher, miles and card on the payment page or right here in chat.",
     };
-  }
-  if (name === "get_recommendation") {
+  },
+  get_recommendation(input, ctx) {
+    const { uid, session } = ctx;
     const u = db.prepare("SELECT card_product, card_categories, card_brand, card_last4, affinity, affinity_label, home_airport, first_name FROM users WHERE id=?").get(uid);
     let categories = []; try { categories = JSON.parse(u.card_categories || "[]"); } catch {}
     const pkg = packageFor(u.affinity, u.home_airport);
@@ -1699,8 +1714,9 @@ function agentRunTool(name, input, session) {
       } : null,
       note: `This is a personalized package for ${u.first_name}, derived from their card spend. Offer it warmly, mention WHY (the card-spend signal), and that it bundles event + hotel + return flight in one tap.`,
     };
-  }
-  if (name === "get_journey") {
+  },
+  get_journey(input, ctx) {
+    const { uid, session } = ctx;
     const j = getJourney(uid);
     if (!j || !j.stage) return { ok: true, in_progress: false, note: "No unfinished booking in progress. Offer to start a new search." };
     const f = j.flight_no ? flightByNo(j.flight_no) : null;
@@ -1722,14 +1738,16 @@ function agentRunTool(name, input, session) {
       stage: j.stage, route: `${cityName(j.origin)}→${cityName(j.dest)}`, origin: j.origin, dest: j.dest, date: j.date,
       flight_no: j.flight_no, seat: j.seat, items: j.items, cabin: j.cabin, last_channel: j.device,
       note: `Resume HERE — do not restart. ${stageNext[j.stage] || "Continue from where they left off."}${f ? " I've reloaded their selection into context." : ""}` };
-  }
-  if (name === "get_booking") {
+  },
+  get_booking(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: true, booking: null };
     const f = flightByNo(b.flight_no) || {};
     return { ok: true, booking: { pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, dep: f.dep, seat: b.seat, status: f.status, checked_in: !!b.checked_in } };
-  }
-  if (name === "express_usual") {
+  },
+  express_usual(input, ctx) {
+    const { uid, session } = ctx;
     // The customer's recurring route + the recommended next date for it. Mirrors the
     // /api/profile pattern logic so chat, home and WhatsApp agree. Emits an "express"
     // command (see buildUI) that opens the 2-step Express Checkout on the web screen.
@@ -1757,8 +1775,9 @@ function agentRunTool(name, input, session) {
       session.selected = { flight_no: uf.flight_no, items: auto, seat: prefSeat(uid), date: recommendedDate };
     }
     return { ok: true, route: `${cityName(o)}→${cityName(dst)}`, origin: o, dest: dst, flight_no: fr?.flight_no || "", recommendedDate, recommendedLabel };
-  }
-  if (name === "check_in") {
+  },
+  check_in(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: false, state: "no_booking", message: "You have no upcoming flight to check in for." };
     const f = flightByNo(b.flight_no) || {};
@@ -1767,8 +1786,9 @@ function agentRunTool(name, input, session) {
     db.prepare("INSERT INTO events (type,payload_json,created_at,app) VALUES ('agent_checkin',?,?,?)").run(JSON.stringify({ pnr: b.pnr }), now(), currentApp());
     log("agent_checkin", { pnr: b.pnr });
     return { ok: true, state: "checked_in_now", pnr: b.pnr, flight_no: b.flight_no, route: `${cityName(f.origin)}→${cityName(f.dest)}`, date: b.flight_date, seat: b.seat || "—", group: boardingGroup(userTier(uid)) };
-  }
-  if (name === "split_booking") {
+  },
+  split_booking(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to split." };
     const meta = _safeJSON(b.meta_json, {}) || {};
@@ -1790,8 +1810,9 @@ function agentRunTool(name, input, session) {
     log("pnr_split", { from: b.pnr, to: newPnr, moved: movePax.length, action, channel: "ai" });
     return { ok: true, pnr: b.pnr, new_pnr: newPnr, moved: movePax.map(p => p.first), staying: stayPax.map(p => p.first), action,
       message: `Done — ${movePax.map(p => p.first).join(" & ")} ${movePax.length > 1 ? "are" : "is"} now on ${newPnr}${action === "cancel" ? " (cancelled, refund on its way)" : ""}. ${stayPax.map(p => p.first).join(" & ")} ${stayPax.length > 1 ? "stay" : "stays"} on ${b.pnr}. Extras moved with each traveller.` };
-  }
-  if (name === "resolve_disruption") {
+  },
+  resolve_disruption(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: false, state: "no_booking", message: "You have no active booking." };
     const meta = _safeJSON(b.meta_json, {}) || {};
@@ -1812,8 +1833,9 @@ function agentRunTool(name, input, session) {
     log("disruption_resolved", { pnr: b.pnr, summary, channel: "ai" });
     return { ok: true, pnr: b.pnr, summary,
       message: summary.map(x => `${x.passenger}: ${x.type}${x.amount ? ` €${x.amount}` : ""}`).join(" · ") + ". Each traveller is handled separately — confirmations are on their way." };
-  }
-  if (name === "search_multi_city") {
+  },
+  search_multi_city(input, ctx) {
+    const { uid, session } = ctx;
     const legs = (input.legs || []).slice(0, 5);
     if (legs.length < 2) return { ok: false, state: "too_few_legs", message: "A multi-city trip needs at least two legs." };
     const out = legs.map((l, i) => {
@@ -1830,8 +1852,9 @@ function agentRunTool(name, input, session) {
     session.multiCity = { legs: out };
     return { ok: true, legs: out, from_total: priced,
       message: out.map(l => `Flight ${l.leg}: ${l.origin}→${l.dest} ${l.date} — ${l.flights[0].flight_no} ${l.flights[0].dep}`).join(" · ") + `. Whole itinerary from €${priced}.` };
-  }
-  if (name === "park_trip") {
+  },
+  park_trip(input, ctx) {
+    const { uid, session } = ctx;
     const sel = session.selected;
     if (!sel) return { ok: false, state: "nothing_to_park", message: "Nothing selected to save yet." };
     const f = flightByNo(sel.flight_no) || {};
@@ -1840,8 +1863,9 @@ function agentRunTool(name, input, session) {
     session.selected = null;
     log("trip_parked", { flight_no: sel.flight_no, channel: "ai" });
     return { ok: true, flight_no: sel.flight_no, message: `Saved ${sel.flight_no} to My Trip Basket — it'll be waiting when you come back.` };
-  }
-  if (name === "hold_fare") {
+  },
+  hold_fare(input, ctx) {
+    const { uid, session } = ctx;
     const fno = input.flight_no || session?.selected?.flight_no;
     if (!fno) return { ok: false, state: "no_flight", message: "Pick a flight first, then I can hold it." };
     const f = flightByNo(fno);
@@ -1855,14 +1879,16 @@ function agentRunTool(name, input, session) {
       .run(uid, fno, JSON.stringify({ items: [], duration: dur, fee }), f.price, exp, now());
     log("hold_created", { flight_no: fno, duration: dur, channel: "ai" });
     return { ok: true, flight_no: fno, price: f.price, duration: dur, expires_at: exp, message: `Held ${fno} at €${f.price} until ${exp}.` };
-  }
-  if (name === "get_hold") {
+  },
+  get_hold(input, ctx) {
+    const { uid, session } = ctx;
     expireHolds(uid);
     const h = db.prepare("SELECT flight_no, total, expires_at FROM holds WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1").get(uid);
     if (!h) return { ok: true, held: false, message: "You have no fare on hold right now." };
     return { ok: true, held: true, flight_no: h.flight_no, price: h.total, expires_at: h.expires_at };
-  }
-  if (name === "upgrade_cabin") {
+  },
+  upgrade_cabin(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to upgrade." };
     const f = flightByNo(b.flight_no) || {};
@@ -1874,8 +1900,9 @@ function agentRunTool(name, input, session) {
     db.prepare("UPDATE bookings SET meta_json=? WHERE id=?").run(JSON.stringify(meta), b.id);
     log("cabin_upgraded", { pnr: b.pnr, cabin: target, price, channel: "ai" });
     return { ok: true, pnr: b.pnr, cabin: target, price, message: `Done — ${b.pnr} is now ${target}. Your ticket has been reissued.` };
-  }
-  if (name === "get_disruption") {
+  },
+  get_disruption(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: true, disrupted: false, message: "No active booking, so nothing is disrupted." };
     const f = flightByNo(b.flight_no) || {};
@@ -1884,8 +1911,9 @@ function agentRunTool(name, input, session) {
     const alts = db.prepare("SELECT flight_no, dep, arr FROM flights WHERE origin=? AND dest=? AND flight_no<>? LIMIT 3").all(f.origin, f.dest, f.flight_no);
     return { ok: true, disrupted: true, pnr: b.pnr, flight_no: b.flight_no, status: f.status,
       options: [{ id: "KEEP", label: "Keep this flight" }, ...alts.map(a => ({ id: a.flight_no, label: `Move to ${a.flight_no} · ${a.dep}–${a.arr}` }))] };
-  }
-  if (name === "rebook_flight") {
+  },
+  rebook_flight(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: false, state: "no_booking", message: "You have no booking to rebook." };
     const id = String(input.option_id || "");
@@ -1895,8 +1923,9 @@ function agentRunTool(name, input, session) {
     db.prepare("UPDATE bookings SET flight_no=?, status='rebooked' WHERE id=?").run(nf.flight_no, b.id);
     log("rebooked", { pnr: b.pnr, from: b.flight_no, to: nf.flight_no, channel: "ai" });
     return { ok: true, pnr: b.pnr, from: b.flight_no, to: nf.flight_no, dep: nf.dep, message: `Rebooked ${b.pnr} onto ${nf.flight_no} (${nf.dep}). Your seat and extras moved across.` };
-  }
-  if (name === "get_refund_status") {
+  },
+  get_refund_status(input, ctx) {
+    const { uid, session } = ctx;
     const c = db.prepare("SELECT * FROM bookings WHERE user_id=? AND status='cancelled' ORDER BY id DESC LIMIT 1").get(uid);
     if (!c) return { ok: true, refund: false, message: "No refunds in progress." };
     const pay = db.prepare("SELECT * FROM payments WHERE booking_id=?").get(c.id) || {};
@@ -1904,8 +1933,9 @@ function agentRunTool(name, input, session) {
     return { ok: true, refund: true, pnr: c.pnr, amount: amt, method: pay.card_amt ? "Original card" : "Miles & voucher",
       stage: "Processing with your bank", eta: "5–7 business days",
       message: `Refund for ${c.pnr} — €${amt} back to your original payment method, processing now (5–7 business days).` };
-  }
-  if (name === "cancel_booking") {
+  },
+  cancel_booking(input, ctx) {
+    const { uid, session } = ctx;
     const b = currentBooking(uid);
     if (!b) return { ok: false, state: "no_booking", message: "You have no active booking to cancel." };
     const f = flightByNo(b.flight_no) || {};
@@ -1919,11 +1949,67 @@ function agentRunTool(name, input, session) {
     log("agent_cancel", { pnr: b.pnr, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : null });
     sendEmail("cancelled", { b, pay });
     return { ok: true, state: "cancelled", pnr: b.pnr, route: `${cityName(f.origin)}→${cityName(f.dest)}`, refund: pay ? { miles: pay.miles_used, voucher: pay.voucher_amt, card: pay.card_amt } : { miles: 0, voucher: 0, card: 0 } };
+  },
+}, {
+  name: "TAP Air Portugal",
+  shortName: "TAP",          // keeps tool descriptions byte-identical to pre-de-brand wording
+  homeAirport: "OPO",
+  currency: "EUR",
+  locale: "pt-PT",
+  brandLine: "Personalised from the customer's Adobe Real-Time CDP profile.",
+  cdp: true,
+  theme: { accent: "#46a41a", accentDeep: "#2e7d33", accentDark: "#336614",
+    highlight: "#9efd38", tint: "#f2ffdb", danger: "#ed1c24" },   // identical to the CSS defaults
+});
+// Optional (non-contract) hook: how this tenant answers "who is this customer" for the
+// situational note. Other airlines supply their own; tenants without one simply get no profile.
+TapAdapter.profile = ({ uid }) => db.prepare("SELECT first_name, affinity, affinity_label FROM users WHERE id=?").get(uid) || {};
+const TAP_LEGACY_TOOLS = registerAirline(TapAdapter);   // 0 once the full contract is implemented
+
+// ── Phase 3: reference second tenant ────────────────────────────────────────
+// Nordvind Air runs on its OWN in-memory backend (server/airlines/nordvind.js imports
+// nothing from this file), which is what proves the seam really detaches the chat from
+// TAP. It is inert unless a request sends `x-airline-tenant: nordvind`. Set AIRLINE_DEMO=0
+// to leave it out of a production deployment.
+if (process.env.AIRLINE_DEMO !== "0") {
+  try {
+    const partner = require("./airlines/nordvind");
+    const adapter = createAirlineAdapter(partner.id, partner.tools, partner.config);
+    if (typeof partner.profile === "function") adapter.profile = partner.profile;
+    registerAirline(adapter);
+  } catch (e) {
+    console.warn("   [airline] reference tenant not loaded:", e.message);   // never block boot
   }
+}
+
+function agentRunTool(name, input, session) {
+  session = session || getSession("default");
+  const uid = (session && session.uid) || SERVER_DEFAULT_UID;   // per-session identity; same default as resolveUid
+  // Phase 1 airline seam: tools already migrated into the tenant's adapter run there;
+  // everything else falls through to the legacy inline chain below, unchanged.
+  const airline = getAirline(session.tenant || "tap");
+  if (airline && typeof airline.tools[name] === "function") return airline.tools[name](input, { uid, session });
+  // Phase 1 complete: every tool lives in the tenant's adapter (TapAdapter below holds all 27
+  // verbatim). A contract tool this tenant hasn't implemented gets a clear per-tenant reply;
+  // TAP implements the full contract, so TAP can never reach these lines.
+  if (REQUIRED_TOOLS.includes(name)) return { ok: false, message: `${name} isn't available for ${airline ? airline.id : "this airline"} yet.` };
   return { ok: false, message: "unknown tool" };
 }
 
 // Turn the ordered tool calls into UI cards + one screen command for the main app.
+// The tool descriptions reach the model on every call, so they must name THIS tenant's
+// airline — otherwise a partner's agent is told it is searching TAP's network. Templated
+// once per tenant and cached; TAP resolves to exactly its previous wording.
+const _toolsByAirline = new Map();
+function toolsFor(cfg) {
+  const airline = (cfg && (cfg.shortName || cfg.name)) || "the airline";
+  if (!_toolsByAirline.has(airline)) {
+    _toolsByAirline.set(airline, AGENT_TOOLS.map(t => (t.description && t.description.includes("{{airline}}"))
+      ? { ...t, description: t.description.split("{{airline}}").join(airline) } : t));
+  }
+  return _toolsByAirline.get(airline);
+}
+
 function buildUI(toolCalls) {
   let cards = [], command = null;
   for (const tc of toolCalls) {
@@ -1955,6 +2041,10 @@ function buildUI(toolCalls) {
         flight: p.flight, flightPrice: p.flight_price, total: p.total, addon: p.addon }];
     } else if (tc.name === "get_wallet" && tc.result?.ok) {
       cards = [{ type: "wallet", miles: tc.result.miles, miles_value_eur: tc.result.miles_value_eur, voucher: tc.result.voucher, card: tc.result.card }];
+    } else if (tc.name === "list_seats" && tc.result?.ok) {
+      // v35 seat A2UI: list_seats previously emitted no card. Surface the per-cabin availability with
+      // tappable example seats that route back through change_seat.
+      cards = [{ type: "seats", current_seat: tc.result.current_seat, current_cabin: tc.result.current_cabin, cabins: tc.result.cabins }];
       command = { action: "navigate", screen: "miles" };
     } else if (tc.name === "get_booking" && tc.result?.ok && tc.result.booking) {
       cards = [{ type: "booking", ...tc.result.booking }];
@@ -2058,7 +2148,9 @@ function deterministicAgent(text, session) {
     calls.push({ name, input, result }); return result;
   };
   const me = db.prepare("SELECT home_airport, first_name FROM users WHERE id=?").get(uid) || {};
-  const homeCode = me.home_airport || "OPO";
+  // Home airport comes from the tenant's config (TAP = OPO), never a hardcoded hub.
+  const _tcfg = (getAirline(session && session.tenant) || {}).config || {};
+  const homeCode = me.home_airport || _tcfg.homeAirport || "LIS";
   const has = (...ws) => ws.some(w => q.includes(w));
   const done = (reply) => ({ reply, toolCalls: calls });
   // A bare confirmation resumes the pending action (cancel, upgrade, split…).
@@ -2282,6 +2374,36 @@ function deterministicAgent(text, session) {
       return done(r.message || "I couldn't find that route on that date — want to try another date?");
     }
   }
+  // Knowledge / advisory questions — must be caught BEFORE the flight-search branch, whose " to "
+  // trigger otherwise hijacks questions like "when is the best TIME TO visit New York". These aren't
+  // booking commands; answer them, then offer to search. (The live LLM handles these richly when an
+  // API key is set; this keeps the offline agent from firing a wrong search.)
+  const isQuestion = /\?\s*$/.test(text) || /^(when|what|what's|whats|which|how|why|is it|are there|do i|should i|can i|where can i)\b/i.test(q.trim());
+  const advisoryTopic = has("best time", "when to visit", "when should i visit", "when is the best", "good time",
+    "weather", "climate", "temperature", "season", "rainy", "hot", "cold",
+    "visa", "passport", "documents needed", "do i need", "currency", "money", "language", "tipping",
+    "safe", "safety", "how long is the flight", "flight time", "how far", "jet lag", "time difference",
+    "what to do", "things to do", "what to see", "worth visiting", "best month", "cheapest month", "cheapest time");
+  if (isQuestion && advisoryTopic && !has("book", "select", "add to", "check me in", "cancel", "upgrade")) {
+    const dest = parseRoute(text, homeCode).dest;
+    const place = dest ? cityName(dest) : null;
+    // A genuinely useful, honest answer without pretending to live data the offline agent lacks.
+    let ans;
+    if (has("best time", "when to visit", "when should i visit", "when is the best", "good time", "best month", "cheapest month", "cheapest time", "season")) {
+      ans = place
+        ? `For ${place}, shoulder seasons (spring and autumn) usually balance good weather with lower fares; mid-week departures tend to be cheapest. Want me to pull live fares for a specific month?`
+        : `Shoulder seasons — spring and autumn — usually give the best mix of weather and price, and mid-week flights are typically cheaper. Tell me the destination and I'll check live fares.`;
+    } else if (has("weather", "climate", "temperature", "rainy", "hot", "cold")) {
+      ans = place ? `I don't have a live forecast for ${place} in chat, but I can search flights around your preferred dates — when were you thinking of going?` : `Tell me the destination and rough dates and I'll help you plan around them.`;
+    } else if (has("visa", "passport", "documents", "do i need")) {
+      ans = `Entry requirements depend on your nationality and destination — check the official government or embassy site for the authoritative answer. I can help with the flights whenever you're ready.`;
+    } else if (has("how long is the flight", "flight time", "how far", "time difference", "jet lag")) {
+      ans = place ? `I can show exact durations on real ${place} flights — want me to search them?` : `Tell me the route and I'll show the exact flight time.`;
+    } else {
+      ans = place ? `Happy to help you plan ${place}. I can search live flights, show fares by date, or handle your booking — what would be most useful?` : `Happy to help you plan. Where are you thinking of going?`;
+    }
+    return done(ans);
+  }
   // flight search (route)
   if (has("flight", "fly", "search", "go to", "travel", "trip", "book") || / to /.test(q)) {
     let { origin, dest } = parseRoute(text, homeCode);
@@ -2315,15 +2437,29 @@ app.post("/api/ai/agent", async (req, res) => {
   let messages = (req.body.messages || []).slice(-12);
   const screen = req.body.screen || "home";
   const sessionId = req.body.sessionId || "web-default";
-  const session = getSession(sessionId);
+  // Phase 2 multi-tenancy. Resolve the tenant BEFORE touching the session store, because the
+  // session key is scoped by tenant: two airlines both sending sessionId "web-default" must NOT
+  // share lastSearch / selected / uid. An unrecognised tenant is served as the default airline
+  // (the chat never dies) but is logged, so a misconfigured client app is visible rather than silent.
+  const tenant = resolveTenant(req.get("x-airline-tenant"));
+  if (tenant.requested && !tenant.known) log("ai_tenant_unknown", { requested: tenant.requested, served: tenant.id });
+  if (tenant.rejected) return res.status(400).json({ error: "unknown_airline", requested: tenant.requested });
+  const session = getSession(`${tenant.id}::${sessionId}`);
   session.uid = req.uid;   // bind this request's identity to the agent session BEFORE any tool runs
+  session.tenant = tenant.id;
   log("ai_agent_message", { screen, last: typeof messages[messages.length - 1]?.content === "string" ? messages[messages.length - 1].content.slice(0, 120) : "" });
   // Prepend a small situational note so Claude knows where the customer is AND what
   // the active route/flights are (from this session's last search), so follow-ups
   // like "how about tomorrow" or "does TP1481 have seats" stay on-route.
-  const me = db.prepare("SELECT first_name, affinity, affinity_label FROM users WHERE id=?").get(req.uid) || {};
+  // Customer profile for the situational note. Optional per-tenant hook (NOT part of the 27-tool
+  // contract) so the endpoint itself stops reading TAP's schema; tenants without a hook get {}.
+  const me = (typeof tenant.adapter?.profile === "function" ? tenant.adapter.profile({ uid: req.uid, session }) : null) || {};
   const who = me.first_name || "the customer";
-  let situ = `(${who} is on the "${screen}" screen.`;
+  // Name the airline in the situational note: the live system prompt is still TAP-branded
+  // (see server/AIRLINE-ADAPTER.md "Known Phase 2 limitation"), so for other tenants this is
+  // what tells the model which carrier it is serving.
+  let situ = `(${who} is on the "${screen}" screen of ${tenant.config.name}.`;
+  if (tenant.config.brandLine) situ += ` ${tenant.config.brandLine}`;
   if (me.affinity_label) situ += ` Card-derived affinity: ${me.affinity_label} (${me.affinity}) — a matching event+hotel+flight package is available via get_recommendation; offer it if they ask what to do, want ideas, or mention their interest.`;
   if (session.lastSearch) {
     const ls = session.lastSearch;
@@ -2342,24 +2478,41 @@ app.post("/api/ai/agent", async (req, res) => {
   const withContext = messages.length
     ? [...messages.slice(0, -1), { role: "user", content: `${situ} ${typeof messages[messages.length - 1].content === "string" ? messages[messages.length - 1].content : ""}` }]
     : messages;
+  // Transient API errors (529 overloaded, or a timeout under load) are retryable — a single retry
+  // after a short pause catches the large majority, instead of dropping straight to the offline
+  // agent (which is what made intelligent replies feel intermittent). Non-transient errors (bad
+  // model, auth) are NOT retried — they'd just fail again — and fall through immediately.
+  const brand = { id: tenant.id, name: tenant.config.name, assistant: `${tenant.config.name} AI`,
+    source: tenant.config.cdp ? "Adobe Real-Time CDP" : null, currency: tenant.config.currency,
+    theme: tenant.config.theme || null };
+  const isTransient = (msg) => /api_529|overloaded|timeout|429|rate_limit|ECONNRESET|ETIMEDOUT/i.test(String(msg || ""));
+  const runLive = async () => callClaudeAgent(withContext, toolsFor(tenant.config), async (n, i) => agentRunTool(n, i, session));
   try {
-    const { reply, toolCalls } = await callClaudeAgent(withContext, AGENT_TOOLS, async (n, i) => agentRunTool(n, i, session));
+    let reply, toolCalls;
+    try {
+      ({ reply, toolCalls } = await runLive());
+    } catch (e1) {
+      if (!isTransient(e1.message)) throw e1;
+      log("ai_agent_retry", { error: e1.message });
+      await new Promise(r => setTimeout(r, 900));   // brief backoff, then one retry
+      ({ reply, toolCalls } = await runLive());
+    }
     const { cards, command } = buildUI(toolCalls);
     chatSave(req.uid, channel, "assistant", reply || "Done.");
-    res.json({ reply: reply || "Done.", cards, command, ai: "live", tools: toolCalls.map(t => t.name) });
+    res.json({ reply: reply || "Done.", cards, command, ai: "live", brand, tools: toolCalls.map(t => t.name) });
   } catch (e) {
     log("ai_agent_error", { error: e.message });
-    // No API key (or the live call failed) → deterministic agent. The chat still
+    // Retry exhausted or non-transient failure → deterministic agent. The chat still
     // runs real tools and returns real cards/commands, so it never goes dead.
     try {
       const lastUser = [...messages].reverse().find(m => m.role === "user" && typeof m.content === "string");
       const { reply, toolCalls } = deterministicAgent(lastUser ? lastUser.content : "", session);
       const { cards, command } = buildUI(toolCalls);
       chatSave(req.uid, channel, "assistant", reply);   // memory is kept in offline mode too
-      res.json({ reply, cards, command, ai: "offline", tools: toolCalls.map(t => t.name) });
+      res.json({ reply, cards, command, ai: "offline", brand, tools: toolCalls.map(t => t.name) });
     } catch (e2) {
       log("ai_agent_fallback_error", { error: e2.message });
-      res.json({ reply: FALLBACKS.chat, cards: [], command: null, ai: "cached" });
+      res.json({ reply: FALLBACKS.chat, cards: [], command: null, ai: "cached", brand });
     }
   }
 });
@@ -3259,6 +3412,8 @@ app.listen(PORT, HOST, () => {
   console.log(`   DB:      ${DB_PATH}`);
   console.log(`   SMTP:    ${SMTP_READY ? "configured — emails will really send" : "not configured — emails stored in DB outbox"}`);
   console.log(`   AI:      ${hasKey() ? "live (API key found)" : "fallback responses (set ANTHROPIC_API_KEY for live AI)"}`);
+  const tenants = listAirlines();
+  console.log(`   Airlines: ${tenants.length} tenant(s) registered — ${tenants.map(t => `${t.id} ${t.implemented}/${t.total}${t.implemented === t.total ? "" : " (partial)"}`).join(", ")}`);
   const src = getDataSource();
   console.log(`   Profiles: ${src === "adobe" ? "Adobe Real-Time CDP" + (cdp.cdpConfig().configured ? " (live tenant)" : " (simulated — no IMS credentials set)") : "SQLite (local)"}\n`);
   // Boot hydrate: uid 1 ONLY (baseline-minimal). Users 2–5 lazy-hydrate on their first
