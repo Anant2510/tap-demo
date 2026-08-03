@@ -2384,7 +2384,7 @@ function deterministicAgent(text, session) {
     "visa", "passport", "documents needed", "do i need", "currency", "money", "language", "tipping",
     "safe", "safety", "how long is the flight", "flight time", "how far", "jet lag", "time difference",
     "what to do", "things to do", "what to see", "worth visiting", "best month", "cheapest month", "cheapest time");
-  if (isQuestion && advisoryTopic && !has("book", "select", "add to", "check me in", "cancel", "upgrade")) {
+  if (advisoryTopic && !has("book", "select", "add to", "check me in", "cancel", "upgrade")) {
     const dest = parseRoute(text, homeCode).dest;
     const place = dest ? cityName(dest) : null;
     // A genuinely useful, honest answer without pretending to live data the offline agent lacks.

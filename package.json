@@ -9,7 +9,8 @@
     "build": "esbuild web/app.jsx --bundle --jsx=automatic --minify --outfile=public/app.js",
     "build:v2": "esbuild web/v2/main.jsx --bundle --jsx=automatic --minify --outfile=public/v2/app.js",
     "build:all": "npm run build && npm run build:v2",
-    "dev": "npm run build && node server/server.js"
+    "dev": "npm run build && node server/server.js",
+    "build:v3": "esbuild web/v3/app.jsx --bundle --jsx=automatic --minify --outfile=public/v3/app.js"
   },
   "keywords": [],
   "author": "",
