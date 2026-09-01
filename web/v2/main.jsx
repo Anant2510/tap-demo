@@ -9,6 +9,7 @@ import { TopNav, Footer } from "./shell.jsx";
 import { ROUTES, Placeholder, Homepage, Home } from "./screens.jsx";
 import { LoginModal } from "./auth.jsx";
 import { AdminConsole } from "./admin.jsx";
+import { installWebMCP, uninstallWebMCP } from "./webmcp.js";
 
 function parseHash() {
   const h = (window.location.hash || "#/home").replace(/^#\/?/, "");
@@ -177,6 +178,12 @@ function App() {
   // flight card shows DEL–JFK), drop it so every section reflects the same itinerary and the user
   // is prompted to pick the correct flight. Runs on every navigation, so no page can render a mismatch.
   useEffect(() => { syncTripRoute(); }, [route, shared.loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // WebMCP — publish the 27-tool contract to in-browser AI agents. Registered
+  // once for the app's lifetime; the handlers read live trip state at call time,
+  // so nothing needs re-registering per route. On a browser without WebMCP (and
+  // without the polyfill) installWebMCP() is a no-op and v2 is unchanged.
+  useEffect(() => { installWebMCP(); return uninstallWebMCP; }, []);
 
   if (admin) return <AdminConsole onLogout={adminLogout} />;
   let Screen, entry = ROUTES[route] || ROUTES.home;

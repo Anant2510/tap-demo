@@ -139,6 +139,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS pss_ingest_log (
 // PSS bookings stamp the member they belong to. The unified, multi-row profile +
 // identity stitching + segments live in cdp_profiles (see cdp-profile.js).
 try { db.exec("ALTER TABLE bookings ADD COLUMN member_no TEXT"); } catch {}
+// baskets.snapshot_json was added to the CREATE TABLE above after data/tap.db had
+// already been committed, and CREATE TABLE IF NOT EXISTS never alters an existing
+// table — so every environment reusing the shipped db (the VM only ever pulls) was
+// missing the column and park_trip threw "no such column" on the INSERT. That broke
+// "save this for later" on the AI chat and WhatsApp alike.
+try { db.exec("ALTER TABLE baskets ADD COLUMN snapshot_json TEXT"); } catch {}
 // #15 — capture the full booking context (fare/cabin, passengers, inbound leg) so My Trip renders
 // the actual booked flight & travellers instead of defaults. Additive; seeded bookings stay null.
 try { db.exec("ALTER TABLE bookings ADD COLUMN meta_json TEXT"); } catch {}

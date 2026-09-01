@@ -3,9 +3,10 @@
 // disruption (C2), Online check-in (J3), Add extras (J4), Cancel & refund (C4).
 // Each screen reads the same "current booking" the server acts on (mirror of the
 // server's currentBooking()), so the card you see is the booking the action mutates.
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { api, EUR, miles, fmtDate, MILES_RATE, downloadFile, buildICS, money, t } from "./lib.js";
 import { trip } from "./trip.js";
+import { registerSeatMapTools } from "./webmcp.js";
 import { Btn, Card, Pill, Eyebrow, Field, Input, Icon, Divider, Img, imageFor, WhyChip, cx } from "./ui.jsx";
 import { Page } from "./shell.jsx";
 
@@ -618,6 +619,14 @@ export function SeatChange({ shared, go, params }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   useEffect(() => { api.get("/seat-recommendation").then(setRec).catch(() => {}); }, []);
+
+  // WebMCP screen-scoped tools. Declared here, above the early returns, because
+  // hooks must run unconditionally on every render. The ref is filled in further
+  // down once the layout is computed; the tools read it lazily and report "the
+  // seat map is not open" until it is populated.
+  const wmRef = useRef(null);
+  useEffect(() => registerSeatMapTools(() => wmRef.current), []);
+
   if (loading) return <Loading label="Loading the seat map…" />;
   if (err || !booking) return <Empty go={go} />;
 
@@ -660,6 +669,19 @@ export function SeatChange({ shared, go, params }) {
   const selFee = sel ? feeOf(sel) : 0;
   const selExit = sel ? isExit(sel) : false;
   const canConfirm = Object.values(seatByPax).some(s => s && s !== safeSeat) && (!selExit || eligOk);
+
+  // ── WebMCP: publish the tools for THIS screen while it is open ───────────
+  // The 27 contract tools act on booking state; they cannot see the cabin tab in
+  // view, the active passenger, or the exit-row declaration this screen demands.
+  // Without these an agent picks a seat, the screen shows something else, and the
+  // customer is left at a Confirm button no tool can reach.
+  // A ref, not a closure: seatByPax/activePax/eligOk change every render, and
+  // tools registered once on mount would read stale values on the first click.
+  // Snapshot for the WebMCP screen tools declared at the top of this component.
+  // Refreshed every render so the tools always read current state.
+  wmRef.current = { booking, C, cabinKey, CABINS, taken, sel, setSel, safeSeat,
+                    paxList, activePax, setActivePax, eligOk, setEligOk,
+                    feeOf, isExit, canConfirm, confirm, setCabin, done };
 
   const confirm = async () => {
     if (!canConfirm) return;   // #31 — CTA stays visually active, but a valid new seat is required

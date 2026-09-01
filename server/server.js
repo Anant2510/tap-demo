@@ -2433,6 +2433,79 @@ function deterministicAgent(text, session) {
   return done(`Hi ${me.first_name || "there"} — I can search flights ("flights to Madrid"), show your miles & voucher, change your seat, pull up your booking, check you in, or recommend a trip tailored to you. What would you like to do?`);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Single-tool execution — the surface WebMCP (browser-native agents) calls.
+//
+// /api/ai/agent runs the full loop: model → tools → prose. A browser agent has
+// already decided which tool to call and needs no prose back, so this endpoint
+// executes exactly one tool and returns the raw result plus the same cards and
+// screen command buildUI() would have produced for the chat.
+//
+// It deliberately shares agentRunTool + buildUI with the chat and the WhatsApp
+// webhook. Every surface therefore runs the SAME 27-tool contract against the
+// SAME tenant adapter and the SAME session state — no second implementation to
+// drift. Tenant, identity and session keying are resolved exactly as in
+// /api/ai/agent, so a WebMCP call is indistinguishable from a chat tool call.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/ai/tool", (req, res) => {
+  const name = String(req.body.name || "");
+  const input = req.body.input && typeof req.body.input === "object" ? req.body.input : {};
+  const sessionId = req.body.sessionId || "web-default";
+
+  const tenant = resolveTenant(req.get("x-airline-tenant"));
+  if (tenant.rejected) return res.status(400).json({ ok: false, error: "unknown_airline", requested: tenant.requested });
+  if (tenant.requested && !tenant.known) log("ai_tenant_unknown", { requested: tenant.requested, served: tenant.id });
+
+  // Only names in the published contract are callable. A browser agent is not a
+  // trusted caller: without this an injected page script could reach any
+  // internal helper that happens to share a name with a tool.
+  if (!REQUIRED_TOOLS.includes(name)) {
+    log("webmcp_tool_rejected", { name, tenant: tenant.id });
+    return res.status(400).json({ ok: false, error: "unknown_tool", name });
+  }
+
+  const session = getSession(`${tenant.id}::${sessionId}`);
+  session.uid = req.uid;
+  session.tenant = tenant.id;
+
+  let result;
+  try {
+    result = agentRunTool(name, input, session);
+  } catch (e) {
+    log("webmcp_tool_error", { name, error: e.message });
+    return res.status(500).json({ ok: false, error: "tool_failed", message: e.message });
+  }
+
+  // Mirror the chat's confirmation memory so a follow-up call, or a bare "yes"
+  // typed into the TAP chat afterwards, resumes the same pending action.
+  if (result && result.state === "needs_confirm") session.pending = { name, input };
+  else if (result && result.ok) session.pending = null;
+
+  const { cards, command } = buildUI([{ name, input, result }]);
+  log("webmcp_tool_call", { name, tenant: tenant.id, ok: !!(result && result.ok), state: result && result.state });
+  res.json({ ok: true, tool: name, result, cards, command, tenant: tenant.id });
+});
+
+// The contract itself, so a client can register tools without hardcoding a copy
+// of the schemas. Descriptions are already templated per tenant by toolsFor().
+app.get("/api/ai/tools", (req, res) => {
+  const tenant = resolveTenant(req.get("x-airline-tenant"));
+  if (tenant.rejected) return res.status(400).json({ error: "unknown_airline", requested: tenant.requested });
+  const airline = getAirline(tenant.id);
+  res.json({
+    tenant: tenant.id,
+    currency: tenant.config.currency,
+    tools: toolsFor(tenant.config).map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+      // false when this tenant's adapter hasn't implemented the tool — the client
+      // skips registering it rather than publishing a tool that always fails.
+      implemented: !!(airline && typeof airline.tools[t.name] === "function"),
+    })),
+  });
+});
+
 app.post("/api/ai/agent", async (req, res) => {
   let messages = (req.body.messages || []).slice(-12);
   const screen = req.body.screen || "home";
